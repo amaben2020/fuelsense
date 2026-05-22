@@ -68,6 +68,41 @@ router.get('/history', async (req, res) => {
   }
 });
 
+router.get('/tracks', async (req, res) => {
+  const minutes = Math.min(Number(req.query.minutes) || 60, 240);
+  const limit = Math.min(Number(req.query.limit) || 2000, 5000);
+
+  try {
+    const result = await db.execute(sql`
+      SELECT
+        t.vehicle_id,
+        t.imei,
+        v.license_plate,
+        v.make,
+        v.model,
+        v.driver_name,
+        t.latitude,
+        t.longitude,
+        t.speed_kph,
+        t.fuel_level_liters,
+        t.ignition_on,
+        t.recorded_at
+      FROM telemetry t
+      JOIN vehicles v ON v.id = t.vehicle_id
+      WHERE t.customer_id = ${req.user.customerId}
+        AND t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL
+        AND t.latitude IS NOT NULL
+        AND t.longitude IS NOT NULL
+      ORDER BY t.vehicle_id ASC, t.recorded_at ASC
+      LIMIT ${limit}
+    `);
+
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/fleet-efficiency', async (req, res) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
   const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
