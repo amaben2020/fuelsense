@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -9,6 +9,7 @@ import {
   Fuel,
   Menu,
   Plus,
+  Radio,
   Settings,
   X,
 } from 'lucide-react';
@@ -20,20 +21,23 @@ import {
   FleetEfficiency,
   FleetVehicle,
   getToken,
+  TrackPoint,
 } from '@/lib/api';
+import { buildVehicleTracks } from '@/lib/map-utils';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
-import { FleetMap } from '@/components/FleetMap';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { EfficiencyTable } from '@/components/dashboard/EfficiencyTable';
 import { FleetListPanel } from '@/components/dashboard/FleetListPanel';
+import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { VehicleDetailPanel } from '@/components/dashboard/VehicleDetailPanel';
 
 const REFRESH_MS = 3000;
 
-type DashboardSection = 'overview' | 'fuel' | 'alerts' | 'settings';
+type DashboardView = 'overview' | 'live' | 'fuel' | 'alerts' | 'settings';
 
-const SECTIONS: { id: DashboardSection; label: string; hash: string }[] = [
+const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'overview', label: 'Fleet overview', hash: 'overview' },
+  { id: 'live', label: 'Live monitoring', hash: 'live' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
   { id: 'settings', label: 'Settings', hash: 'settings' },
@@ -45,22 +49,19 @@ export default function DashboardPage() {
   const [fleet, setFleet] = useState<FleetVehicle[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [efficiency, setEfficiency] = useState<FleetEfficiency[]>([]);
+  const [liveTracks, setLiveTracks] = useState(
+    () => buildVehicleTracks([] as TrackPoint[])
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [efficiencyError, setEfficiencyError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [activeSection, setActiveSection] = useState<DashboardSection>('overview');
+  const [activeView, setActiveView] = useState<DashboardView>('overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tick, setTick] = useState(0);
-
-  const sectionRefs = {
-    overview: useRef<HTMLDivElement>(null),
-    fuel: useRef<HTMLDivElement>(null),
-    alerts: useRef<HTMLDivElement>(null),
-    settings: useRef<HTMLDivElement>(null),
-  };
+  const [followVehicle, setFollowVehicle] = useState(true);
 
   const selectedVehicle = useMemo(
     () => fleet.find((v) => v.id === selectedVehicleId) ?? fleet[0] ?? null,
@@ -92,10 +93,18 @@ export default function DashboardPage() {
         );
       }
 
+      let trackPoints: TrackPoint[] = [];
+      try {
+        trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=90');
+      } catch {
+        trackPoints = [];
+      }
+
       setCustomer(me);
       setFleet(fleetRows);
       setAlerts(alertList);
       setEfficiency(efficiencyRows);
+      setLiveTracks(buildVehicleTracks(trackPoints));
       setLastUpdated(new Date());
       setTick((t) => t + 1);
       setError(null);
@@ -110,7 +119,6 @@ export default function DashboardPage() {
         router.replace('/login');
         return;
       }
-
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
       setLoading(false);
@@ -129,19 +137,17 @@ export default function DashboardPage() {
   }, [router]);
 
   useEffect(() => {
-    const hash = globalThis.window?.location.hash.replace('#', '') as DashboardSection;
-    if (hash && SECTIONS.some((s) => s.id === hash)) {
-      setActiveSection(hash);
-      scrollToSection(hash, false);
+    const hash = globalThis.window?.location.hash.replace('#', '') as DashboardView;
+    if (hash && VIEWS.some((v) => v.id === hash)) {
+      setActiveView(hash);
     }
   }, []);
 
-  const scrollToSection = (section: DashboardSection, updateHash = true) => {
-    setActiveSection(section);
+  const switchView = (view: DashboardView) => {
+    setActiveView(view);
     setMobileNavOpen(false);
-    sectionRefs[section].current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (updateHash && globalThis.window) {
-      globalThis.window.history.replaceState(null, '', `#${section}`);
+    if (globalThis.window) {
+      globalThis.window.history.replaceState(null, '', `#${view}`);
     }
   };
 
@@ -156,8 +162,16 @@ export default function DashboardPage() {
       return exists ? prev.map((v) => (v.id === row.id ? row : v)) : [row, ...prev];
     });
     setSelectedVehicleId(row.id);
-    scrollToSection('overview');
+    switchView('overview');
   };
+
+  const viewTitle = {
+    overview: 'Fleet overview',
+    live: 'Live monitoring',
+    fuel: 'Fuel analytics',
+    alerts: 'Alerts',
+    settings: 'Settings',
+  }[activeView];
 
   if (loading) {
     return (
@@ -183,27 +197,34 @@ export default function DashboardPage() {
         <NavItem
           icon={Activity}
           label="Fleet overview"
-          active={activeSection === 'overview'}
-          onClick={() => scrollToSection('overview')}
+          active={activeView === 'overview'}
+          onClick={() => switchView('overview')}
+        />
+        <NavItem
+          icon={Radio}
+          label="Live monitoring"
+          active={activeView === 'live'}
+          onClick={() => switchView('live')}
+          badge={liveTracks.length || undefined}
         />
         <NavItem
           icon={Fuel}
           label="Fuel analytics"
-          active={activeSection === 'fuel'}
-          onClick={() => scrollToSection('fuel')}
+          active={activeView === 'fuel'}
+          onClick={() => switchView('fuel')}
         />
         <NavItem
           icon={AlertTriangle}
           label="Alerts"
-          badge={alerts.length}
-          active={activeSection === 'alerts'}
-          onClick={() => scrollToSection('alerts')}
+          badge={alerts.length || undefined}
+          active={activeView === 'alerts'}
+          onClick={() => switchView('alerts')}
         />
         <NavItem
           icon={Settings}
           label="Settings"
-          active={activeSection === 'settings'}
-          onClick={() => scrollToSection('settings')}
+          active={activeView === 'settings'}
+          onClick={() => switchView('settings')}
         />
       </nav>
     </>
@@ -236,9 +257,19 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <main className="lg:ml-64">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8">
-          <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+      <main className={`lg:ml-64 ${activeView === 'live' ? 'h-screen' : ''}`}>
+        <div
+          className={
+            activeView === 'live'
+              ? 'flex h-full flex-col px-2 py-3 sm:px-4'
+              : 'mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8'
+          }
+        >
+          <header
+            className={`flex flex-wrap items-start justify-between gap-4 ${
+              activeView === 'live' ? 'mb-3 shrink-0 px-1' : 'mb-8'
+            }`}
+          >
             <div className="flex items-start gap-3">
               <button
                 type="button"
@@ -248,17 +279,32 @@ export default function DashboardPage() {
                 <Menu className="h-5 w-5" />
               </button>
               <div>
-                <h1 className="text-2xl font-bold text-[#dae2fd]">Fleet command</h1>
+                <h1 className="text-2xl font-bold text-[#dae2fd]">{viewTitle}</h1>
                 <p className="mt-1 text-[#c4c5d9]">
-                  {customer?.company_name || customer?.name} · Real-time fuel intelligence
+                  {customer?.company_name || customer?.name}
+                  {activeView === 'live'
+                    ? ' · Uber-style routes & live positions'
+                    : ' · Real-time fuel intelligence'}
                 </p>
                 <p className="mt-1 text-xs text-[#8e90a2]">
-                  Live refresh #{tick} · every {REFRESH_MS / 1000}s
-                  {lastUpdated ? ` · last ${lastUpdated.toLocaleTimeString()}` : ''}
+                  Refresh #{tick} · every {REFRESH_MS / 1000}s
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {activeView === 'live' && (
+                <button
+                  type="button"
+                  onClick={() => setFollowVehicle((v) => !v)}
+                  className={`rounded-lg border px-3 py-2 text-sm ${
+                    followVehicle
+                      ? 'border-[#4edea3] bg-[#4edea3]/10 text-[#4edea3]'
+                      : 'border-[#434656] bg-[#171f33] text-[#c4c5d9]'
+                  }`}
+                >
+                  {followVehicle ? 'Following vehicle' : 'Free map'}
+                </button>
+              )}
               <div className="flex items-center gap-2 rounded-lg border border-[#434656] bg-[#171f33] px-3 py-2 text-sm">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#4edea3] opacity-75" />
@@ -293,41 +339,62 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <div ref={sectionRefs.overview} id="overview" className="scroll-mt-6 space-y-6">
-            <DashboardKpis fleet={fleet} alerts={alerts} efficiency={efficiency} />
-
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-              <div className="space-y-6 xl:col-span-2">
-                <FleetListPanel
-                  fleet={fleet}
-                  alerts={alerts}
-                  selectedId={selectedVehicle?.id ?? null}
-                  onSelect={setSelectedVehicleId}
-                />
-                <FleetMap
-                  fleet={fleet}
-                  selectedId={selectedVehicle?.id ?? null}
-                  onSelect={setSelectedVehicleId}
-                  theme="dark"
-                />
+          {activeView === 'overview' && (
+            <div className="space-y-6">
+              <DashboardKpis fleet={fleet} alerts={alerts} efficiency={efficiency} />
+              <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+                <div className="xl:col-span-2">
+                  <FleetListPanel
+                    fleet={fleet}
+                    alerts={alerts}
+                    selectedId={selectedVehicle?.id ?? null}
+                    onSelect={(id) => {
+                      setSelectedVehicleId(id);
+                      switchView('live');
+                    }}
+                  />
+                </div>
+                <VehicleDetailPanel vehicle={selectedVehicle} alerts={alerts} />
               </div>
-              <VehicleDetailPanel vehicle={selectedVehicle} alerts={alerts} />
             </div>
-          </div>
+          )}
 
-          <div ref={sectionRefs.fuel} id="fuel" className="scroll-mt-6 mt-8">
-            {efficiencyError && (
-              <p className="mb-3 text-sm text-[#ffb95f]">
-                Efficiency unavailable — restart the backend to load the latest API routes.
-              </p>
-            )}
-            <EfficiencyTable rows={efficiency} />
-          </div>
+          {activeView === 'live' && (
+            <div className="min-h-0 flex-1">
+              {liveTracks.length === 0 ? (
+                <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-xl border border-[#434656] bg-[#171f33] p-8 text-center">
+                  <p className="text-lg font-medium text-[#dae2fd]">No GPS tracks yet</p>
+                  <p className="mt-2 max-w-md text-sm text-[#8e90a2]">
+                    Run{' '}
+                    <code className="text-[#b8c3ff]">npm run simulate-fleet</code> in the backend.
+                    Routes and vehicle markers will appear here as telemetry arrives.
+                  </p>
+                </div>
+              ) : (
+                <LiveMonitoringMap
+                  tracks={liveTracks}
+                  fleet={fleet}
+                  selectedVehicleId={selectedVehicleId}
+                  onSelectVehicle={setSelectedVehicleId}
+                  followSelected={followVehicle}
+                />
+              )}
+            </div>
+          )}
 
-          <div ref={sectionRefs.alerts} id="alerts" className="scroll-mt-6 mt-8">
+          {activeView === 'fuel' && (
+            <div className="space-y-6">
+              <DashboardKpis fleet={fleet} alerts={alerts} efficiency={efficiency} />
+              {efficiencyError && (
+                <p className="text-sm text-[#ffb95f]">{efficiencyError}</p>
+              )}
+              <EfficiencyTable rows={efficiency} />
+            </div>
+          )}
+
+          {activeView === 'alerts' && (
             <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
               <h2 className="font-semibold text-[#dae2fd]">All active alerts</h2>
-              <p className="mt-1 text-xs text-[#8e90a2]">From live TCP telemetry · auto-refresh</p>
               {alerts.length === 0 ? (
                 <p className="mt-4 text-sm text-[#8e90a2]">No open alerts.</p>
               ) : (
@@ -353,9 +420,9 @@ export default function DashboardPage() {
                 </ul>
               )}
             </div>
-          </div>
+          )}
 
-          <div ref={sectionRefs.settings} id="settings" className="scroll-mt-6 mt-8">
+          {activeView === 'settings' && (
             <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
               <h2 className="font-semibold text-[#dae2fd]">Fleet settings</h2>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -376,12 +443,7 @@ export default function DashboardPage() {
                 </Link>
               </div>
             </div>
-          </div>
-
-          <p className="mt-6 text-xs text-[#8e90a2]">
-            Run <code className="text-[#b8c3ff]">npm run simulate-fleet</code> in backend for live
-            demo data. Real trackers use the same pipeline on TCP port 5027.
-          </p>
+          )}
         </div>
       </main>
 
@@ -420,7 +482,7 @@ function NavItem({
       <Icon className="h-5 w-5 shrink-0" />
       <span>{label}</span>
       {badge != null && badge > 0 && (
-        <span className="ml-auto rounded-full bg-[#ffb4ab] px-1.5 py-0.5 text-xs text-[#690005]">
+        <span className="ml-auto rounded-full bg-[#4edea3]/20 px-1.5 py-0.5 text-xs text-[#4edea3]">
           {badge}
         </span>
       )}

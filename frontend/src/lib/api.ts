@@ -153,6 +153,33 @@ export interface FleetEfficiency {
   period_days: number;
 }
 
+export interface TrackPoint {
+  vehicle_id: string;
+  imei: string;
+  license_plate: string;
+  make: string | null;
+  model: string | null;
+  driver_name: string | null;
+  latitude: string | number;
+  longitude: string | number;
+  speed_kph: number | null;
+  fuel_level_liters: string | number | null;
+  ignition_on: boolean | null;
+  recorded_at: string;
+}
+
+export interface VehicleTrack {
+  vehicleId: string;
+  licensePlate: string;
+  driverName: string | null;
+  make: string | null;
+  model: string | null;
+  color: string;
+  path: { lat: number; lng: number }[];
+  heading: number;
+  current: { lat: number; lng: number; speedKph: number | null; fuelLiters: number | null };
+}
+
 export type VehicleDisplayStatus = 'online' | 'idle' | 'offline' | 'no_device';
 
 export function fuelPercent(row: FleetVehicle): number | null {
