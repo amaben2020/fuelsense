@@ -3,6 +3,7 @@ const {
   REFUEL_THRESHOLD_LITERS,
   idleFuelBurnLiters,
   IDLE_BURN_LITERS_PER_HOUR,
+  DEFAULT_FUEL_PRICE_NGN_LITER,
 } = require('./fuel-metrics');
 
 const idleStreakByImei = new Map();
@@ -40,7 +41,7 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
   const speed = row.speedKph != null ? Number(row.speedKph) : 0;
   const lat = row.latitude;
   const lng = row.longitude;
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
   const prevFuel = lastFuelByImei.get(imei);
   if (fuel != null) {

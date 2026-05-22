@@ -21,6 +21,8 @@ import {
   DashboardSummary,
   Driver,
   FleetEfficiency,
+  FleetEfficiencyResponse,
+  FleetEfficiencySummary,
   FleetVehicle,
   FuelAnomaly,
   FuelPurchasesResponse,
@@ -32,6 +34,8 @@ import { AddDeviceModal } from '@/components/AddDeviceModal';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
 import { FleetEfficiencyReport } from '@/components/dashboard/FleetEfficiencyReport';
+import { SavingsDashboard } from '@/components/dashboard/SavingsDashboard';
+import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { FuelPurchaseTable } from '@/components/dashboard/FuelPurchaseTable';
 import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { FleetListPanel } from '@/components/dashboard/FleetListPanel';
@@ -60,6 +64,7 @@ export default function DashboardPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [anomalies, setAnomalies] = useState<FuelAnomaly[]>([]);
   const [efficiency, setEfficiency] = useState<FleetEfficiency[]>([]);
+  const [efficiencySummary, setEfficiencySummary] = useState<FleetEfficiencySummary | null>(null);
   const [fuelPurchases, setFuelPurchases] = useState<FuelPurchasesResponse | null>(null);
   const [fuelPurchasePage, setFuelPurchasePage] = useState(1);
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -129,9 +134,14 @@ export default function DashboardPage() {
       let summaryRow: DashboardSummary | null = null;
 
       try {
-        efficiencyRows = await api<FleetEfficiency[]>('/telemetry/fleet-efficiency?days=7');
+        const efficiencyData = await api<FleetEfficiencyResponse>(
+          '/telemetry/fleet-efficiency?days=7'
+        );
+        efficiencyRows = efficiencyData.vehicles ?? [];
+        setEfficiencySummary(efficiencyData.summary ?? null);
         setEfficiencyError(null);
       } catch (effErr) {
+        setEfficiencySummary(null);
         setEfficiencyError(
           effErr instanceof Error ? effErr.message : 'Efficiency data unavailable'
         );
@@ -488,13 +498,16 @@ export default function DashboardPage() {
               {efficiencyError && (
                 <p className="text-sm text-[#ffb95f]">{efficiencyError}</p>
               )}
+              <SavingsDashboard summary={efficiencySummary} />
               <FuelAnalyticsPanel
                 efficiency={efficiency}
+                efficiencySummary={efficiencySummary}
                 anomalies={anomalies}
                 onAcknowledgeAnomaly={handleAcknowledgeAnomaly}
                 onViewOnMap={handleViewAnomalyOnMap}
               />
-              <FleetEfficiencyReport rows={efficiency} />
+              <FleetEfficiencyReport rows={efficiency} summary={efficiencySummary} />
+              <DailyActivityTable />
               <TelemetryHistoryTable />
               <FuelPurchaseTable
                 data={fuelPurchases}

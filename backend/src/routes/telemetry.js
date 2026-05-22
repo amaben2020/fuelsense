@@ -2,7 +2,21 @@ const express = require('express');
 const { authenticateCustomer } = require('../middleware/auth');
 const { db, telemetry, vehicles, fuelPurchases, eq, desc, sql } = require('../lib/db-helpers');
 const { fleetEfficiencyAggSql } = require('../lib/fleet-efficiency-sql');
-const { CO2_KG_PER_LITER, round1, round2, baselineEfficiencyKmL, REFUEL_THRESHOLD_LITERS } = require('../lib/fuel-metrics');
+const { dailyActivitySql } = require('../lib/daily-activity-sql');
+const {
+  CO2_KG_PER_LITER,
+  round1,
+  round2,
+  baselineEfficiencyKmL,
+  REFUEL_THRESHOLD_LITERS,
+  DEFAULT_FUEL_PRICE_NGN_LITER,
+} = require('../lib/fuel-metrics');
+const {
+  dailyDistanceThreshold,
+  evaluateDailyFlags,
+  EFFICIENCY_VARIANCE_THRESHOLD_PERCENT,
+  DAILY_DISTANCE_BY_MODEL,
+} = require('../lib/activity-thresholds');
 const { generateDemoTracksForFleet } = require('../lib/demo-tracks');
 
 const router = express.Router();
@@ -189,13 +203,13 @@ router.get('/tracks', async (req, res) => {
 
 router.get('/fleet-efficiency', async (req, res) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
   try {
     const customerId = req.user.customerId;
 
     const [result, alertRows] = await Promise.all([
-      db.execute(fleetEfficiencyAggSql({ customerId, days })),
+      db.execute(fleetEfficiencyAggSql({ customerId, days, pricePerLiter })),
       db.execute(sql`
         SELECT vehicle_id, alert_type, estimated_loss_ngn
         FROM alerts
@@ -204,32 +218,60 @@ router.get('/fleet-efficiency', async (req, res) => {
       `),
     ]);
 
-    const theftByVehicle = new Map();
+    const alertTheftByVehicle = new Map();
     for (const alert of alertRows.rows) {
       if (!alert.vehicle_id) continue;
-      const prev = theftByVehicle.get(alert.vehicle_id) || 0;
+      const prev = alertTheftByVehicle.get(alert.vehicle_id) || 0;
       const loss =
         alert.alert_type === 'fuel_theft' ? Number(alert.estimated_loss_ngn) || 0 : 0;
-      theftByVehicle.set(alert.vehicle_id, prev + loss);
+      alertTheftByVehicle.set(alert.vehicle_id, prev + loss);
     }
 
     const rows = result.rows.map((row) => {
       const distanceKm = Number(row.distance_km) || 0;
       const fuelUsed = Number(row.fuel_used_liters) || 0;
       const expectedKmL = baselineEfficiencyKmL(row.model);
-      const efficiencyKmL =
+
+      const tankDistance = Number(row.tank_distance_km) || Number(row.distance_since_purchase_km) || 0;
+      const tankFuel = Number(row.tank_fuel_used_liters) || Number(row.fuel_since_purchase_liters) || 0;
+      const tankEfficiencyKmL =
+        tankDistance > 0 && tankFuel >= 0.5 ? tankDistance / tankFuel : null;
+
+      const periodEfficiencyKmL =
         distanceKm > 0 && fuelUsed >= 0.5 ? distanceKm / fuelUsed : null;
+
       const variancePercent =
-        efficiencyKmL != null && expectedKmL > 0
-          ? ((efficiencyKmL - expectedKmL) / expectedKmL) * 100
+        periodEfficiencyKmL != null && expectedKmL > 0
+          ? ((periodEfficiencyKmL - expectedKmL) / expectedKmL) * 100
           : null;
-      const theftLossNgn = theftByVehicle.get(row.vehicle_id) || 0;
-      const fuelCostNgn = Math.round(fuelUsed * pricePerLiter);
+
+      const tankVariancePercent =
+        tankEfficiencyKmL != null && expectedKmL > 0
+          ? ((tankEfficiencyKmL - expectedKmL) / expectedKmL) * 100
+          : null;
+
+      const expectedFuelLiters = expectedKmL > 0 ? distanceKm / expectedKmL : 0;
+      const expectedCostNgn = Math.round(expectedFuelLiters * pricePerLiter);
+
+      const purchaseCostNgn = Math.round(Number(row.purchase_cost_ngn) || 0);
+      const receiptFraudLossNgn = Math.round(Number(row.receipt_fraud_loss_ngn) || 0);
+      const alertTheftLossNgn = alertTheftByVehicle.get(row.vehicle_id) || 0;
+      const theftLossNgn = receiptFraudLossNgn + alertTheftLossNgn;
+
+      const actualCostNgn =
+        purchaseCostNgn > 0 ? purchaseCostNgn : Math.round(fuelUsed * pricePerLiter);
+
+      const totalLossNgn = actualCostNgn - expectedCostNgn;
+      const savingsNgn = expectedCostNgn - actualCostNgn;
+      const efficiencyLossNgn = Math.max(0, totalLossNgn - theftLossNgn);
+
       const co2EmissionsKg = Math.round(fuelUsed * CO2_KG_PER_LITER);
 
       let status = 'verified';
       if (theftLossNgn > 0) status = 'theft_alert';
-      else if (variancePercent != null && variancePercent < -5) status = 'underperforming';
+      else if (variancePercent != null && variancePercent <= EFFICIENCY_VARIANCE_THRESHOLD_PERCENT) {
+        status = 'underperforming';
+      }
 
       return {
         vehicle_id: row.vehicle_id,
@@ -239,18 +281,102 @@ router.get('/fleet-efficiency', async (req, res) => {
         tank_capacity_liters: row.tank_capacity_liters,
         distance_km: Math.round(distanceKm),
         fuel_used_liters: round1(fuelUsed),
-        efficiency_km_l: efficiencyKmL != null ? round2(efficiencyKmL) : null,
+        efficiency_km_l: periodEfficiencyKmL != null ? round2(periodEfficiencyKmL) : null,
         expected_efficiency_km_l: expectedKmL,
         variance_percent: variancePercent != null ? round2(variancePercent) : null,
-        fuel_cost_ngn: fuelCostNgn,
+        tank_distance_km: Math.round(tankDistance),
+        tank_fuel_used_liters: round1(tankFuel),
+        tank_efficiency_km_l: tankEfficiencyKmL != null ? round2(tankEfficiencyKmL) : null,
+        tank_variance_percent: tankVariancePercent != null ? round2(tankVariancePercent) : null,
+        expected_fuel_liters: round1(expectedFuelLiters),
+        expected_cost_ngn: expectedCostNgn,
+        actual_cost_ngn: actualCostNgn,
+        fuel_cost_ngn: actualCostNgn,
+        savings_ngn: Math.round(savingsNgn),
+        total_loss_ngn: Math.max(0, Math.round(totalLossNgn)),
+        efficiency_loss_ngn: Math.round(efficiencyLossNgn),
         theft_loss_ngn: theftLossNgn,
+        receipt_fraud_loss_ngn: receiptFraudLossNgn,
+        alert_theft_loss_ngn: alertTheftLossNgn,
         co2_emissions_kg: co2EmissionsKg,
         status,
         period_days: days,
+        price_per_liter_ngn: pricePerLiter,
+        last_purchase_at: row.last_purchase_at ?? null,
+        last_fuel_added_liters:
+          row.last_fuel_added_liters != null ? round1(Number(row.last_fuel_added_liters)) : null,
+        last_receipt_liters:
+          row.last_receipt_liters != null ? round1(Number(row.last_receipt_liters)) : null,
+        last_purchase_merchant: row.last_purchase_merchant ?? null,
+        distance_since_purchase_km: Math.round(Number(row.distance_since_purchase_km) || 0),
+        fuel_since_purchase_liters: round1(Number(row.fuel_since_purchase_liters) || 0),
       };
     });
 
-    res.json(rows);
+    const summary = {
+      total_distance_km: rows.reduce((s, r) => s + r.distance_km, 0),
+      total_fuel_used_liters: round1(rows.reduce((s, r) => s + r.fuel_used_liters, 0)),
+      total_expected_cost_ngn: rows.reduce((s, r) => s + r.expected_cost_ngn, 0),
+      total_actual_cost_ngn: rows.reduce((s, r) => s + r.actual_cost_ngn, 0),
+      total_loss_ngn: rows.reduce((s, r) => s + r.total_loss_ngn, 0),
+      total_savings_ngn: rows.reduce((s, r) => s + r.savings_ngn, 0),
+      total_theft_loss_ngn: rows.reduce((s, r) => s + r.theft_loss_ngn, 0),
+      total_efficiency_loss_ngn: rows.reduce((s, r) => s + r.efficiency_loss_ngn, 0),
+      recoverable_ngn: Math.round(rows.reduce((s, r) => s + r.total_loss_ngn, 0) * 0.9),
+      price_per_liter_ngn: pricePerLiter,
+      period_days: days,
+    };
+
+    res.json({ summary, vehicles: rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/daily-activity', async (req, res) => {
+  const days = Math.min(Number(req.query.days) || 7, 30);
+
+  try {
+    const customerId = req.user.customerId;
+    const result = await db.execute(dailyActivitySql({ customerId, days }));
+
+    const rows = result.rows.map((row) => {
+      const distanceKm = Number(row.distance_km) || 0;
+      const fuelUsed = Number(row.fuel_used_liters) || 0;
+      const expectedKmL = baselineEfficiencyKmL(row.model);
+      const efficiencyKmL =
+        distanceKm > 0 && fuelUsed >= 0.5 ? distanceKm / fuelUsed : null;
+      const band = dailyDistanceThreshold(row.model);
+      const flags = evaluateDailyFlags({
+        model: row.model,
+        distanceKm,
+        efficiencyKmL,
+        expectedEfficiencyKmL: expectedKmL,
+      });
+
+      return {
+        vehicle_id: row.vehicle_id,
+        license_plate: row.license_plate,
+        driver_name: row.driver_name,
+        model: row.model,
+        activity_date: row.activity_date,
+        distance_km: Math.round(distanceKm),
+        fuel_used_liters: round1(fuelUsed),
+        efficiency_km_l: efficiencyKmL != null ? round2(efficiencyKmL) : null,
+        expected_efficiency_km_l: expectedKmL,
+        expected_distance_min_km: band.min,
+        expected_distance_max_km: band.max,
+        expected_distance_km: band.expected,
+        flags,
+      };
+    });
+
+    res.json({
+      period_days: days,
+      efficiency_variance_threshold_percent: EFFICIENCY_VARIANCE_THRESHOLD_PERCENT,
+      daily_distance_by_model: DAILY_DISTANCE_BY_MODEL,
+      rows,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -305,7 +431,7 @@ router.get('/fuel-purchases', async (req, res) => {
       const declared = Number(row.liters_declared);
       const actual = Number(row.liters_actual);
       const diff = Math.max(0, Math.round((declared - actual) * 10) / 10);
-      const costPerLiter = Number(row.cost_per_liter_ngn) || 650;
+      const costPerLiter = Number(row.cost_per_liter_ngn) || DEFAULT_FUEL_PRICE_NGN_LITER;
 
       return {
         id: row.id,
@@ -354,7 +480,7 @@ router.post('/fuel-purchases/receipt', async (req, res) => {
 
   try {
     const customerId = req.user.customerId;
-    const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+    const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
     const when = purchasedAt ? new Date(purchasedAt) : new Date();
 
     const obdResult = await db.execute(sql`

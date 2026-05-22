@@ -12,6 +12,7 @@ const CO2_KG_PER_LITER = 2.31;
 const REFUEL_THRESHOLD_LITERS = 5;
 const THEFT_DROP_THRESHOLD_LITERS = 12;
 const IDLE_BURN_LITERS_PER_HOUR = 0.9;
+const DEFAULT_FUEL_PRICE_NGN_LITER = 650;
 
 function efficiencyProfileForModel(model) {
   return VEHICLE_EFFICIENCY[model] || DEFAULT_EFFICIENCY;
@@ -78,4 +79,5 @@ module.exports = {
   consumptionFromFuelDelta,
   round1,
   round2,
+  DEFAULT_FUEL_PRICE_NGN_LITER,
 };

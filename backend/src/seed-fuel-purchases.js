@@ -3,7 +3,7 @@ require('dotenv').config();
 const { db, initDatabase, closePool } = require('./db');
 const { customers, fuelPurchases } = require('./db/schema');
 const { eq, sql } = require('drizzle-orm');
-const { REFUEL_THRESHOLD_LITERS } = require('./lib/fuel-metrics');
+const { REFUEL_THRESHOLD_LITERS, DEFAULT_FUEL_PRICE_NGN_LITER } = require('./lib/fuel-metrics');
 
 const DEMO_EMAIL = 'demo@fuelsense.local';
 const MERCHANTS = [
@@ -27,7 +27,7 @@ const seedFuelPurchases = async () => {
     throw new Error('Run npm run seed first');
   }
 
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
   await db.delete(fuelPurchases).where(eq(fuelPurchases.customerId, customer.id));
 

@@ -1,4 +1,4 @@
-const { sampleEfficiencyKmL, fuelUsedForDistanceKm } = require('./fuel-metrics');
+const { sampleEfficiencyKmL, fuelUsedForDistanceKm, DEFAULT_FUEL_PRICE_NGN_LITER } = require('./fuel-metrics');
 
 const LAGOS_ROUTES = [
   { lat: 6.5244, lng: 3.3792, heading: 0.6 },
@@ -27,7 +27,7 @@ function generateDemoTracksForFleet(fleetRows, options = {}) {
   const durationMinutes = options.minutes ?? 90;
   const stepCount = Math.max(8, Math.floor(durationMinutes / intervalMinutes));
   const intervalHours = intervalMinutes / 60;
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
   const allPoints = [];
 
@@ -87,7 +87,7 @@ function generateDemoTracksForFleet(fleetRows, options = {}) {
 
 function demoFuelPurchases(fleetRows, options = {}) {
   const days = options.days ?? 14;
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
   const purchases = [];
   let seq = 0;
 

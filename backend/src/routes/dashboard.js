@@ -2,7 +2,7 @@ const express = require('express');
 const { authenticateCustomer } = require('../middleware/auth');
 const { db, alerts, eq, and, sql } = require('../lib/db-helpers');
 const { fleetEfficiencyAggSql } = require('../lib/fleet-efficiency-sql');
-const { round1, round2 } = require('../lib/fuel-metrics');
+const { round1, round2, DEFAULT_FUEL_PRICE_NGN_LITER } = require('../lib/fuel-metrics');
 
 const router = express.Router();
 
@@ -10,7 +10,7 @@ router.use(authenticateCustomer);
 
 router.get('/summary', async (req, res) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
   try {
     const customerId = req.user.customerId;
@@ -38,7 +38,7 @@ router.get('/summary', async (req, res) => {
     `);
 
     const efficiencyResult = await db.execute(
-      fleetEfficiencyAggSql({ customerId, days })
+      fleetEfficiencyAggSql({ customerId, days, pricePerLiter })
     );
 
     const vehicleRows = efficiencyResult.rows || [];

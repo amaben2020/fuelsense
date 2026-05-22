@@ -190,11 +190,74 @@ export interface FleetEfficiency {
   efficiency_km_l: number | null;
   expected_efficiency_km_l: number;
   variance_percent: number | null;
+  tank_distance_km?: number;
+  tank_fuel_used_liters?: number;
+  tank_efficiency_km_l?: number | null;
+  tank_variance_percent?: number | null;
+  expected_fuel_liters?: number;
+  expected_cost_ngn: number;
+  actual_cost_ngn: number;
   fuel_cost_ngn: number;
+  savings_ngn: number;
+  total_loss_ngn: number;
+  efficiency_loss_ngn: number;
   theft_loss_ngn: number;
+  receipt_fraud_loss_ngn?: number;
+  alert_theft_loss_ngn?: number;
   co2_emissions_kg: number;
   status: 'verified' | 'theft_alert' | 'underperforming';
   period_days: number;
+  price_per_liter_ngn?: number;
+  last_purchase_at?: string | null;
+  last_fuel_added_liters?: number | null;
+  last_receipt_liters?: number | null;
+  last_purchase_merchant?: string | null;
+  distance_since_purchase_km?: number;
+  fuel_since_purchase_liters?: number;
+}
+
+export interface FleetEfficiencySummary {
+  total_distance_km: number;
+  total_fuel_used_liters: number;
+  total_expected_cost_ngn: number;
+  total_actual_cost_ngn: number;
+  total_loss_ngn: number;
+  total_savings_ngn: number;
+  total_theft_loss_ngn: number;
+  total_efficiency_loss_ngn: number;
+  recoverable_ngn: number;
+  price_per_liter_ngn: number;
+  period_days: number;
+}
+
+export interface FleetEfficiencyResponse {
+  summary: FleetEfficiencySummary;
+  vehicles: FleetEfficiency[];
+}
+
+export type DailyActivityFlag = 'high_distance' | 'low_utilization' | 'below_efficiency';
+
+export interface DailyActivityRow {
+  vehicle_id: string;
+  license_plate: string;
+  driver_name: string | null;
+  model: string | null;
+  activity_date: string;
+  distance_km: number;
+  fuel_used_liters: number;
+  efficiency_km_l: number | null;
+  expected_efficiency_km_l: number;
+  expected_distance_min_km: number;
+  expected_distance_max_km: number;
+  expected_distance_km: number;
+  flags: DailyActivityFlag[];
+}
+
+export interface DailyActivityResponse {
+  period_days: number;
+  efficiency_variance_threshold_percent: number;
+  daily_distance_by_model: Record<string, { min: number; max: number; expected: number }>;
+  rows: DailyActivityRow[];
 }
 
 export interface Driver {

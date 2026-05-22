@@ -5,6 +5,7 @@ const {
 } = require('@groupe-savoy/teltonika-sdk');
 const { db, devices, telemetry, alerts, vehicles, eq, and, desc } = require('./lib/db-helpers');
 const { detectAnomalies } = require('./lib/anomaly-detector');
+const { DEFAULT_FUEL_PRICE_NGN_LITER } = require('./lib/fuel-metrics');
 
 const tcpServer = new TeltonikaTCPServer({
   codecs: {
@@ -139,7 +140,7 @@ const saveTelemetry = async (device, record) => {
 
     if (previousFuel != null && previousFuel - fuelLevelLiters > 5) {
       const drop = previousFuel - fuelLevelLiters;
-      const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+      const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
       const estimatedLossNgn = Math.round(drop * pricePerLiter);
       const lat = telemetryRow.latitude;
       const lng = telemetryRow.longitude;
