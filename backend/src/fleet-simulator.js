@@ -44,8 +44,9 @@ const startVirtualDevice = (profile) => {
           record.meta.fuelLevel != null
             ? `${record.meta.fuelLevel.toFixed(1)}L`
             : 'N/A';
+        const theftTag = record.meta.theftSimulated ? ' ⚠️ THEFT SIMULATED' : '';
         console.log(
-          `[${profile.label}] fuel=${fuel} speed=${record.meta.speedKph}km/h ignition=${record.meta.ignitionOn ? 'ON' : 'OFF'}`
+          `[${profile.label}] fuel=${fuel} speed=${record.meta.speedKph}km/h ignition=${record.meta.ignitionOn ? 'ON' : 'OFF'}${theftTag}`
         );
       }, SEND_INTERVAL_MS);
     }

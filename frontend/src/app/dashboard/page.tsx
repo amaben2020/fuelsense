@@ -30,6 +30,7 @@ import { EfficiencyTable } from '@/components/dashboard/EfficiencyTable';
 import { FleetListPanel } from '@/components/dashboard/FleetListPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { VehicleDetailPanel } from '@/components/dashboard/VehicleDetailPanel';
+import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
 
 const REFRESH_MS = 3000;
 
@@ -149,6 +150,11 @@ export default function DashboardPage() {
     if (globalThis.window) {
       globalThis.window.history.replaceState(null, '', `#${view}`);
     }
+  };
+
+  const handleViewAlertOnMap = (alert: Alert) => {
+    if (alert.vehicle_id) setSelectedVehicleId(alert.vehicle_id);
+    switchView('live');
   };
 
   const handleLogout = () => {
@@ -339,6 +345,10 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {(activeView === 'overview' || activeView === 'live') && (
+            <TheftAlertBanner alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
+          )}
+
           {activeView === 'overview' && (
             <div className="space-y-6">
               <DashboardKpis fleet={fleet} alerts={alerts} efficiency={efficiency} />
@@ -395,30 +405,12 @@ export default function DashboardPage() {
           {activeView === 'alerts' && (
             <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
               <h2 className="font-semibold text-[#dae2fd]">All active alerts</h2>
-              {alerts.length === 0 ? (
-                <p className="mt-4 text-sm text-[#8e90a2]">No open alerts.</p>
-              ) : (
-                <ul className="mt-4 space-y-3">
-                  {alerts.map((alert) => (
-                    <li
-                      key={alert.id}
-                      className={`rounded-lg p-3 text-sm ${
-                        alert.alert_type === 'fuel_theft'
-                          ? 'border-l-2 border-l-[#ffb4ab] bg-[#93000a]/20'
-                          : 'border-l-2 border-l-[#ffb95f] bg-[#996100]/20'
-                      }`}
-                    >
-                      <p className="font-medium text-[#dae2fd]">
-                        {alert.license_plate ? `${alert.license_plate}: ` : ''}
-                        {alert.message}
-                      </p>
-                      <p className="mt-1 text-xs text-[#8e90a2]">
-                        {new Date(alert.created_at).toLocaleString()}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <p className="mt-1 text-xs text-[#8e90a2]">
+                Fuel theft alerts include GPS coordinates from the tracker
+              </p>
+              <div className="mt-4">
+                <AlertsList alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
+              </div>
             </div>
           )}
 

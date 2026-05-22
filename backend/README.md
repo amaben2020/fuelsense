@@ -148,7 +148,8 @@ Each virtual vehicle opens its own Teltonika TCP connection, sends Codec 8e pack
 | LAG-456-CD | Mixed driving + idle |
 | LAG-789-EF | Frequent idle stops |
 | ABJ-101-GH | Stops sending after ~3 min (goes offline) |
-| RIV-202-IJ | Parks then triggers fuel theft drop (~15 L) |
+| RIV-202-IJ | Parks ~40s, then fuel theft (−22 L) → alert with GPS |
+| LAG-456-CD | Parks ~72s, then fuel theft (−20 L) → alert with GPS |
 
 When a real FMC150 connects with a registered IMEI, it uses the **same TCP pipeline** — no simulator changes needed.
 

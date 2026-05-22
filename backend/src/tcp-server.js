@@ -109,7 +109,7 @@ const saveTelemetry = async (device, record) => {
     .where(eq(devices.imei, device.imei));
 
   if (!ignitionOn && fuelLevelLiters != null) {
-    const [lastReading] = await db
+    const [lastIgnitionOn] = await db
       .select({ fuel_level_liters: telemetry.fuelLevelLiters })
       .from(telemetry)
       .where(
@@ -122,19 +122,47 @@ const saveTelemetry = async (device, record) => {
       .orderBy(desc(telemetry.recordedAt))
       .limit(1);
 
-    if (
-      lastReading?.fuel_level_liters &&
-      Number(lastReading.fuel_level_liters) - fuelLevelLiters > 5
-    ) {
-      const drop = Number(lastReading.fuel_level_liters) - fuelLevelLiters;
-      await db.insert(alerts).values({
-        imei: device.imei,
-        customerId: device.customerId,
-        vehicleId: device.vehicleId,
-        alertType: 'fuel_theft',
-        message: `Fuel theft detected! Level dropped by ${drop.toFixed(1)}L`,
-        fuelLevelLiters: fuelLevelLiters.toString(),
-      });
+    const previousFuel = lastIgnitionOn?.fuel_level_liters
+      ? Number(lastIgnitionOn.fuel_level_liters)
+      : null;
+
+    if (previousFuel != null && previousFuel - fuelLevelLiters > 5) {
+      const drop = previousFuel - fuelLevelLiters;
+      const lat = telemetryRow.latitude;
+      const lng = telemetryRow.longitude;
+      const locationHint =
+        lat && lng
+          ? ` near ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
+          : '';
+
+      const [existingAlert] = await db
+        .select({ id: alerts.id })
+        .from(alerts)
+        .where(
+          and(
+            eq(alerts.vehicleId, device.vehicleId),
+            eq(alerts.customerId, device.customerId),
+            eq(alerts.alertType, 'fuel_theft'),
+            eq(alerts.isResolved, false)
+          )
+        )
+        .limit(1);
+
+      if (!existingAlert) {
+        await db.insert(alerts).values({
+          imei: device.imei,
+          customerId: device.customerId,
+          vehicleId: device.vehicleId,
+          alertType: 'fuel_theft',
+          message: `Fuel theft detected${locationHint}! Level dropped ${drop.toFixed(1)}L while parked (${previousFuel.toFixed(1)}L → ${fuelLevelLiters.toFixed(1)}L).`,
+          fuelLevelLiters: fuelLevelLiters.toString(),
+          latitude: lat,
+          longitude: lng,
+        });
+        console.log(
+          `⚠️  FUEL THEFT ALERT for ${device.imei}: -${drop.toFixed(1)}L${locationHint}`
+        );
+      }
     }
   }
 };

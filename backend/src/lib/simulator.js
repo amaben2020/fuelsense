@@ -21,6 +21,7 @@ class VehicleSimulator {
     this.stopped = false;
     this.routeRadius = profile.routeRadius ?? 0.012;
     this.routeSpeed = profile.routeSpeed ?? 0.00008;
+    this.fuelAtPark = null;
   }
 
   nextRecord() {
@@ -29,6 +30,8 @@ class VehicleSimulator {
     this.tick += 1;
     this.phaseTicks += 1;
     this._advancePhase();
+
+    let theftSimulated = false;
 
     if (this.phase === 'driving' && this.ignitionOn) {
       this.heading += (Math.random() - 0.5) * 0.4;
@@ -51,12 +54,15 @@ class VehicleSimulator {
     }
 
     let includeFuel = this.ignitionOn;
+
     if (this.phase === 'theft' && !this.theftDone) {
-      this.fuelLevel = Math.max(2, this.fuelLevel - 15);
+      const drop = this.profile.theftDropLiters ?? 18;
+      this.fuelLevel = Math.max(2, (this.fuelAtPark ?? this.fuelLevel) - drop);
       includeFuel = true;
       this.theftDone = true;
       this.phase = 'parked';
       this.phaseTicks = 0;
+      theftSimulated = true;
     }
 
     if (this.profile.offlineAfterTicks && this.tick >= this.profile.offlineAfterTicks) {
@@ -72,20 +78,33 @@ class VehicleSimulator {
       speedKph: this.speedKph,
       ignitionOn: this.ignitionOn,
       includeFuel,
+      meta: { theftSimulated },
     });
   }
 
   _advancePhase() {
     const p = this.profile;
 
-    if (p.theftTarget && !this.theftDone && this.phaseTicks >= (p.theftAfterTicks ?? 40)) {
-      this.phase = 'theft';
-      this.ignitionOn = false;
-      this.speedKph = 0;
-      return;
+    if (p.theftTarget && !this.theftDone) {
+      if (this.phase === 'theft' || this.phase === 'pre_theft_park') return;
+
+      if (this.phaseTicks >= (p.theftAfterTicks ?? 12)) {
+        this.phase = 'pre_theft_park';
+        this.phaseTicks = 0;
+        this.ignitionOn = false;
+        this.speedKph = 0;
+        this.fuelAtPark = this.fuelLevel;
+        return;
+      }
     }
 
-    if (this.phase === 'theft') return;
+    if (this.phase === 'pre_theft_park') {
+      if (this.phaseTicks >= (p.theftParkTicks ?? 2)) {
+        this.phase = 'theft';
+        this.phaseTicks = 0;
+      }
+      return;
+    }
 
     const cycle = p.driveCycleTicks ?? 25;
     if (this.phaseTicks >= cycle) {
@@ -93,7 +112,7 @@ class VehicleSimulator {
       if (this.phase === 'driving') {
         this.phase = p.idleRatio > Math.random() ? 'idle' : 'parked';
         this.ignitionOn = this.phase === 'idle';
-      } else {
+      } else if (this.phase !== 'theft') {
         this.phase = 'driving';
         this.ignitionOn = true;
       }
@@ -109,6 +128,7 @@ const buildCodecRecord = ({
   speedKph,
   ignitionOn,
   includeFuel,
+  meta = {},
 }) => {
   const ioElements = [
     { id: 239, size: 1, value: ignitionOn ? 1 : 0 },
@@ -131,7 +151,7 @@ const buildCodecRecord = ({
       speed: speedKph,
     },
     ioElements,
-    meta: { fuelLevel, ignitionOn, speedKph },
+    meta: { fuelLevel, ignitionOn, speedKph, ...meta },
   };
 };
 
@@ -153,10 +173,14 @@ const DEFAULT_FLEET_PROFILES = [
     startLat: 6.6018,
     startLng: 3.3515,
     heading: 1.2,
-    initialFuel: 28,
+    initialFuel: 32,
     tankCapacity: 55,
     initialOdometer: 67890,
     idleRatio: 0.35,
+    theftTarget: true,
+    theftAfterTicks: 18,
+    theftDropLiters: 20,
+    driveCycleTicks: 22,
   },
   {
     imei: '356307042441015',
@@ -188,11 +212,12 @@ const DEFAULT_FLEET_PROFILES = [
     startLat: 6.4969,
     startLng: 3.3346,
     heading: 1.8,
-    initialFuel: 38,
+    initialFuel: 40,
     tankCapacity: 55,
     initialOdometer: 15200,
     theftTarget: true,
-    theftAfterTicks: 35,
+    theftAfterTicks: 10,
+    theftDropLiters: 22,
     driveCycleTicks: 20,
   },
 ];

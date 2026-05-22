@@ -82,6 +82,8 @@ const alerts = pgTable('alerts', {
   alertType: varchar('alert_type', { length: 50 }).notNull(),
   message: text('message').notNull(),
   fuelLevelLiters: numeric('fuel_level_liters', { precision: 10, scale: 2 }),
+  latitude: numeric('latitude', { precision: 10, scale: 8 }),
+  longitude: numeric('longitude', { precision: 11, scale: 8 }),
   isResolved: boolean('is_resolved').default(false),
   resolvedAt: timestamp('resolved_at'),
   createdAt: timestamp('created_at').defaultNow(),

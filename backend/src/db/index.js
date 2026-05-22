@@ -139,6 +139,8 @@ const initDatabase = async () => {
 
   await ensureColumn('alerts', 'is_resolved', 'BOOLEAN DEFAULT false');
   await ensureColumn('alerts', 'resolved_at', 'TIMESTAMP');
+  await ensureColumn('alerts', 'latitude', 'DECIMAL(10,8)');
+  await ensureColumn('alerts', 'longitude', 'DECIMAL(11,8)');
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS subscriptions (

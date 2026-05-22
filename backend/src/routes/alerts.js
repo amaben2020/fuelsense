@@ -17,6 +17,8 @@ router.get('/', async (req, res) => {
         alert_type: alerts.alertType,
         message: alerts.message,
         fuel_level_liters: alerts.fuelLevelLiters,
+        latitude: alerts.latitude,
+        longitude: alerts.longitude,
         is_resolved: alerts.isResolved,
         resolved_at: alerts.resolvedAt,
         created_at: alerts.createdAt,

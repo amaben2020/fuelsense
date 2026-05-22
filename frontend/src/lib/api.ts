@@ -138,6 +138,9 @@ export interface Alert {
   message: string;
   license_plate?: string;
   vehicle_id?: string;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
+  fuel_level_liters?: string | number | null;
   created_at: string;
 }
 
