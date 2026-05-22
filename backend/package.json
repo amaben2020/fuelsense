@@ -1,0 +1,37 @@
+{
+  "name": "fuelguard-backend",
+  "version": "1.0.0",
+  "description": "FuelGuard Express API and Teltonika TCP server",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "mock-device": "node src/mock-device.js",
+    "simulate-fleet": "node src/fleet-simulator.js",
+    "seed": "node src/seed.js",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push"
+  },
+  "keywords": [
+    "teltonika",
+    "fuel",
+    "telemetry"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@groupe-savoy/teltonika-sdk": "^0.3.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "drizzle-kit": "^0.31.10",
+    "nodemon": "^3.1.14"
+  }
+}
