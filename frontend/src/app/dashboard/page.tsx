@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -18,21 +18,30 @@ import {
   api,
   clearToken,
   Customer,
+  DashboardSummary,
+  Driver,
   FleetEfficiency,
   FleetVehicle,
+  FuelAnomaly,
+  FuelPurchasesResponse,
   getToken,
   TrackPoint,
 } from '@/lib/api';
-import { buildVehicleTracks } from '@/lib/map-utils';
+import { buildVehicleTracks, buildDemoTracksFromFleet } from '@/lib/map-utils';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
-import { EfficiencyTable } from '@/components/dashboard/EfficiencyTable';
+import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
+import { FleetEfficiencyReport } from '@/components/dashboard/FleetEfficiencyReport';
+import { FuelPurchaseTable } from '@/components/dashboard/FuelPurchaseTable';
+import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { FleetListPanel } from '@/components/dashboard/FleetListPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
+import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
 import { VehicleDetailPanel } from '@/components/dashboard/VehicleDetailPanel';
 import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
 
 const REFRESH_MS = 3000;
+const LIVE_REFRESH_MS = 2000;
 
 type DashboardView = 'overview' | 'live' | 'fuel' | 'alerts' | 'settings';
 
@@ -49,7 +58,12 @@ export default function DashboardPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [fleet, setFleet] = useState<FleetVehicle[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [anomalies, setAnomalies] = useState<FuelAnomaly[]>([]);
   const [efficiency, setEfficiency] = useState<FleetEfficiency[]>([]);
+  const [fuelPurchases, setFuelPurchases] = useState<FuelPurchasesResponse | null>(null);
+  const [fuelPurchasePage, setFuelPurchasePage] = useState(1);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [liveTracks, setLiveTracks] = useState(
     () => buildVehicleTracks([] as TrackPoint[])
   );
@@ -63,6 +77,8 @@ export default function DashboardPage() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [followVehicle, setFollowVehicle] = useState(true);
+  const fleetRef = useRef(fleet);
+  fleetRef.current = fleet;
 
   const selectedVehicle = useMemo(
     () => fleet.find((v) => v.id === selectedVehicleId) ?? fleet[0] ?? null,
@@ -71,12 +87,37 @@ export default function DashboardPage() {
 
   const onlineCount = fleet.filter((v) => v.connection_status === 'online').length;
 
+  const loadFuelPurchases = async (page = fuelPurchasePage) => {
+    try {
+      const purchaseData = await api<FuelPurchasesResponse>(
+        `/telemetry/fuel-purchases?page=${page}&limit=10`
+      );
+      setFuelPurchases(purchaseData);
+      setFuelPurchasePage(purchaseData.page);
+    } catch {
+      setFuelPurchases(null);
+    }
+  };
+
+  const loadLiveTracks = async (fleetRows: FleetVehicle[]) => {
+    try {
+      const trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=30');
+      const builtTracks = buildVehicleTracks(trackPoints);
+      setLiveTracks(
+        builtTracks.length > 0 ? builtTracks : buildDemoTracksFromFleet(fleetRows)
+      );
+    } catch {
+      setLiveTracks(buildDemoTracksFromFleet(fleetRows));
+    }
+  };
+
   const loadDashboard = async () => {
     try {
-      const [me, fleetRows, alertList] = await Promise.all([
+      const [me, fleetRows, alertList, anomalyList] = await Promise.all([
         api<Customer>('/auth/me'),
         api<FleetVehicle[]>('/vehicles/fleet'),
         api<Alert[]>('/alerts'),
+        api<FuelAnomaly[]>('/alerts/anomalies').catch(() => [] as FuelAnomaly[]),
       ]);
 
       if (!me.onboarding_completed && fleetRows.length === 0) {
@@ -85,6 +126,8 @@ export default function DashboardPage() {
       }
 
       let efficiencyRows: FleetEfficiency[] = [];
+      let summaryRow: DashboardSummary | null = null;
+
       try {
         efficiencyRows = await api<FleetEfficiency[]>('/telemetry/fleet-efficiency?days=7');
         setEfficiencyError(null);
@@ -92,6 +135,25 @@ export default function DashboardPage() {
         setEfficiencyError(
           effErr instanceof Error ? effErr.message : 'Efficiency data unavailable'
         );
+      }
+
+      try {
+        summaryRow = await api<DashboardSummary>('/dashboard/summary?days=7');
+      } catch {
+        summaryRow = null;
+      }
+
+      try {
+        await loadFuelPurchases(fuelPurchasePage);
+      } catch {
+        setFuelPurchases(null);
+      }
+
+      let driverRows: Driver[] = [];
+      try {
+        driverRows = await api<Driver[]>('/drivers');
+      } catch {
+        driverRows = [];
       }
 
       let trackPoints: TrackPoint[] = [];
@@ -104,8 +166,14 @@ export default function DashboardPage() {
       setCustomer(me);
       setFleet(fleetRows);
       setAlerts(alertList);
+      setAnomalies(anomalyList);
       setEfficiency(efficiencyRows);
-      setLiveTracks(buildVehicleTracks(trackPoints));
+      setSummary(summaryRow);
+      setDrivers(driverRows);
+      const builtTracks = buildVehicleTracks(trackPoints);
+      setLiveTracks(
+        builtTracks.length > 0 ? builtTracks : buildDemoTracksFromFleet(fleetRows)
+      );
       setLastUpdated(new Date());
       setTick((t) => t + 1);
       setError(null);
@@ -138,6 +206,20 @@ export default function DashboardPage() {
   }, [router]);
 
   useEffect(() => {
+    if (activeView !== 'live' || !getToken()) return;
+
+    const poll = () => loadLiveTracks(fleetRef.current);
+    poll();
+    const interval = setInterval(poll, LIVE_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [activeView]);
+
+  useEffect(() => {
+    if (!getToken()) return;
+    loadFuelPurchases(fuelPurchasePage);
+  }, [fuelPurchasePage]);
+
+  useEffect(() => {
     const hash = globalThis.window?.location.hash.replace('#', '') as DashboardView;
     if (hash && VIEWS.some((v) => v.id === hash)) {
       setActiveView(hash);
@@ -155,6 +237,23 @@ export default function DashboardPage() {
   const handleViewAlertOnMap = (alert: Alert) => {
     if (alert.vehicle_id) setSelectedVehicleId(alert.vehicle_id);
     switchView('live');
+  };
+
+  const handleViewAnomalyOnMap = (anomaly: FuelAnomaly) => {
+    if (anomaly.vehicle_id) setSelectedVehicleId(anomaly.vehicle_id);
+    switchView('live');
+  };
+
+  const handleAcknowledgeAnomaly = async (id: string) => {
+    try {
+      await api(`/alerts/${id}/acknowledge`, { method: 'PATCH' });
+      setAnomalies((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, acknowledged: true } : a))
+      );
+      setAlerts((prev) => prev.filter((a) => String(a.id) !== id));
+    } catch {
+      /* keep UI unchanged on failure */
+    }
   };
 
   const handleLogout = () => {
@@ -293,7 +392,8 @@ export default function DashboardPage() {
                     : ' · Real-time fuel intelligence'}
                 </p>
                 <p className="mt-1 text-xs text-[#8e90a2]">
-                  Refresh #{tick} · every {REFRESH_MS / 1000}s
+                  Refresh #{tick} · every{' '}
+                  {activeView === 'live' ? LIVE_REFRESH_MS / 1000 : REFRESH_MS / 1000}s
                 </p>
               </div>
             </div>
@@ -351,7 +451,7 @@ export default function DashboardPage() {
 
           {activeView === 'overview' && (
             <div className="space-y-6">
-              <DashboardKpis fleet={fleet} alerts={alerts} efficiency={efficiency} />
+              <DashboardKpis summary={summary} />
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
                 <div className="xl:col-span-2">
                   <FleetListPanel
@@ -371,34 +471,38 @@ export default function DashboardPage() {
 
           {activeView === 'live' && (
             <div className="min-h-0 flex-1">
-              {liveTracks.length === 0 ? (
-                <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-xl border border-[#434656] bg-[#171f33] p-8 text-center">
-                  <p className="text-lg font-medium text-[#dae2fd]">No GPS tracks yet</p>
-                  <p className="mt-2 max-w-md text-sm text-[#8e90a2]">
-                    Run{' '}
-                    <code className="text-[#b8c3ff]">npm run simulate-fleet</code> in the backend.
-                    Routes and vehicle markers will appear here as telemetry arrives.
-                  </p>
-                </div>
-              ) : (
-                <LiveMonitoringMap
-                  tracks={liveTracks}
-                  fleet={fleet}
-                  selectedVehicleId={selectedVehicleId}
-                  onSelectVehicle={setSelectedVehicleId}
-                  followSelected={followVehicle}
-                />
-              )}
+              <LiveMonitoringMap
+                tracks={liveTracks}
+                fleet={fleet}
+                selectedVehicleId={selectedVehicleId}
+                onSelectVehicle={setSelectedVehicleId}
+                followSelected={followVehicle}
+                onUserPan={() => setFollowVehicle(false)}
+              />
             </div>
           )}
 
           {activeView === 'fuel' && (
             <div className="space-y-6">
-              <DashboardKpis fleet={fleet} alerts={alerts} efficiency={efficiency} />
+              <DashboardKpis summary={summary} />
               {efficiencyError && (
                 <p className="text-sm text-[#ffb95f]">{efficiencyError}</p>
               )}
-              <EfficiencyTable rows={efficiency} />
+              <FuelAnalyticsPanel
+                efficiency={efficiency}
+                anomalies={anomalies}
+                onAcknowledgeAnomaly={handleAcknowledgeAnomaly}
+                onViewOnMap={handleViewAnomalyOnMap}
+              />
+              <FleetEfficiencyReport rows={efficiency} />
+              <TelemetryHistoryTable />
+              <FuelPurchaseTable
+                data={fuelPurchases}
+                fleet={fleet}
+                page={fuelPurchasePage}
+                onPageChange={setFuelPurchasePage}
+                onRefresh={() => loadFuelPurchases(fuelPurchasePage)}
+              />
             </div>
           )}
 
@@ -415,25 +519,32 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'settings' && (
-            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
-              <h2 className="font-semibold text-[#dae2fd]">Fleet settings</h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setModalOpen(true)}
-                  className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
-                >
-                  <p className="font-medium text-[#dae2fd]">Add vehicle + IMEI</p>
-                  <p className="text-xs text-[#8e90a2]">Register a new tracker</p>
-                </button>
-                <Link
-                  href="/dashboard/orders/new"
-                  className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
-                >
-                  <p className="font-medium text-[#dae2fd]">Order trackers</p>
-                  <p className="text-xs text-[#8e90a2]">Buy additional FMC150 devices</p>
-                </Link>
+            <div className="space-y-6">
+              <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
+                <h2 className="font-semibold text-[#dae2fd]">Fleet settings</h2>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalOpen(true)}
+                    className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
+                  >
+                    <p className="font-medium text-[#dae2fd]">Add vehicle + IMEI</p>
+                    <p className="text-xs text-[#8e90a2]">Register a new tracker</p>
+                  </button>
+                  <Link
+                    href="/dashboard/orders/new"
+                    className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
+                  >
+                    <p className="font-medium text-[#dae2fd]">Order trackers</p>
+                    <p className="text-xs text-[#8e90a2]">Buy additional FMC150 devices</p>
+                  </Link>
+                </div>
               </div>
+              <DriverSettingsPanel
+                drivers={drivers}
+                fleet={fleet}
+                onAssigned={loadDashboard}
+              />
             </div>
           )}
         </div>

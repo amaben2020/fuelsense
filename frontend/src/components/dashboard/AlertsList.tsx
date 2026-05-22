@@ -1,5 +1,5 @@
 import { MapPin } from 'lucide-react';
-import { Alert } from '@/lib/api';
+import { Alert, formatNgn } from '@/lib/api';
 
 export function AlertsList({
   alerts,
@@ -31,6 +31,16 @@ export function AlertsList({
               </p>
               <p className="mt-1 text-xs text-[#8e90a2]">
                 {new Date(alert.created_at).toLocaleString()}
+                {alert.fuel_drop_liters != null && (
+                  <span className="ml-2 text-[#ffb95f]">
+                    −{Number(alert.fuel_drop_liters).toFixed(1)} L
+                  </span>
+                )}
+                {alert.estimated_loss_ngn != null && (
+                  <span className="ml-2 text-[#ffb4ab]">
+                    {formatNgn(Number(alert.estimated_loss_ngn))}
+                  </span>
+                )}
                 {alert.latitude && alert.longitude && (
                   <span className="ml-2 inline-flex items-center gap-1">
                     <MapPin className="h-3 w-3" />
@@ -67,10 +77,18 @@ export function TheftAlertBanner({
   const theftAlerts = alerts.filter((a) => a.alert_type === 'fuel_theft');
   if (theftAlerts.length === 0) return null;
 
+  const totalLossNgn = theftAlerts.reduce(
+    (sum, a) => sum + (Number(a.estimated_loss_ngn) || 0),
+    0
+  );
+
   return (
     <div className="mb-6 rounded-lg border-l-4 border-l-[#ffb4ab] bg-[#93000a]/20 p-4">
       <p className="font-semibold text-[#ffb4ab]">
         Fuel theft detected ({theftAlerts.length})
+        {totalLossNgn > 0 && (
+          <span className="ml-2 font-mono text-sm">· {formatNgn(totalLossNgn)} est. loss</span>
+        )}
       </p>
       {theftAlerts.slice(0, 2).map((alert) => (
         <div key={alert.id} className="mt-2 flex flex-wrap items-center justify-between gap-2">

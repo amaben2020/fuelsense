@@ -1,4 +1,4 @@
-import type { TrackPoint, VehicleTrack } from './api';
+import type { FleetVehicle, TrackPoint, VehicleTrack } from './api';
 
 export function parseCoord(value: string | number | null | undefined): number | null {
   if (value == null || value === '') return null;
@@ -107,4 +107,49 @@ export function buildVehicleTracks(points: TrackPoint[], colorOffset = 0): Vehic
   }
 
   return tracks.sort((a, b) => a.licensePlate.localeCompare(b.licensePlate));
+}
+
+const LAGOS_ANCHORS = [
+  { lat: 6.5244, lng: 3.3792 },
+  { lat: 6.6018, lng: 3.3515 },
+  { lat: 6.4474, lng: 3.4738 },
+  { lat: 6.5789, lng: 3.2802 },
+  { lat: 6.4969, lng: 3.3346 },
+];
+
+/** Client-side fallback when /tracks returns empty (offline demo). */
+export function buildDemoTracksFromFleet(fleet: FleetVehicle[]): VehicleTrack[] {
+  const points: TrackPoint[] = [];
+
+  fleet.forEach((vehicle, index) => {
+    const anchor = LAGOS_ANCHORS[index % LAGOS_ANCHORS.length];
+    const baseLat = parseCoord(vehicle.latitude) ?? anchor.lat;
+    const baseLng = parseCoord(vehicle.longitude) ?? anchor.lng;
+    let lat = baseLat;
+    let lng = baseLng;
+    const steps = 24;
+
+    for (let step = 0; step <= steps; step += 1) {
+      if (step > 0) {
+        lat += (Math.random() - 0.5) * 0.008;
+        lng += (Math.random() - 0.5) * 0.008;
+      }
+      points.push({
+        vehicle_id: vehicle.id,
+        imei: vehicle.imei ?? `demo-${index}`,
+        license_plate: vehicle.license_plate,
+        make: vehicle.make,
+        model: vehicle.model,
+        driver_name: vehicle.driver_name ?? null,
+        latitude: lat,
+        longitude: lng,
+        speed_kph: step === steps ? vehicle.speed_kph ?? 45 : 40 + Math.random() * 20,
+        fuel_level_liters: vehicle.fuel_level_liters,
+        ignition_on: true,
+        recorded_at: new Date(Date.now() - (steps - step) * 240000).toISOString(),
+      });
+    }
+  });
+
+  return buildVehicleTracks(points);
 }

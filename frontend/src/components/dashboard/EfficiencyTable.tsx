@@ -20,6 +20,7 @@ export function EfficiencyTable({ rows }: { rows: FleetEfficiency[] }) {
             <thead className="bg-[#0b1326] text-xs text-[#8e90a2]">
               <tr>
                 <th className="px-6 py-3 font-medium">Vehicle</th>
+                <th className="px-6 py-3 font-medium">Model</th>
                 <th className="px-6 py-3 font-medium">Distance</th>
                 <th className="px-6 py-3 font-medium">Fuel used</th>
                 <th className="px-6 py-3 font-medium">Efficiency</th>
@@ -31,6 +32,7 @@ export function EfficiencyTable({ rows }: { rows: FleetEfficiency[] }) {
               {rows.map((row) => (
                 <tr key={row.vehicle_id} className="text-[#c4c5d9]">
                   <td className="px-6 py-3 font-medium text-[#dae2fd]">{row.license_plate}</td>
+                  <td className="px-6 py-3 text-[#8e90a2]">{row.model ?? '—'}</td>
                   <td className="px-6 py-3">{row.distance_km.toLocaleString()} km</td>
                   <td className="px-6 py-3">{row.fuel_used_liters.toFixed(1)} L</td>
                   <td

@@ -141,19 +141,120 @@ export interface Alert {
   latitude?: string | number | null;
   longitude?: string | number | null;
   fuel_level_liters?: string | number | null;
+  fuel_drop_liters?: string | number | null;
+  estimated_loss_ngn?: number | null;
   created_at: string;
+}
+
+export interface DashboardSummary {
+  period_days: number;
+  currency: 'NGN';
+  price_per_liter_ngn: number;
+  total_vehicles: number;
+  online_vehicles: number;
+  total_fuel_liters: number;
+  low_fuel_vehicles: number;
+  total_distance_km: number;
+  total_fuel_used_liters: number;
+  avg_efficiency_km_l: number | null;
+  total_fuel_cost_ngn: number;
+  active_alerts: number;
+  theft_alerts: number;
+  estimated_theft_loss_ngn: number;
+}
+
+export interface FuelAnomaly {
+  id: string;
+  vehicle_id?: string | null;
+  vehicle_plate?: string | null;
+  type: 'theft' | 'fraud' | 'idle' | 'driving' | 'efficiency' | 'route';
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+  details: string;
+  liters_lost?: number;
+  amount_lost_ngn?: number;
+  timestamp: string;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
+  acknowledged: boolean;
 }
 
 export interface FleetEfficiency {
   vehicle_id: string;
   license_plate: string;
+  driver_name?: string | null;
+  model?: string | null;
   tank_capacity_liters: number | null;
   distance_km: number;
   fuel_used_liters: number;
   efficiency_km_l: number | null;
+  expected_efficiency_km_l: number;
+  variance_percent: number | null;
   fuel_cost_ngn: number;
+  theft_loss_ngn: number;
   co2_emissions_kg: number;
+  status: 'verified' | 'theft_alert' | 'underperforming';
   period_days: number;
+}
+
+export interface Driver {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  license_number: string | null;
+  status: string;
+  vehicle_id: string | null;
+  license_plate: string | null;
+  created_at: string;
+}
+
+export interface FuelPurchase {
+  id: string;
+  vehicle_id: string;
+  license_plate: string;
+  timestamp: string;
+  liters_declared: number;
+  liters_actual: number | null;
+  difference_liters: number;
+  cost_per_liter_ngn: number;
+  total_cost_ngn: number;
+  odometer_km?: number | null;
+  merchant: string;
+  receipt_reference?: string | null;
+  status: 'verified' | 'flagged_theft' | 'pending_receipt';
+  actual_from?: string;
+}
+
+export interface FuelPurchasesResponse {
+  source: 'database' | 'empty' | 'telemetry' | 'demo';
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  purchases: FuelPurchase[];
+  note?: string;
+}
+
+export interface TelemetryReading {
+  id: string;
+  vehicle_id: string;
+  license_plate: string;
+  driver_name: string | null;
+  recorded_at: string;
+  fuel_level_liters: string | number | null;
+  odometer_km: string | number | null;
+  speed_kph: number | null;
+  ignition_on: boolean | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
+}
+
+export interface TelemetryReadingsResponse {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  rows: TelemetryReading[];
 }
 
 export interface TrackPoint {
@@ -216,8 +317,9 @@ export function computeDashboardStats(
     effValues.length > 0
       ? effValues.reduce((s, v) => s + v, 0) / effValues.length
       : null;
-  const theftAlerts = alerts.filter((a) => a.alert_type === 'fuel_theft');
-  const theftLossNgn = theftAlerts.length * 15 * 650;
+  const theftLossNgn = alerts
+    .filter((a) => a.alert_type === 'fuel_theft')
+    .reduce((sum, a) => sum + (Number(a.estimated_loss_ngn) || 0), 0);
 
   return {
     ...metrics,
@@ -275,4 +377,9 @@ export function formatNgn(amount: number) {
     currency: 'NGN',
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+/** Always NGN — never use $ or other currencies in the UI */
+export function formatFuelPricePerLiter(amount: number) {
+  return `${formatNgn(amount)}/L`;
 }
