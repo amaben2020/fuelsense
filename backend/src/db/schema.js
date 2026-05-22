@@ -25,6 +25,39 @@ const customers = pgTable('customers', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+const drivers = pgTable('drivers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id, { onDelete: 'cascade' }),
+  fullName: varchar('full_name', { length: 255 }).notNull(),
+  phone: varchar('phone', { length: 50 }),
+  licenseNumber: varchar('license_number', { length: 80 }),
+  status: varchar('status', { length: 30 }).default('active'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+const fuelPurchases = pgTable('fuel_purchases', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id, { onDelete: 'cascade' }),
+  vehicleId: uuid('vehicle_id')
+    .notNull()
+    .references(() => vehicles.id, { onDelete: 'cascade' }),
+  purchasedAt: timestamp('purchased_at').notNull().defaultNow(),
+  merchant: varchar('merchant', { length: 255 }),
+  receiptReference: varchar('receipt_reference', { length: 120 }),
+  litersDeclared: numeric('liters_declared', { precision: 10, scale: 2 }).notNull(),
+  litersActual: numeric('liters_actual', { precision: 10, scale: 2 }),
+  costPerLiterNgn: integer('cost_per_liter_ngn'),
+  odometerKm: integer('odometer_km'),
+  status: varchar('status', { length: 30 }).default('verified'),
+  source: varchar('source', { length: 30 }).default('receipt'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 const vehicles = pgTable(
   'vehicles',
   {
@@ -37,6 +70,7 @@ const vehicles = pgTable(
     model: varchar('model', { length: 100 }),
     year: integer('year'),
     tankCapacityLiters: integer('tank_capacity_liters'),
+    driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
     driverName: varchar('driver_name', { length: 255 }),
     createdAt: timestamp('created_at').defaultNow(),
     updatedAt: timestamp('updated_at').defaultNow(),
@@ -82,6 +116,8 @@ const alerts = pgTable('alerts', {
   alertType: varchar('alert_type', { length: 50 }).notNull(),
   message: text('message').notNull(),
   fuelLevelLiters: numeric('fuel_level_liters', { precision: 10, scale: 2 }),
+  fuelDropLiters: numeric('fuel_drop_liters', { precision: 10, scale: 2 }),
+  estimatedLossNgn: integer('estimated_loss_ngn'),
   latitude: numeric('latitude', { precision: 10, scale: 8 }),
   longitude: numeric('longitude', { precision: 11, scale: 8 }),
   isResolved: boolean('is_resolved').default(false),
@@ -135,10 +171,12 @@ const deviceOrders = pgTable('device_orders', {
 
 module.exports = {
   customers,
+  drivers,
   vehicles,
   devices,
   telemetry,
   alerts,
+  fuelPurchases,
   subscriptions,
   payments,
   deviceOrders,

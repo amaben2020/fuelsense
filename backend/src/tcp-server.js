@@ -3,7 +3,8 @@ const {
   TeltonikaDataCodec,
   TeltonikaGPRSCodec,
 } = require('@groupe-savoy/teltonika-sdk');
-const { db, devices, telemetry, alerts, eq, and, desc } = require('./lib/db-helpers');
+const { db, devices, telemetry, alerts, vehicles, eq, and, desc } = require('./lib/db-helpers');
+const { detectAnomalies } = require('./lib/anomaly-detector');
 
 const tcpServer = new TeltonikaTCPServer({
   codecs: {
@@ -108,6 +109,16 @@ const saveTelemetry = async (device, record) => {
     .set({ lastSeenAt: new Date() })
     .where(eq(devices.imei, device.imei));
 
+  const [vehicleRow] = await db
+    .select({ license_plate: vehicles.licensePlate })
+    .from(vehicles)
+    .where(eq(vehicles.id, device.vehicleId))
+    .limit(1);
+
+  await detectAnomalies(device, telemetryRow, {
+    licensePlate: vehicleRow?.license_plate,
+  });
+
   if (!ignitionOn && fuelLevelLiters != null) {
     const [lastIgnitionOn] = await db
       .select({ fuel_level_liters: telemetry.fuelLevelLiters })
@@ -128,6 +139,8 @@ const saveTelemetry = async (device, record) => {
 
     if (previousFuel != null && previousFuel - fuelLevelLiters > 5) {
       const drop = previousFuel - fuelLevelLiters;
+      const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || 650);
+      const estimatedLossNgn = Math.round(drop * pricePerLiter);
       const lat = telemetryRow.latitude;
       const lng = telemetryRow.longitude;
       const locationHint =
@@ -154,8 +167,10 @@ const saveTelemetry = async (device, record) => {
           customerId: device.customerId,
           vehicleId: device.vehicleId,
           alertType: 'fuel_theft',
-          message: `Fuel theft detected${locationHint}! Level dropped ${drop.toFixed(1)}L while parked (${previousFuel.toFixed(1)}L → ${fuelLevelLiters.toFixed(1)}L).`,
+          message: `Fuel theft detected${locationHint}! Level dropped ${drop.toFixed(1)}L while parked (${previousFuel.toFixed(1)}L → ${fuelLevelLiters.toFixed(1)}L). Estimated loss ${estimatedLossNgn.toLocaleString('en-NG')} NGN.`,
           fuelLevelLiters: fuelLevelLiters.toString(),
+          fuelDropLiters: drop.toFixed(2),
+          estimatedLossNgn,
           latitude: lat,
           longitude: lng,
         });

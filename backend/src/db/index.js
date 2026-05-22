@@ -62,6 +62,48 @@ const initDatabase = async () => {
   await ensureColumn('vehicles', 'updated_at', 'TIMESTAMP DEFAULT NOW()');
 
   await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS drivers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      full_name VARCHAR(255) NOT NULL,
+      phone VARCHAR(50),
+      license_number VARCHAR(80),
+      status VARCHAR(30) DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await ensureColumn('vehicles', 'driver_id', 'UUID REFERENCES drivers(id) ON DELETE SET NULL');
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS fuel_purchases (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      purchased_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      merchant VARCHAR(255),
+      receipt_reference VARCHAR(120),
+      liters_declared DECIMAL(10,2) NOT NULL,
+      liters_actual DECIMAL(10,2),
+      cost_per_liter_ngn INTEGER,
+      odometer_km INTEGER,
+      status VARCHAR(30) DEFAULT 'verified',
+      source VARCHAR(30) DEFAULT 'receipt',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_fuel_purchases_customer_purchased
+      ON fuel_purchases (customer_id, purchased_at DESC)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_drivers_customer
+      ON drivers (customer_id)
+  `);
+
+  await db.execute(sql`
     CREATE TABLE IF NOT EXISTS devices (
       imei VARCHAR(20) PRIMARY KEY,
       vehicle_id UUID REFERENCES vehicles(id) ON DELETE SET NULL,
@@ -141,6 +183,8 @@ const initDatabase = async () => {
   await ensureColumn('alerts', 'resolved_at', 'TIMESTAMP');
   await ensureColumn('alerts', 'latitude', 'DECIMAL(10,8)');
   await ensureColumn('alerts', 'longitude', 'DECIMAL(11,8)');
+  await ensureColumn('alerts', 'fuel_drop_liters', 'DECIMAL(10,2)');
+  await ensureColumn('alerts', 'estimated_loss_ngn', 'INTEGER');
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS subscriptions (

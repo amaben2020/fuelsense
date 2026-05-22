@@ -9,6 +9,8 @@
     "mock-device": "node src/mock-device.js",
     "simulate-fleet": "node src/fleet-simulator.js",
     "seed": "node src/seed.js",
+    "seed-telemetry": "node src/seed-telemetry.js",
+    "seed-fuel-purchases": "node src/seed-fuel-purchases.js",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
   },

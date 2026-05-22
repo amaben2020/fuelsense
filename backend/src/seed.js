@@ -2,11 +2,44 @@ require('dotenv').config();
 
 const bcrypt = require('bcryptjs');
 const { db, initDatabase, closePool } = require('./db');
-const { customers, vehicles, devices } = require('./db/schema');
+const { customers, drivers, vehicles, devices } = require('./db/schema');
 const { eq, and } = require('drizzle-orm');
 
 const DEMO_EMAIL = 'demo@fuelsense.local';
 const DEMO_PASSWORD = 'demo1234';
+
+const DEMO_DRIVERS = [
+  {
+    fullName: 'Chidi Okonkwo',
+    phone: '+234 803 111 2233',
+    licenseNumber: 'LAG/2019/88421',
+    vehiclePlate: 'ABC-123',
+  },
+  {
+    fullName: 'Amara Eze',
+    phone: '+234 802 445 6677',
+    licenseNumber: 'LAG/2020/55210',
+    vehiclePlate: 'LAG-456-CD',
+  },
+  {
+    fullName: 'Ngozi Obi',
+    phone: '+234 805 778 9900',
+    licenseNumber: 'LAG/2018/33102',
+    vehiclePlate: 'LAG-789-EF',
+  },
+  {
+    fullName: 'Emeka Nwosu',
+    phone: '+234 809 123 4567',
+    licenseNumber: 'FCT/2021/10293',
+    vehiclePlate: 'ABJ-101-GH',
+  },
+  {
+    fullName: 'Ibrahim Musa',
+    phone: '+234 701 555 8899',
+    licenseNumber: 'RIV/2022/77104',
+    vehiclePlate: 'RIV-202-IJ',
+  },
+];
 
 const DEMO_FLEET = [
   {
@@ -16,7 +49,6 @@ const DEMO_FLEET = [
     model: 'Hilux',
     year: 2022,
     tankCapacityLiters: 60,
-    driverName: 'Chidi Okonkwo',
   },
   {
     imei: '356307042441014',
@@ -25,7 +57,6 @@ const DEMO_FLEET = [
     model: 'Hiace',
     year: 2020,
     tankCapacityLiters: 55,
-    driverName: 'Amara Eze',
   },
   {
     imei: '356307042441015',
@@ -34,7 +65,6 @@ const DEMO_FLEET = [
     model: 'Hilux',
     year: 2018,
     tankCapacityLiters: 70,
-    driverName: 'Ngozi Obi',
   },
   {
     imei: '356307042441016',
@@ -43,7 +73,6 @@ const DEMO_FLEET = [
     model: 'Camry',
     year: 2021,
     tankCapacityLiters: 50,
-    driverName: 'Emeka Nwosu',
   },
   {
     imei: '356307042441017',
@@ -52,11 +81,44 @@ const DEMO_FLEET = [
     model: 'RAV4',
     year: 2022,
     tankCapacityLiters: 55,
-    driverName: 'Test Vehicle',
   },
 ];
 
-const upsertFleetVehicle = async (customerId, entry) => {
+const upsertDriver = async (customerId, driver) => {
+  const [existing] = await db
+    .select({ id: drivers.id })
+    .from(drivers)
+    .where(
+      and(eq(drivers.customerId, customerId), eq(drivers.fullName, driver.fullName))
+    );
+
+  if (existing) {
+    await db
+      .update(drivers)
+      .set({
+        phone: driver.phone,
+        licenseNumber: driver.licenseNumber,
+        status: 'active',
+      })
+      .where(eq(drivers.id, existing.id));
+    return existing.id;
+  }
+
+  const [created] = await db
+    .insert(drivers)
+    .values({
+      customerId,
+      fullName: driver.fullName,
+      phone: driver.phone,
+      licenseNumber: driver.licenseNumber,
+      status: 'active',
+    })
+    .returning({ id: drivers.id });
+
+  return created.id;
+};
+
+const upsertFleetVehicle = async (customerId, entry, driverId, driverName) => {
   const [existingVehicle] = await db
     .select({ id: vehicles.id })
     .from(vehicles)
@@ -77,7 +139,8 @@ const upsertFleetVehicle = async (customerId, entry) => {
         model: entry.model,
         year: entry.year,
         tankCapacityLiters: entry.tankCapacityLiters,
-        driverName: entry.driverName,
+        driverId,
+        driverName,
       })
       .where(eq(vehicles.id, vehicleId));
   } else {
@@ -90,7 +153,8 @@ const upsertFleetVehicle = async (customerId, entry) => {
         model: entry.model,
         year: entry.year,
         tankCapacityLiters: entry.tankCapacityLiters,
-        driverName: entry.driverName,
+        driverId,
+        driverName,
       })
       .returning({ id: vehicles.id });
     vehicleId = vehicle.id;
@@ -141,8 +205,20 @@ const seed = async () => {
     console.log('Demo customer exists — syncing fleet');
   }
 
+  const driverByPlate = new Map();
+  for (const driver of DEMO_DRIVERS) {
+    const driverId = await upsertDriver(customer.id, driver);
+    driverByPlate.set(driver.vehiclePlate, { driverId, driverName: driver.fullName });
+  }
+
   for (const entry of DEMO_FLEET) {
-    await upsertFleetVehicle(customer.id, entry);
+    const link = driverByPlate.get(entry.licensePlate);
+    await upsertFleetVehicle(
+      customer.id,
+      entry,
+      link?.driverId ?? null,
+      link?.driverName ?? null
+    );
   }
 
   await db
@@ -153,12 +229,12 @@ const seed = async () => {
   console.log('\nSeed complete:');
   console.log(`  Email:    ${DEMO_EMAIL}`);
   console.log(`  Password: ${DEMO_PASSWORD}`);
+  console.log(`  Drivers:  ${DEMO_DRIVERS.length}`);
   console.log(`  Fleet:    ${DEMO_FLEET.length} vehicles with IMEIs`);
-  console.log('\n  Run fleet simulation:');
-  console.log('    npm run simulate-fleet');
-  DEMO_FLEET.forEach((v) => {
-    console.log(`    ${v.licensePlate} → ${v.imei} (${v.driverName})`);
-  });
+  console.log('\n  Next:');
+  console.log('    npm run seed-telemetry');
+  console.log('    npm run seed-fuel-purchases');
+  console.log('    npm run dev  (auto-starts fleet simulator)');
 
   await closePool();
 };

@@ -11,11 +11,15 @@ const STAGGER_MS = Number(process.env.MOCK_STAGGER_MS || 800);
 
 const startVirtualDevice = (profile) => {
   const simulator = new VehicleSimulator(profile);
-  const client = new net.Socket();
+  let client = null;
   let imeiAccepted = false;
   let intervalId = null;
+  let stopped = false;
 
   const connect = () => {
+    if (stopped) return;
+    client = new net.Socket();
+
     client.connect(TCP_SERVER_PORT, TCP_SERVER_HOST, () => {
       console.log(`[${profile.label}] connected (${profile.imei})`);
       const imeiBuffer = Buffer.alloc(2 + profile.imei.length);
@@ -23,45 +27,53 @@ const startVirtualDevice = (profile) => {
       imeiBuffer.write(profile.imei, 2);
       client.write(imeiBuffer);
     });
+
+    client.on('data', (data) => {
+      if (!imeiAccepted && data[0] === 0x01) {
+        imeiAccepted = true;
+        console.log(`[${profile.label}] IMEI accepted — Uber-style route active`);
+
+        intervalId = setInterval(() => {
+          const record = simulator.nextRecord();
+          if (!record) {
+            clearInterval(intervalId);
+            console.log(`[${profile.label}] stopped`);
+            client.end();
+            return;
+          }
+
+          client.write(encodeCodec8ePacket([record]));
+          const meta = record.meta;
+          const theftTag = meta.theftSimulated ? ' ⚠️ THEFT' : '';
+          console.log(
+            `[${profile.label}] ${meta.odometerKm}km · ${meta.fuelLevel?.toFixed(1)}L · ${meta.speedKph}km/h${theftTag}`
+          );
+        }, SEND_INTERVAL_MS);
+      }
+    });
+
+    client.on('error', (err) => {
+      console.error(`[${profile.label}] error:`, err.message);
+    });
+
+    client.on('close', () => {
+      if (intervalId) clearInterval(intervalId);
+      imeiAccepted = false;
+      if (!stopped && !profile.noReconnect) {
+        setTimeout(connect, 5000);
+      }
+    });
   };
 
-  client.on('data', (data) => {
-    if (!imeiAccepted && data[0] === 0x01) {
-      imeiAccepted = true;
-      console.log(`[${profile.label}] IMEI accepted`);
-
-      intervalId = setInterval(() => {
-        const record = simulator.nextRecord();
-        if (!record) {
-          clearInterval(intervalId);
-          console.log(`[${profile.label}] stopped (offline simulation)`);
-          client.end();
-          return;
-        }
-
-        client.write(encodeCodec8ePacket([record]));
-        const fuel =
-          record.meta.fuelLevel != null
-            ? `${record.meta.fuelLevel.toFixed(1)}L`
-            : 'N/A';
-        const theftTag = record.meta.theftSimulated ? ' ⚠️ THEFT SIMULATED' : '';
-        console.log(
-          `[${profile.label}] fuel=${fuel} speed=${record.meta.speedKph}km/h ignition=${record.meta.ignitionOn ? 'ON' : 'OFF'}${theftTag}`
-        );
-      }, SEND_INTERVAL_MS);
-    }
-  });
-
-  client.on('error', (err) => {
-    console.error(`[${profile.label}] error:`, err.message);
-  });
-
-  client.on('close', () => {
-    if (intervalId) clearInterval(intervalId);
-  });
-
   connect();
-  return client;
+
+  return {
+    stop: () => {
+      stopped = true;
+      if (intervalId) clearInterval(intervalId);
+      client?.destroy();
+    },
+  };
 };
 
 const runFleetSimulator = (profiles = DEFAULT_FLEET_PROFILES) => {

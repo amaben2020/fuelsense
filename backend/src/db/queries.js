@@ -9,7 +9,8 @@ const getFleetByCustomerId = async (dbOrTx, customerId) => {
       v.model,
       v.year,
       v.tank_capacity_liters,
-      v.driver_name,
+      COALESCE(dr.full_name, v.driver_name) AS driver_name,
+      v.driver_id,
       d.imei,
       d.device_model,
       d.last_seen_at,
@@ -27,6 +28,7 @@ const getFleetByCustomerId = async (dbOrTx, customerId) => {
         ELSE 'offline'
       END AS connection_status
     FROM vehicles v
+    LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
     LEFT JOIN devices d ON d.vehicle_id = v.id AND d.customer_id = v.customer_id
     LEFT JOIN LATERAL (
       SELECT fuel_level_liters, odometer_km, ignition_on, latitude, longitude, speed_kph, recorded_at

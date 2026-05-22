@@ -127,7 +127,10 @@ Production example: `backend/.env.production.example` (Neon Postgres).
 | `npm start` | Start once (Docker / production) |
 | `npm run seed` | Create demo customer, vehicle, and IMEI |
 | `npm run mock-device` | Simulate a single FMC150 (one IMEI) |
+| `npm run seed` | Demo customer + 5 vehicles with IMEIs |
+| `npm run seed-telemetry` | Replace demo telemetry with 7 days of physics-based history |
 | `npm run simulate-fleet` | Simulate 5 drivers — movement, fuel burn, theft alert |
+| Auto simulator | Starts with `npm run dev` unless `ENABLE_FLEET_SIMULATOR=false` |
 | `npm run db:push` | Push Drizzle schema to Postgres (Drizzle Kit) |
 
 ### Simulate the full fleet (recommended)
@@ -137,6 +140,7 @@ With the backend running:
 ```bash
 cd backend
 npm run seed            # ensures 5 demo vehicles + IMEIs exist
+npm run seed-telemetry  # optional: realistic 7-day history for fuel analytics
 npm run simulate-fleet  # 5 virtual drivers → TCP → Postgres → dashboard
 ```
 

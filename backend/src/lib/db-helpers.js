@@ -1,10 +1,12 @@
 const { db } = require('../db');
 const {
   customers,
+  drivers,
   vehicles,
   devices,
   telemetry,
   alerts,
+  fuelPurchases,
   payments,
   deviceOrders,
 } = require('../db/schema');
@@ -99,10 +101,12 @@ module.exports = {
   serializeForApi,
   db,
   customers,
+  drivers,
   vehicles,
   devices,
   telemetry,
   alerts,
+  fuelPurchases,
   payments,
   deviceOrders,
   eq,
