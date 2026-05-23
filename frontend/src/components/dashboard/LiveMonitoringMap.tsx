@@ -1,20 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  APIProvider,
-  Map,
-  Marker,
-  Polyline,
-  useMap,
-  useMapsLibrary,
-} from '@vis.gl/react-google-maps';
-import { carSvgDataUrl, lerp } from '@/lib/map-utils';
+import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
+import { lerp } from '@/lib/map-utils';
 import { FleetVehicle, VehicleTrack } from '@/lib/api';
+import {
+  FLEET_MAPS_KEY,
+  LAGOS_CENTER,
+  fleetMapContainerStyle,
+  fleetMapDefaults,
+} from '@/lib/fleet-map-theme';
+import {
+  EmphasizedRoute,
+  MapResizeFix,
+  VehicleCarMarker,
+} from '@/components/maps/SharedMapLayers';
 
-const LAGOS = { lat: 6.5244, lng: 3.3792 };
-const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
-const MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID;
 const ANIMATION_MS = 1800;
 
 type AnimatedTrack = VehicleTrack & {
@@ -58,40 +59,6 @@ function MapInteractionGuard({ onUserInteract }: { onUserInteract: () => void })
   }, [map, onUserInteract]);
 
   return null;
-}
-
-function VehicleCarMarker({
-  track,
-  selected,
-  onSelect,
-}: {
-  track: AnimatedTrack;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const maps = useMapsLibrary('core');
-
-  const icon = useMemo(() => {
-    if (!maps) return undefined;
-    const size = selected ? 52 : 44;
-    return {
-      url: carSvgDataUrl(track.color, track.displayHeading, selected),
-      scaledSize: new maps.Size(size, size),
-      anchor: new maps.Point(size / 2, size / 2),
-    };
-  }, [maps, track.color, track.displayHeading, selected]);
-
-  if (!icon) return null;
-
-  return (
-    <Marker
-      position={{ lat: track.displayLat, lng: track.displayLng }}
-      icon={icon}
-      zIndex={selected ? 1000 : 100}
-      onClick={onSelect}
-      title={track.licensePlate}
-    />
-  );
 }
 
 export function LiveMonitoringMap({
@@ -206,7 +173,7 @@ export function LiveMonitoringMap({
     onUserPan?.();
   }, [onUserPan]);
 
-  if (!MAPS_KEY) {
+  if (!FLEET_MAPS_KEY) {
     return (
       <div className="flex h-full min-h-[480px] items-center justify-center bg-[#0b1326] p-8 text-center">
         <p className="text-[#8e90a2]">Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to enable live map</p>
@@ -218,7 +185,7 @@ export function LiveMonitoringMap({
     ? undefined
     : selectedTrack
       ? { lat: selectedTrack.displayLat, lng: selectedTrack.displayLng }
-      : LAGOS;
+      : LAGOS_CENTER;
 
   if (!initializedRef.current && selectedTrack) {
     initializedRef.current = true;
@@ -226,40 +193,38 @@ export function LiveMonitoringMap({
 
   return (
     <div className="relative h-full min-h-[calc(100vh-8rem)] w-full overflow-hidden rounded-xl border border-[#434656]">
-      <APIProvider apiKey={MAPS_KEY}>
+      <APIProvider apiKey={FLEET_MAPS_KEY}>
         <Map
-          mapId={MAP_ID}
-          colorScheme="DARK"
-          defaultCenter={initialCenter ?? LAGOS}
-          defaultZoom={13}
-          tilt={45}
-          heading={0}
-          gestureHandling="greedy"
-          disableDefaultUI={false}
-          zoomControl
-          scrollwheel
-          style={{ width: '100%', height: '100%', minHeight: 'calc(100vh - 8rem)' }}
+          {...fleetMapDefaults({
+            defaultCenter: initialCenter ?? LAGOS_CENTER,
+            defaultZoom: 13,
+          })}
+          style={fleetMapContainerStyle('calc(100vh - 8rem)')}
         >
+          <MapResizeFix />
           <MapInteractionGuard onUserInteract={handleUserInteract} />
           <MapCameraFollow track={selectedTrack} enabled={followSelected && !!selectedTrack} />
 
           {animated.map((track) => (
-            <Polyline
+            <EmphasizedRoute
               key={`route-${track.vehicleId}`}
               path={track.path.slice(-40)}
-              strokeColor={track.color}
-              strokeOpacity={track.vehicleId === selectedVehicleId ? 0.95 : 0.55}
-              strokeWeight={track.vehicleId === selectedVehicleId ? 6 : 4}
-              geodesic
+              color={track.color}
+              activeColor={track.color}
+              emphasized={track.vehicleId === selectedVehicleId}
             />
           ))}
 
           {animated.map((track) => (
             <VehicleCarMarker
               key={`car-${track.vehicleId}`}
-              track={track}
+              lat={track.displayLat}
+              lng={track.displayLng}
+              heading={track.displayHeading}
+              accent={track.color}
               selected={track.vehicleId === selectedVehicleId}
-              onSelect={() => onSelectVehicle(track.vehicleId)}
+              title={track.licensePlate}
+              onClick={() => onSelectVehicle(track.vehicleId)}
             />
           ))}
         </Map>

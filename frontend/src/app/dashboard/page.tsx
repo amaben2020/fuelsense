@@ -536,7 +536,12 @@ export default function DashboardPage() {
                 onViewOnMap={handleViewAnomalyOnMap}
               />
               <FleetEfficiencyReport rows={efficiency} summary={efficiencySummary} />
-              <DailyActivityTable />
+              <DailyActivityTable
+                onViewDay={(vehicleId) => {
+                  setSelectedVehicleId(vehicleId);
+                  switchView('live');
+                }}
+              />
               <TelemetryHistoryTable />
               <FuelPurchaseTable
                 data={fuelPurchases}

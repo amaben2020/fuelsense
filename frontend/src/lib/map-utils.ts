@@ -1,4 +1,5 @@
 import type { FleetVehicle, TrackPoint, VehicleTrack } from './api';
+import { car3dSvgDataUrl, ROUTE_PRIMARY } from './fleet-map-theme';
 
 export function parseCoord(value: string | number | null | undefined): number | null {
   if (value == null || value === '') return null;
@@ -40,19 +41,7 @@ export function routeColor(index: number) {
 }
 
 export function carSvgDataUrl(color: string, heading: number, selected: boolean) {
-  const size = selected ? 52 : 44;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48">
-    <g transform="rotate(${heading} 24 24)">
-      <ellipse cx="24" cy="30" rx="10" ry="4" fill="rgba(0,0,0,0.35)"/>
-      <path d="M18 14h12c2 0 3.5 1.2 4 3l2 8c.5 2-.5 4-2.5 4h-15c-2 0-3-2-2.5-4l2-8c.5-1.8 2-3 4-3z" fill="${color}" stroke="#fff" stroke-width="1.5"/>
-      <path d="M20 14v-3c0-1 .8-2 2-2h4c1.2 0 2 1 2 2v3" fill="#1a1f33" opacity="0.5"/>
-      <rect x="19" y="18" width="4" height="6" rx="1" fill="#dae2fd" opacity="0.9"/>
-      <rect x="25" y="18" width="4" height="6" rx="1" fill="#dae2fd" opacity="0.9"/>
-      <circle cx="17" cy="26" r="2.5" fill="#0b1326"/>
-      <circle cx="31" cy="26" r="2.5" fill="#0b1326"/>
-    </g>
-  </svg>`;
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  return car3dSvgDataUrl(heading, selected, color || ROUTE_PRIMARY);
 }
 
 export function buildVehicleTracks(points: TrackPoint[], colorOffset = 0): VehicleTrack[] {

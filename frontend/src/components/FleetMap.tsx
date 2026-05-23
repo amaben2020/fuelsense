@@ -1,23 +1,22 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { APIProvider, Map, Marker, InfoWindow } from '@vis.gl/react-google-maps';
+import { APIProvider, Map, InfoWindow } from '@vis.gl/react-google-maps';
 import { FleetVehicle } from '@/lib/api';
-
-const LAGOS = { lat: 6.5244, lng: 3.3792 };
-const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
-
-function parseCoord(value: string | number | null | undefined): number | null {
-  if (value == null || value === '') return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
+import { parseCoord } from '@/lib/map-utils';
+import {
+  FLEET_MAPS_KEY,
+  LAGOS_CENTER,
+  fleetMapContainerStyle,
+  fleetMapDefaults,
+} from '@/lib/fleet-map-theme';
+import { MapResizeFix, VehicleCarMarker } from '@/components/maps/SharedMapLayers';
 
 export function FleetMap({
   fleet,
   selectedId,
   onSelect,
-  theme = 'light',
+  theme = 'dark',
 }: {
   fleet: FleetVehicle[];
   selectedId?: string | null;
@@ -40,7 +39,7 @@ export function FleetMap({
   );
 
   const center = useMemo(() => {
-    if (located.length === 0) return LAGOS;
+    if (located.length === 0) return LAGOS_CENTER;
     const lat = located.reduce((sum, v) => sum + v.lat, 0) / located.length;
     const lng = located.reduce((sum, v) => sum + v.lng, 0) / located.length;
     return { lat, lng };
@@ -48,8 +47,8 @@ export function FleetMap({
 
   const infoId = selectedId ?? activeId;
   const infoVehicle = located.find((v) => v.id === infoId) ?? null;
-
   const isDark = theme === 'dark';
+
   const shellClass = isDark
     ? 'overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]'
     : 'overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60';
@@ -57,7 +56,7 @@ export function FleetMap({
   const titleClass = isDark ? 'font-semibold text-[#dae2fd]' : 'font-semibold text-slate-900';
   const subClass = isDark ? 'text-xs text-[#8e90a2]' : 'text-xs text-slate-500';
 
-  if (!MAPS_KEY) {
+  if (!FLEET_MAPS_KEY) {
     return (
       <div
         className={`flex h-[420px] items-center justify-center p-8 text-center ${
@@ -97,27 +96,31 @@ export function FleetMap({
           </span>
         </div>
       </div>
-      <APIProvider apiKey={MAPS_KEY}>
+      <APIProvider apiKey={FLEET_MAPS_KEY}>
         <Map
-          center={center}
-          zoom={located.length <= 1 ? 13 : 11}
-          gestureHandling="greedy"
-          disableDefaultUI={false}
-          style={{ width: '100%', height: '420px' }}
+          {...fleetMapDefaults({
+            center,
+            zoom: located.length <= 1 ? 14 : 12,
+          })}
+          style={fleetMapContainerStyle(420)}
           onClick={() => {
             setActiveId(null);
             onSelect?.(null);
           }}
         >
+          <MapResizeFix />
           {located.map((vehicle) => (
-            <Marker
+            <VehicleCarMarker
               key={vehicle.id}
-              position={{ lat: vehicle.lat, lng: vehicle.lng }}
+              lat={vehicle.lat}
+              lng={vehicle.lng}
+              heading={0}
+              selected={vehicle.id === infoId}
+              title={vehicle.license_plate}
               onClick={() => {
                 setActiveId(vehicle.id);
                 onSelect?.(vehicle.id);
               }}
-              title={vehicle.license_plate}
             />
           ))}
 

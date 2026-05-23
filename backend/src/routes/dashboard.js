@@ -2,7 +2,7 @@ const express = require('express');
 const { authenticateCustomer } = require('../middleware/auth');
 const { db, alerts, eq, and, sql } = require('../lib/db-helpers');
 const { fleetEfficiencyAggSql } = require('../lib/fleet-efficiency-sql');
-const { round1, round2, DEFAULT_FUEL_PRICE_NGN_LITER } = require('../lib/fuel-metrics');
+const { round1, round2, computeL100km, DEFAULT_FUEL_PRICE_NGN_LITER } = require('../lib/fuel-metrics');
 
 const router = express.Router();
 
@@ -54,6 +54,7 @@ router.get('/summary', async (req, res) => {
       totalDistanceKm > 0 && totalFuelUsedLiters >= 0.5
         ? totalDistanceKm / totalFuelUsedLiters
         : null;
+    const avgEfficiencyL100km = computeL100km(totalFuelUsedLiters, totalDistanceKm);
     const totalFuelCostNgn = Math.round(totalFuelUsedLiters * pricePerLiter);
 
     const alertRows = await db
@@ -87,6 +88,7 @@ router.get('/summary', async (req, res) => {
       total_fuel_used_liters: round1(totalFuelUsedLiters),
       avg_efficiency_km_l:
         avgEfficiencyKmL != null ? round2(avgEfficiencyKmL) : null,
+      avg_efficiency_l_100km: avgEfficiencyL100km,
       total_fuel_cost_ngn: totalFuelCostNgn,
       active_alerts: activeAlerts,
       theft_alerts: theftAlerts.length,

@@ -3,17 +3,24 @@ const { authenticateCustomer } = require('../middleware/auth');
 const { db, telemetry, vehicles, fuelPurchases, eq, desc, sql } = require('../lib/db-helpers');
 const { fleetEfficiencyAggSql } = require('../lib/fleet-efficiency-sql');
 const { dailyActivitySql } = require('../lib/daily-activity-sql');
+const { buildDailyActivityReplay } = require('../lib/event-replay');
 const {
   CO2_KG_PER_LITER,
   round1,
   round2,
   baselineEfficiencyKmL,
+  baselineEfficiencyL100km,
+  computeL100km,
+  efficiencyDeviationPercentL100km,
   REFUEL_THRESHOLD_LITERS,
   DEFAULT_FUEL_PRICE_NGN_LITER,
 } = require('../lib/fuel-metrics');
 const {
   dailyDistanceThreshold,
-  evaluateDailyFlags,
+  buildDailyFlags,
+  classifyDailyRow,
+  formatActivityDateDisplay,
+  EFFICIENCY_TIERS,
   EFFICIENCY_VARIANCE_THRESHOLD_PERCENT,
   DAILY_DISTANCE_BY_MODEL,
 } = require('../lib/activity-thresholds');
@@ -231,23 +238,26 @@ router.get('/fleet-efficiency', async (req, res) => {
       const distanceKm = Number(row.distance_km) || 0;
       const fuelUsed = Number(row.fuel_used_liters) || 0;
       const expectedKmL = baselineEfficiencyKmL(row.model);
+      const expectedL100km = baselineEfficiencyL100km(row.model);
 
       const tankDistance = Number(row.tank_distance_km) || Number(row.distance_since_purchase_km) || 0;
       const tankFuel = Number(row.tank_fuel_used_liters) || Number(row.fuel_since_purchase_liters) || 0;
       const tankEfficiencyKmL =
         tankDistance > 0 && tankFuel >= 0.5 ? tankDistance / tankFuel : null;
+      const tankEfficiencyL100km = computeL100km(tankFuel, tankDistance);
 
       const periodEfficiencyKmL =
         distanceKm > 0 && fuelUsed >= 0.5 ? distanceKm / fuelUsed : null;
+      const periodEfficiencyL100km = computeL100km(fuelUsed, distanceKm);
 
       const variancePercent =
-        periodEfficiencyKmL != null && expectedKmL > 0
-          ? ((periodEfficiencyKmL - expectedKmL) / expectedKmL) * 100
+        periodEfficiencyL100km != null && expectedL100km > 0
+          ? efficiencyDeviationPercentL100km(periodEfficiencyL100km, expectedL100km)
           : null;
 
       const tankVariancePercent =
-        tankEfficiencyKmL != null && expectedKmL > 0
-          ? ((tankEfficiencyKmL - expectedKmL) / expectedKmL) * 100
+        tankEfficiencyL100km != null && expectedL100km > 0
+          ? efficiencyDeviationPercentL100km(tankEfficiencyL100km, expectedL100km)
           : null;
 
       const expectedFuelLiters = expectedKmL > 0 ? distanceKm / expectedKmL : 0;
@@ -269,7 +279,7 @@ router.get('/fleet-efficiency', async (req, res) => {
 
       let status = 'verified';
       if (theftLossNgn > 0) status = 'theft_alert';
-      else if (variancePercent != null && variancePercent <= EFFICIENCY_VARIANCE_THRESHOLD_PERCENT) {
+      else if (variancePercent != null && variancePercent >= EFFICIENCY_VARIANCE_THRESHOLD_PERCENT) {
         status = 'underperforming';
       }
 
@@ -282,11 +292,14 @@ router.get('/fleet-efficiency', async (req, res) => {
         distance_km: Math.round(distanceKm),
         fuel_used_liters: round1(fuelUsed),
         efficiency_km_l: periodEfficiencyKmL != null ? round2(periodEfficiencyKmL) : null,
+        efficiency_l_100km: periodEfficiencyL100km,
         expected_efficiency_km_l: expectedKmL,
+        expected_efficiency_l_100km: expectedL100km,
         variance_percent: variancePercent != null ? round2(variancePercent) : null,
         tank_distance_km: Math.round(tankDistance),
         tank_fuel_used_liters: round1(tankFuel),
         tank_efficiency_km_l: tankEfficiencyKmL != null ? round2(tankEfficiencyKmL) : null,
+        tank_efficiency_l_100km: tankEfficiencyL100km,
         tank_variance_percent: tankVariancePercent != null ? round2(tankVariancePercent) : null,
         expected_fuel_liters: round1(expectedFuelLiters),
         expected_cost_ngn: expectedCostNgn,
@@ -334,24 +347,41 @@ router.get('/fleet-efficiency', async (req, res) => {
 });
 
 router.get('/daily-activity', async (req, res) => {
-  const days = Math.min(Number(req.query.days) || 7, 30);
+  const days = Math.min(Number(req.query.days) || 30, 90);
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const limit = Math.min(Number(req.query.limit) || 20, 50);
 
   try {
     const customerId = req.user.customerId;
     const result = await db.execute(dailyActivitySql({ customerId, days }));
 
-    const rows = result.rows.map((row) => {
+    const allRows = result.rows.map((row) => {
       const distanceKm = Number(row.distance_km) || 0;
       const fuelUsed = Number(row.fuel_used_liters) || 0;
+      const idleHours = Number(row.idle_hours) || 0;
+      const tripCount = Number(row.trip_count) || 0;
       const expectedKmL = baselineEfficiencyKmL(row.model);
-      const efficiencyKmL =
-        distanceKm > 0 && fuelUsed >= 0.5 ? distanceKm / fuelUsed : null;
+      const expectedL100km = baselineEfficiencyL100km(row.model);
+      const efficiencyL100km = computeL100km(fuelUsed, distanceKm);
       const band = dailyDistanceThreshold(row.model);
-      const flags = evaluateDailyFlags({
+      const deviationPercent = efficiencyDeviationPercentL100km(
+        efficiencyL100km,
+        expectedL100km
+      );
+      const activityDate =
+        row.activity_date instanceof Date
+          ? row.activity_date.toISOString().slice(0, 10)
+          : String(row.activity_date).slice(0, 10);
+
+      const classification = classifyDailyRow({
         model: row.model,
         distanceKm,
-        efficiencyKmL,
-        expectedEfficiencyKmL: expectedKmL,
+        fuelUsed,
+        efficiencyL100km,
+        expectedEfficiencyL100km: expectedL100km,
+        deviationPercent,
+        idleHours,
+        tripCount,
       });
 
       return {
@@ -359,24 +389,93 @@ router.get('/daily-activity', async (req, res) => {
         license_plate: row.license_plate,
         driver_name: row.driver_name,
         model: row.model,
-        activity_date: row.activity_date,
+        activity_date: activityDate,
+        activity_date_display: formatActivityDateDisplay(activityDate),
         distance_km: Math.round(distanceKm),
         fuel_used_liters: round1(fuelUsed),
-        efficiency_km_l: efficiencyKmL != null ? round2(efficiencyKmL) : null,
+        efficiency_l_100km:
+          classification.display_efficiency_l_100km != null
+            ? classification.display_efficiency_l_100km
+            : null,
+        raw_efficiency_l_100km: efficiencyL100km,
+        expected_efficiency_l_100km: expectedL100km,
         expected_efficiency_km_l: expectedKmL,
+        efficiency_deviation_percent: deviationPercent,
+        status: classification.status,
+        status_label: classification.status_label,
+        status_severity: classification.status_severity,
+        data_anomaly: classification.data_anomaly,
+        insight: classification.insight,
         expected_distance_min_km: band.min,
         expected_distance_max_km: band.max,
         expected_distance_km: band.expected,
-        flags,
+        idle_hours: round1(idleHours),
+        trip_count: tripCount,
+        _flags: buildDailyFlags({
+          vehicleId: row.vehicle_id,
+          licensePlate: row.license_plate,
+          driverName: row.driver_name,
+          activityDate,
+          model: row.model,
+          distanceKm,
+          fuelUsed,
+          idleHours,
+          efficiencyL100km,
+          expectedEfficiencyL100km: expectedL100km,
+          deviationPercent,
+        }),
       };
     });
 
+    const activeFlags = allRows.flatMap((row) => row._flags);
+    const total = allRows.length;
+    const totalPages = Math.max(Math.ceil(total / limit), 1);
+    const offset = (page - 1) * limit;
+    const rows = allRows.slice(offset, offset + limit).map(({ _flags, ...row }) => row);
+
     res.json({
       period_days: days,
+      page,
+      limit,
+      total,
+      total_pages: totalPages,
+      efficiency_tiers: EFFICIENCY_TIERS.map((t) => ({
+        status: t.status,
+        label: t.label,
+        severity: t.severity,
+        max_deviation_percent: t.maxDeviation,
+      })),
       efficiency_variance_threshold_percent: EFFICIENCY_VARIANCE_THRESHOLD_PERCENT,
       daily_distance_by_model: DAILY_DISTANCE_BY_MODEL,
       rows,
+      active_flags: activeFlags,
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/daily-activity/replay', async (req, res) => {
+  const customerId = req.user.customerId;
+  const vehicleId = String(req.query.vehicle_id || '').trim();
+  const date = String(req.query.date || '').trim();
+  const flagType = String(req.query.flag_type || 'efficiency').trim();
+
+  if (!vehicleId || !date) {
+    return res.status(400).json({ error: 'vehicle_id and date are required' });
+  }
+
+  try {
+    const replay = await buildDailyActivityReplay({
+      customerId,
+      vehicleId,
+      activityDate: date,
+      flagType,
+    });
+    if (!replay) {
+      return res.status(404).json({ error: 'No replay data for this day' });
+    }
+    res.json(replay);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

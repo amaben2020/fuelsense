@@ -83,6 +83,116 @@ function findSteepestDropIndex(readings) {
   return bestDrop > 0 ? bestIndex : findClosestIndex(readings, readings[Math.floor(readings.length / 2)]?.recorded_at);
 }
 
+function formatTimeLabel(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString('en-NG', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'Africa/Lagos',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function buildMoments(readings, anomalyIndex) {
+  const moments = [];
+  for (let i = 1; i < readings.length; i += 1) {
+    const prev = readings[i - 1];
+    const curr = readings[i];
+    if (prev.fuel_level_liters == null || curr.fuel_level_liters == null) continue;
+
+    const delta = curr.fuel_level_liters - prev.fuel_level_liters;
+    const drop = prev.fuel_level_liters - curr.fuel_level_liters;
+
+    if (drop >= 3) {
+      moments.push({
+        index: i,
+        type: 'fuel_drop',
+        recorded_at: curr.recorded_at,
+        fuel_drop_liters: Math.round(drop * 10) / 10,
+        fuel_before: prev.fuel_level_liters,
+        fuel_after: curr.fuel_level_liters,
+        latitude: curr.latitude,
+        longitude: curr.longitude,
+        speed_kph: curr.speed_kph,
+        ignition_on: curr.ignition_on,
+        label: `Fuel dropped ${drop.toFixed(1)}L at ${formatTimeLabel(curr.recorded_at)}`,
+      });
+    } else if (delta >= 5) {
+      moments.push({
+        index: i,
+        type: 'fuel_rise',
+        recorded_at: curr.recorded_at,
+        fuel_rise_liters: Math.round(delta * 10) / 10,
+        fuel_before: prev.fuel_level_liters,
+        fuel_after: curr.fuel_level_liters,
+        latitude: curr.latitude,
+        longitude: curr.longitude,
+        speed_kph: curr.speed_kph,
+        ignition_on: curr.ignition_on,
+        label: `Refuel detected +${delta.toFixed(1)}L at ${formatTimeLabel(curr.recorded_at)}`,
+      });
+    }
+
+    if (
+      i > 1 &&
+      !prev.ignition_on &&
+      curr.ignition_on &&
+      (curr.speed_kph ?? 0) > 5
+    ) {
+      moments.push({
+        index: i,
+        type: 'trip_start',
+        recorded_at: curr.recorded_at,
+        latitude: curr.latitude,
+        longitude: curr.longitude,
+        speed_kph: curr.speed_kph,
+        ignition_on: true,
+        label: `Trip started at ${formatTimeLabel(curr.recorded_at)}`,
+      });
+    }
+  }
+
+  const anomalyReading = readings[anomalyIndex];
+  if (anomalyReading) {
+    const prev = readings[Math.max(0, anomalyIndex - 1)];
+    const drop =
+      prev?.fuel_level_liters != null && anomalyReading.fuel_level_liters != null
+        ? prev.fuel_level_liters - anomalyReading.fuel_level_liters
+        : null;
+
+    moments.push({
+      index: anomalyIndex,
+      type: 'anomaly',
+      recorded_at: anomalyReading.recorded_at,
+      fuel_drop_liters: drop != null && drop > 0 ? Math.round(drop * 10) / 10 : undefined,
+      fuel_before: prev?.fuel_level_liters ?? null,
+      fuel_after: anomalyReading.fuel_level_liters,
+      latitude: anomalyReading.latitude,
+      longitude: anomalyReading.longitude,
+      speed_kph: anomalyReading.speed_kph,
+      ignition_on: anomalyReading.ignition_on,
+      label: `Anomaly detected at ${formatTimeLabel(anomalyReading.recorded_at)}`,
+    });
+  }
+
+  const byIndex = new Map();
+  for (const m of moments) {
+    if (!byIndex.has(m.index) || m.type === 'anomaly') byIndex.set(m.index, m);
+  }
+  return [...byIndex.values()].sort(
+    (a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime()
+  );
+}
+
+function attachMoments(payload, readings, anomalyIndex) {
+  const moments = buildMoments(readings, anomalyIndex);
+  const anomalyMoment = moments.find((m) => m.type === 'anomaly') ?? moments.find((m) => m.type === 'fuel_drop') ?? null;
+  return { ...payload, moments, anomaly_moment: anomalyMoment };
+}
+
 function buildFallbackReadings({ center, beforeLiters, afterLiters, lat, lng }) {
   const centerMs = center.getTime();
   const points = [
@@ -151,25 +261,29 @@ function buildSiphonReplay(event, rawRows) {
   const anomalyIndex =
     rows.length > 1 ? findSteepestDropIndex(rows) : findClosestIndex(rows, event.occurred_at);
 
-  return {
-    event_type: 'siphon',
-    vehicle_plate: event.vehicle_plate,
-    driver_name: event.driver_name,
-    vehicle_id: event.vehicle_id,
-    range_start: rows[0]?.recorded_at ?? event.occurred_at,
-    range_end: rows[rows.length - 1]?.recorded_at ?? event.occurred_at,
-    anomaly_at: event.occurred_at,
-    anomaly_index: anomalyIndex,
-    location_name: event.location_name,
-    readings: rows,
-    anomaly: {
-      type: 'Sudden fuel drop',
-      liters_lost: drop,
-      estimated_loss_ngn: Number(event.estimated_loss_ngn) || Math.round(drop * DEFAULT_FUEL_PRICE_NGN_LITER),
-      confidence_percent: Math.min(Math.round(confidence), 96),
-      reasons,
+  return attachMoments(
+    {
+      event_type: 'siphon',
+      vehicle_plate: event.vehicle_plate,
+      driver_name: event.driver_name,
+      vehicle_id: event.vehicle_id,
+      range_start: rows[0]?.recorded_at ?? event.occurred_at,
+      range_end: rows[rows.length - 1]?.recorded_at ?? event.occurred_at,
+      anomaly_at: rows[anomalyIndex]?.recorded_at ?? event.occurred_at,
+      anomaly_index: anomalyIndex,
+      location_name: event.location_name,
+      readings: rows,
+      anomaly: {
+        type: 'Sudden fuel drop',
+        liters_lost: drop,
+        estimated_loss_ngn: Number(event.estimated_loss_ngn) || Math.round(drop * DEFAULT_FUEL_PRICE_NGN_LITER),
+        confidence_percent: Math.min(Math.round(confidence), 96),
+        reasons,
+      },
     },
-  };
+    rows,
+    anomalyIndex
+  );
 }
 
 function buildReceiptReplay(receipt, rawRows) {
@@ -204,28 +318,135 @@ function buildReceiptReplay(receipt, rawRows) {
 
   const anomalyIndex = findClosestIndex(rows, receipt.transaction_date);
 
-  return {
-    event_type: 'receipt_fraud',
-    vehicle_plate: receipt.vehicle_plate,
-    driver_name: receipt.driver_name,
-    vehicle_id: receipt.vehicle_id,
-    range_start: rows[0]?.recorded_at ?? receipt.transaction_date,
-    range_end: rows[rows.length - 1]?.recorded_at ?? receipt.transaction_date,
-    anomaly_at: receipt.transaction_date,
-    anomaly_index: anomalyIndex,
-    location_name: receipt.merchant_name,
-    readings: rows,
-    anomaly: {
-      type: 'Receipt fraud',
-      liters_lost: Math.max(0, diff),
-      estimated_loss_ngn:
-        Number(receipt.estimated_loss_ngn) || Math.round(Math.max(0, diff) * price),
-      confidence_percent: actual != null ? Math.min(88 + Math.min(diff / 2, 8), 97) : 72,
-      reasons,
-      declared_liters: declared,
-      obd_liters_actual: actual,
+  return attachMoments(
+    {
+      event_type: 'receipt_fraud',
+      vehicle_plate: receipt.vehicle_plate,
+      driver_name: receipt.driver_name,
+      vehicle_id: receipt.vehicle_id,
+      range_start: rows[0]?.recorded_at ?? receipt.transaction_date,
+      range_end: rows[rows.length - 1]?.recorded_at ?? receipt.transaction_date,
+      anomaly_at: rows[anomalyIndex]?.recorded_at ?? receipt.transaction_date,
+      anomaly_index: anomalyIndex,
+      location_name: receipt.merchant_name,
+      readings: rows,
+      anomaly: {
+        type: 'Receipt fraud',
+        liters_lost: Math.max(0, diff),
+        estimated_loss_ngn:
+          Number(receipt.estimated_loss_ngn) || Math.round(Math.max(0, diff) * price),
+        confidence_percent: actual != null ? Math.min(88 + Math.min(diff / 2, 8), 97) : 72,
+        reasons,
+        declared_liters: declared,
+        obd_liters_actual: actual,
+      },
     },
-  };
+    rows,
+    anomalyIndex
+  );
+}
+
+async function loadTelemetryDay({ vehicleId, customerId, activityDate }) {
+  const result = await db.execute(sql`
+    SELECT
+      recorded_at,
+      fuel_level_liters,
+      speed_kph,
+      ignition_on,
+      latitude,
+      longitude,
+      odometer_km
+    FROM telemetry
+    WHERE vehicle_id = ${vehicleId}
+      AND customer_id = ${customerId}
+      AND DATE(recorded_at AT TIME ZONE 'Africa/Lagos') = ${activityDate}::date
+    ORDER BY recorded_at ASC
+    LIMIT ${MAX_READINGS}
+  `);
+  return result.rows ?? [];
+}
+
+function buildDailyReplay({ vehicle, rawRows, flagType }) {
+  let rows = downsampleReadings(rawRows.map(serializeReading));
+  if (!rows.length) return null;
+
+  const anomalyIndex = findSteepestDropIndex(rows);
+  const anomalyReading = rows[anomalyIndex];
+  const prev = rows[Math.max(0, anomalyIndex - 1)];
+  const drop =
+    prev?.fuel_level_liters != null && anomalyReading?.fuel_level_liters != null
+      ? Math.max(0, prev.fuel_level_liters - anomalyReading.fuel_level_liters)
+      : 0;
+
+  const eventType =
+    flagType === 'data_anomaly'
+      ? 'data_anomaly'
+      : flagType === 'low_efficiency' || flagType === 'high_fuel_per_km'
+        ? 'low_efficiency'
+        : 'daily_flag';
+
+  const reasons = [];
+  if (drop >= 3) reasons.push(`Largest fuel drop this day: −${drop.toFixed(1)}L`);
+  if (flagType === 'data_anomaly') reasons.push('Fuel/distance ratio inconsistent with normal trips');
+  if (flagType === 'low_efficiency') reasons.push('Daily consumption above vehicle baseline');
+  if (!reasons.length) reasons.push('Review full-day telemetry for operational waste');
+
+  return attachMoments(
+    {
+      event_type: eventType,
+      vehicle_plate: vehicle.license_plate,
+      driver_name: vehicle.driver_name,
+      vehicle_id: vehicle.vehicle_id,
+      range_start: rows[0].recorded_at,
+      range_end: rows[rows.length - 1].recorded_at,
+      anomaly_at: anomalyReading?.recorded_at ?? rows[0].recorded_at,
+      anomaly_index: anomalyIndex,
+      location_name: null,
+      readings: rows,
+      anomaly: {
+        type:
+          eventType === 'data_anomaly'
+            ? 'Data anomaly'
+            : eventType === 'low_efficiency'
+              ? 'Low efficiency day'
+              : 'Daily flag review',
+        liters_lost: drop,
+        estimated_loss_ngn: Math.round(drop * DEFAULT_FUEL_PRICE_NGN_LITER),
+        confidence_percent: drop >= 5 ? 82 : 68,
+        reasons,
+      },
+    },
+    rows,
+    anomalyIndex
+  );
+}
+
+async function buildDailyActivityReplay({ customerId, vehicleId, activityDate, flagType }) {
+  const vehicleResult = await db.execute(sql`
+    SELECT v.id AS vehicle_id, v.license_plate, v.model,
+      COALESCE(dr.full_name, v.driver_name) AS driver_name
+    FROM vehicles v
+    LEFT JOIN drivers dr ON dr.id = v.driver_id
+    WHERE v.id = ${vehicleId} AND v.customer_id = ${customerId}
+    LIMIT 1
+  `);
+  const vehicle = vehicleResult.rows[0];
+  if (!vehicle) return null;
+
+  const siphonResult = await db.execute(sql`
+    SELECT id FROM siphon_events
+    WHERE vehicle_id = ${vehicleId}
+      AND customer_id = ${customerId}
+      AND DATE(occurred_at AT TIME ZONE 'Africa/Lagos') = ${activityDate}::date
+    ORDER BY occurred_at DESC
+    LIMIT 1
+  `);
+  if (siphonResult.rows[0]?.id) {
+    return buildSiphonEventReplay({ customerId, eventId: siphonResult.rows[0].id });
+  }
+
+  const rows = await loadTelemetryDay({ vehicleId, customerId, activityDate });
+  return buildDailyReplay({ vehicle, rawRows: rows, flagType });
 }
 
 function findMaxDropLiters(rows) {
@@ -314,4 +535,5 @@ async function buildReceiptEventReplay({ customerId, receiptId }) {
 module.exports = {
   buildSiphonEventReplay,
   buildReceiptEventReplay,
+  buildDailyActivityReplay,
 };

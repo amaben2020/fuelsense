@@ -59,8 +59,9 @@ export function FuelAnalyticsPanel({
                     {row.license_plate}
                   </p>
                   <p className="text-xs text-[#8e90a2]">
-                    {row.fuel_used_liters.toFixed(1)} L · {row.distance_km} km ·
-                    baseline {row.expected_efficiency_km_l} km/L
+                    {row.fuel_used_liters.toFixed(1)} L · {row.distance_km} km ·{' '}
+                    {row.efficiency_l_100km?.toFixed(1) ?? '—'} L/100km vs target{' '}
+                    {row.expected_efficiency_l_100km?.toFixed(1) ?? '—'}
                   </p>
                 </div>
                 <p

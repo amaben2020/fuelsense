@@ -16,11 +16,7 @@ import {
   formatNgn,
 } from '@/lib/api';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
-
-type ReplayTarget =
-  | { type: 'siphon'; id: string }
-  | { type: 'receipt'; id: string }
-  | null;
+import { ReplayTarget } from '@/lib/replay-target';
 
 export function countActiveFuelEvents(data: FuelEventsResponse | null) {
   if (!data) return 0;
@@ -42,7 +38,7 @@ export function FuelAnomaliesPanel({
   const [activeTab, setActiveTab] = useState<'siphon' | 'receipt'>('siphon');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [replayTarget, setReplayTarget] = useState<ReplayTarget>(null);
+  const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,11 +75,7 @@ export function FuelAnomaliesPanel({
   return (
     <>
       {replayTarget && (
-        <EventReplayPanel
-          type={replayTarget.type}
-          eventId={replayTarget.id}
-          onClose={() => setReplayTarget(null)}
-        />
+        <EventReplayPanel target={replayTarget} onClose={() => setReplayTarget(null)} />
       )}
 
       <div className="rounded-lg border border-[#434656] bg-[#171f33]">
@@ -133,7 +125,7 @@ export function FuelAnomaliesPanel({
                     expanded={selectedId === event.id}
                     onToggle={() => setSelectedId(selectedId === event.id ? null : event.id)}
                     onResolve={() => resolveSiphon(event.id)}
-                    onReplay={() => setReplayTarget({ type: 'siphon', id: event.id })}
+                    onReplay={() => setReplayTarget({ kind: 'siphon', id: event.id })}
                     onViewMap={() => {
                       if (event.latitude != null && event.longitude != null && onViewOnMap) {
                         onViewOnMap(Number(event.latitude), Number(event.longitude), event.vehicle_id);
@@ -154,7 +146,7 @@ export function FuelAnomaliesPanel({
                     key={flag.id}
                     flag={flag}
                     onResolve={() => resolveReceipt(flag.id)}
-                    onReplay={() => setReplayTarget({ type: 'receipt', id: flag.id })}
+                    onReplay={() => setReplayTarget({ kind: 'receipt', id: flag.id })}
                   />
                 ))}
               </div>

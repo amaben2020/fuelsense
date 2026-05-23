@@ -73,13 +73,15 @@ export function DashboardKpis({ summary }: { summary: DashboardSummary | null })
         icon={Droplet}
       />
       <KpiCard
-        title="Avg efficiency"
+        title="Avg consumption"
         value={
-          summary.avg_efficiency_km_l != null
-            ? `${summary.avg_efficiency_km_l.toFixed(1)} km/L`
-            : '—'
+          summary.avg_efficiency_l_100km != null
+            ? `${summary.avg_efficiency_l_100km.toFixed(1)} L/100km`
+            : summary.avg_efficiency_km_l != null
+              ? `${((summary.total_fuel_used_liters / summary.total_distance_km) * 100).toFixed(1)} L/100km`
+              : '—'
         }
-        hint={`${summary.total_distance_km.toLocaleString()} km · ${summary.period_days}d`}
+        hint={`Lower is better · ${summary.total_distance_km.toLocaleString()} km`}
         icon={TrendingUp}
         tone="success"
       />

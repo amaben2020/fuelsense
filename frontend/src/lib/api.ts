@@ -157,6 +157,7 @@ export interface DashboardSummary {
   total_distance_km: number;
   total_fuel_used_liters: number;
   avg_efficiency_km_l: number | null;
+  avg_efficiency_l_100km?: number | null;
   total_fuel_cost_ngn: number;
   active_alerts: number;
   theft_alerts: number;
@@ -188,11 +189,14 @@ export interface FleetEfficiency {
   distance_km: number;
   fuel_used_liters: number;
   efficiency_km_l: number | null;
+  efficiency_l_100km: number | null;
   expected_efficiency_km_l: number;
+  expected_efficiency_l_100km: number;
   variance_percent: number | null;
   tank_distance_km?: number;
   tank_fuel_used_liters?: number;
   tank_efficiency_km_l?: number | null;
+  tank_efficiency_l_100km?: number | null;
   tank_variance_percent?: number | null;
   expected_fuel_liters?: number;
   expected_cost_ngn: number;
@@ -235,7 +239,33 @@ export interface FleetEfficiencyResponse {
   vehicles: FleetEfficiency[];
 }
 
-export type DailyActivityFlag = 'high_distance' | 'low_utilization' | 'below_efficiency';
+export type DailyActivityStatus =
+  | 'normal'
+  | 'low_efficiency'
+  | 'high_usage'
+  | 'data_anomaly'
+  | 'unknown';
+
+export type DailyFlagType =
+  | 'low_efficiency'
+  | 'high_fuel_per_km'
+  | 'high_distance'
+  | 'low_distance_use'
+  | 'data_anomaly';
+
+export interface DailyActivityFlagRow {
+  id: string;
+  vehicle_id: string;
+  license_plate: string;
+  driver_name: string | null;
+  activity_date: string;
+  flag_type: DailyFlagType;
+  flag_label: string;
+  severity: 'none' | 'low' | 'medium' | 'high' | 'critical';
+  reason: string;
+  impact: string;
+  suggestion: string;
+}
 
 export interface DailyActivityRow {
   vehicle_id: string;
@@ -243,21 +273,42 @@ export interface DailyActivityRow {
   driver_name: string | null;
   model: string | null;
   activity_date: string;
+  activity_date_display: string;
   distance_km: number;
   fuel_used_liters: number;
-  efficiency_km_l: number | null;
-  expected_efficiency_km_l: number;
+  efficiency_l_100km: number | null;
+  raw_efficiency_l_100km?: number | null;
+  expected_efficiency_l_100km: number;
+  expected_efficiency_km_l?: number;
+  efficiency_deviation_percent: number | null;
+  status: DailyActivityStatus;
+  status_label: string;
+  status_severity: string;
+  data_anomaly: boolean;
+  insight: string;
   expected_distance_min_km: number;
   expected_distance_max_km: number;
   expected_distance_km: number;
-  flags: DailyActivityFlag[];
+  idle_hours: number;
+  trip_count: number;
 }
 
 export interface DailyActivityResponse {
   period_days: number;
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  efficiency_tiers: Array<{
+    status: string;
+    label: string;
+    severity: string;
+    max_deviation_percent: number;
+  }>;
   efficiency_variance_threshold_percent: number;
   daily_distance_by_model: Record<string, { min: number; max: number; expected: number }>;
   rows: DailyActivityRow[];
+  active_flags: DailyActivityFlagRow[];
 }
 
 export interface SiphonEventRow {
@@ -301,6 +352,21 @@ export interface FuelEventsResponse {
   receipt_flags: ReceiptFlagRow[];
 }
 
+export interface EventReplayMoment {
+  index: number;
+  type: 'fuel_drop' | 'fuel_rise' | 'anomaly' | 'idle_start' | 'trip_start';
+  recorded_at: string;
+  fuel_drop_liters?: number;
+  fuel_rise_liters?: number;
+  fuel_before?: number | null;
+  fuel_after?: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  speed_kph?: number;
+  ignition_on?: boolean;
+  label: string;
+}
+
 export interface EventReplayReading {
   recorded_at: string;
   fuel_level_liters: number | null;
@@ -312,7 +378,7 @@ export interface EventReplayReading {
 }
 
 export interface EventReplayResponse {
-  event_type: 'siphon' | 'receipt_fraud';
+  event_type: 'siphon' | 'receipt_fraud' | 'daily_flag' | 'low_efficiency' | 'data_anomaly';
   vehicle_plate: string;
   driver_name: string | null;
   vehicle_id: string;
@@ -322,6 +388,8 @@ export interface EventReplayResponse {
   anomaly_index: number;
   location_name: string | null;
   readings: EventReplayReading[];
+  moments: EventReplayMoment[];
+  anomaly_moment: EventReplayMoment | null;
   anomaly: {
     type: string;
     liters_lost: number;

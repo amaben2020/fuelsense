@@ -77,11 +77,13 @@ export function FleetEfficiencyReport({
   const totalTheft =
     summary?.total_theft_loss_ngn ??
     rows.reduce((s, r) => s + r.theft_loss_ngn, 0);
-  const fleetEfficiency =
-    totalDistance > 0 && totalFuel >= 0.5 ? totalDistance / totalFuel : null;
-  const fleetExpectedEff =
+  const fleetEfficiencyL100 =
+    totalDistance > 0 && totalFuel >= 0.5
+      ? (totalFuel / totalDistance) * 100
+      : null;
+  const fleetExpectedL100 =
     rows.length > 0
-      ? rows.reduce((s, r) => s + r.expected_efficiency_km_l, 0) / rows.length
+      ? rows.reduce((s, r) => s + (r.expected_efficiency_l_100km ?? 0), 0) / rows.length
       : null;
 
   return (
@@ -120,11 +122,11 @@ export function FleetEfficiencyReport({
                   <th className="px-3 py-3">Driver</th>
                   <th className="px-3 py-3">{periodDays}d km</th>
                   <th className="px-3 py-3">Fuel used</th>
-                  <th className="px-3 py-3">Actual km/L</th>
-                  <th className="px-3 py-3">Baseline</th>
-                  <th className="px-3 py-3">vs baseline</th>
+                  <th className="px-3 py-3">Actual L/100km</th>
+                  <th className="px-3 py-3">Target</th>
+                  <th className="px-3 py-3">vs target</th>
                   <th className="px-3 py-3">This tank km</th>
-                  <th className="px-3 py-3">Tank km/L</th>
+                  <th className="px-3 py-3">Tank L/100km</th>
                   <th className="px-3 py-3">OBD fill</th>
                   <th className="px-3 py-3">Expected ₦</th>
                   <th className="px-3 py-3">Actual ₦</th>
@@ -136,7 +138,7 @@ export function FleetEfficiencyReport({
               <tbody className="divide-y divide-[#2d3449] text-[#c4c5d9]">
                 {rows.map((row) => {
                   const variance = row.variance_percent;
-                  const tankEff = row.tank_efficiency_km_l;
+                  const tankEff = row.tank_efficiency_l_100km;
                   const tankDist =
                     row.tank_distance_km ?? row.distance_since_purchase_km ?? 0;
                   return (
@@ -152,26 +154,26 @@ export function FleetEfficiencyReport({
                         {row.fuel_used_liters.toFixed(1)} L
                       </td>
                       <td className="px-3 py-3 font-mono font-bold text-[#dae2fd]">
-                        {row.efficiency_km_l != null
-                          ? row.efficiency_km_l.toFixed(1)
+                        {row.efficiency_l_100km != null
+                          ? row.efficiency_l_100km.toFixed(1)
                           : '—'}
                       </td>
                       <td className="px-3 py-3 font-mono text-[#8e90a2]">
-                        {row.expected_efficiency_km_l.toFixed(1)} km/L
+                        {row.expected_efficiency_l_100km.toFixed(1)} L/100km
                       </td>
                       <td className="px-3 py-3">
                         {variance != null ? (
                           <span
                             className={`inline-flex items-center gap-0.5 font-mono text-xs ${
-                              variance >= 0
+                              variance <= 10
                                 ? 'text-[#4edea3]'
                                 : 'text-[#ffb4ab]'
                             }`}
                           >
-                            {variance >= 0 ? (
-                              <TrendingUp className="h-3 w-3" />
-                            ) : (
+                            {variance <= 10 ? (
                               <TrendingDown className="h-3 w-3" />
+                            ) : (
+                              <TrendingUp className="h-3 w-3" />
                             )}
                             {variance > 0 ? '+' : ''}
                             {variance.toFixed(1)}%
@@ -184,7 +186,7 @@ export function FleetEfficiencyReport({
                       <td
                         className={`px-3 py-3 font-mono ${
                           tankEff != null &&
-                          tankEff >= row.expected_efficiency_km_l * 0.95
+                          tankEff <= (row.expected_efficiency_l_100km ?? 999) * 1.05
                             ? 'text-[#4edea3]'
                             : 'text-[#ffb95f]'
                         }`}
@@ -235,13 +237,13 @@ export function FleetEfficiencyReport({
                     {totalFuel.toFixed(0)} L
                   </td>
                   <td className="px-3 py-3 font-mono">
-                    {fleetEfficiency != null
-                      ? `${fleetEfficiency.toFixed(1)} km/L`
+                    {fleetEfficiencyL100 != null
+                      ? `${fleetEfficiencyL100.toFixed(1)} L/100km`
                       : '—'}
                   </td>
                   <td className="px-3 py-3 font-mono text-[#8e90a2]">
-                    {fleetExpectedEff != null
-                      ? `${fleetExpectedEff.toFixed(1)} avg`
+                    {fleetExpectedL100 != null
+                      ? `${fleetExpectedL100.toFixed(1)} avg`
                       : '—'}
                   </td>
                   <td className="px-3 py-3" colSpan={4} />

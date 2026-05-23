@@ -63,6 +63,27 @@ function baselineEfficiencyKmL(model) {
   return efficiencyProfileForModel(model).avg;
 }
 
+/** Liters per 100 km — standard Nigerian fleet metric (lower is better). */
+function computeL100km(fuelLiters, distanceKm) {
+  if (distanceKm <= 0 || fuelLiters < 0.5) return null;
+  return round1((fuelLiters / distanceKm) * 100);
+}
+
+function kmLToL100km(kmL) {
+  if (!kmL || kmL <= 0) return null;
+  return round1(100 / kmL);
+}
+
+function baselineEfficiencyL100km(model) {
+  return kmLToL100km(baselineEfficiencyKmL(model));
+}
+
+/** Positive % = worse (more fuel per 100 km than baseline). */
+function efficiencyDeviationPercentL100km(actualL100km, baselineL100km) {
+  if (actualL100km == null || baselineL100km == null || baselineL100km <= 0) return null;
+  return Math.round(((actualL100km - baselineL100km) / baselineL100km) * 1000) / 10;
+}
+
 module.exports = {
   VEHICLE_EFFICIENCY,
   CO2_KG_PER_LITER,
@@ -71,6 +92,10 @@ module.exports = {
   IDLE_BURN_LITERS_PER_HOUR,
   efficiencyProfileForModel,
   baselineEfficiencyKmL,
+  baselineEfficiencyL100km,
+  computeL100km,
+  kmLToL100km,
+  efficiencyDeviationPercentL100km,
   sampleEfficiencyKmL,
   fuelUsedForDistanceKm,
   idleFuelBurnLiters,
