@@ -250,6 +250,12 @@ export default function DashboardPage() {
   }, [fuelPurchasePage, activeView]);
 
   useEffect(() => {
+    if (activeView !== 'receipts' || !getToken()) return;
+    const interval = setInterval(() => loadFuelPurchases(fuelPurchasePage, true), REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [activeView, fuelPurchasePage]);
+
+  useEffect(() => {
     const hash = globalThis.window?.location.hash.replace('#', '') as DashboardView;
     if (hash && VIEWS.some((v) => v.id === hash)) {
       setActiveView(hash);

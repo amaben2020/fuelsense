@@ -175,6 +175,12 @@ const initDatabase = async () => {
   await ensureColumn('fuel_purchases', 'ignition_on_at', 'TIMESTAMP');
   await ensureColumn('fuel_receipts', 'obd_refuel_detected_at', 'TIMESTAMP');
   await ensureColumn('fuel_receipts', 'ignition_on_at', 'TIMESTAMP');
+  await ensureColumn('fuel_receipts', 'client_receipt_id', 'VARCHAR(64)');
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_fuel_receipts_client_receipt_id
+      ON fuel_receipts (client_receipt_id)
+      WHERE client_receipt_id IS NOT NULL
+  `);
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_drivers_customer
       ON drivers (customer_id)
@@ -327,6 +333,9 @@ const initDatabase = async () => {
     CREATE INDEX IF NOT EXISTS idx_device_orders_customer
       ON device_orders (customer_id, created_at DESC)
   `);
+
+  const { backfillDriverReceiptPurchases } = require('../lib/driver-receipt-sync');
+  await backfillDriverReceiptPurchases(db);
 };
 
 const closePool = async () => {

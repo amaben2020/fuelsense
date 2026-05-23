@@ -67,6 +67,7 @@ const fuelReceipts = pgTable('fuel_receipts', {
   reconciliationStatus: varchar('reconciliation_status', { length: 30 }).default('pending'),
   receiptLatitude: numeric('receipt_latitude', { precision: 10, scale: 8 }),
   receiptLongitude: numeric('receipt_longitude', { precision: 11, scale: 8 }),
+  clientReceiptId: varchar('client_receipt_id', { length: 64 }),
   uploadedAt: timestamp('uploaded_at').defaultNow(),
   reconciledAt: timestamp('reconciled_at'),
 });
