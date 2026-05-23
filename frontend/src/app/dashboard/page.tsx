@@ -378,7 +378,9 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#0b1326] text-[#dae2fd]">
+    <div
+      className={`bg-[#0b1326] text-[#dae2fd] ${activeView === 'live' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}
+    >
       <aside className="fixed left-0 top-0 z-40 hidden h-full w-64 border-r border-[#434656] bg-[#171f33] lg:block">
         {sidebar}
       </aside>
@@ -404,17 +406,17 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <main className={`lg:ml-64 ${activeView === 'live' ? 'h-screen' : ''}`}>
+      <main className={`lg:ml-64 ${activeView === 'live' ? 'h-screen overflow-hidden' : ''}`}>
         <div
           className={
             activeView === 'live'
-              ? 'flex h-full flex-col px-2 py-3 sm:px-4'
+              ? 'flex h-full flex-col overflow-hidden px-2 py-3 sm:px-4'
               : 'mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8'
           }
         >
           <header
             className={`flex flex-wrap items-start justify-between gap-4 ${
-              activeView === 'live' ? 'mb-3 shrink-0 px-1' : 'mb-8'
+              activeView === 'live' ? 'mb-2 shrink-0 px-1' : 'mb-8'
             }`}
           >
             <div className="flex items-start gap-3">
@@ -427,16 +429,22 @@ export default function DashboardPage() {
               </button>
               <div>
                 <h1 className="text-2xl font-bold text-[#dae2fd]">{viewTitle}</h1>
-                <p className="mt-1 text-[#c4c5d9]">
-                  {customer?.company_name || customer?.name}
-                  {activeView === 'live'
-                    ? ' · Uber-style routes & live positions'
-                    : ' · Real-time fuel intelligence'}
-                </p>
-                <p className="mt-1 text-xs text-[#8e90a2]">
-                  Refresh #{tick} · every{' '}
-                  {activeView === 'live' ? LIVE_REFRESH_MS / 1000 : REFRESH_MS / 1000}s
-                </p>
+                {activeView !== 'live' && (
+                  <>
+                    <p className="mt-1 text-[#c4c5d9]">
+                      {customer?.company_name || customer?.name} · Real-time fuel intelligence
+                    </p>
+                    <p className="mt-1 text-xs text-[#8e90a2]">
+                      Refresh #{tick} · every {REFRESH_MS / 1000}s
+                    </p>
+                  </>
+                )}
+                {activeView === 'live' && (
+                  <p className="mt-1 text-xs text-[#8e90a2]">
+                    {customer?.company_name || customer?.name} · {onlineCount} vehicles · refresh
+                    every {LIVE_REFRESH_MS / 1000}s
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -482,12 +490,16 @@ export default function DashboardPage() {
           </header>
 
           {error && (
-            <div className="mb-6 rounded-lg border border-[#ffb95f]/40 bg-[#996100]/20 p-4 text-[#ffb95f]">
+            <div
+              className={`rounded-lg border border-[#ffb95f]/40 bg-[#996100]/20 p-4 text-[#ffb95f] ${
+                activeView === 'live' ? 'mb-2 shrink-0' : 'mb-6'
+              }`}
+            >
               {error}
             </div>
           )}
 
-          {(activeView === 'overview' || activeView === 'live') && (
+          {activeView === 'overview' && (
             <TheftAlertBanner alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
           )}
 
@@ -512,7 +524,7 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'live' && (
-            <div className="min-h-0 flex-1">
+            <div className="min-h-0 flex-1 overflow-hidden">
               <LiveMonitoringMap
                 tracks={liveTracks}
                 fleet={fleet}

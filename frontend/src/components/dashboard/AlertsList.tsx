@@ -44,7 +44,8 @@ export function AlertsList({
                 {alert.latitude && alert.longitude && (
                   <span className="ml-2 inline-flex items-center gap-1">
                     <MapPin className="h-3 w-3" />
-                    {Number(alert.latitude).toFixed(5)}, {Number(alert.longitude).toFixed(5)}
+                    {Number(alert.latitude).toFixed(5)},{' '}
+                    {Number(alert.longitude).toFixed(5)}
                   </span>
                 )}
               </p>
@@ -79,19 +80,24 @@ export function TheftAlertBanner({
 
   const totalLossNgn = theftAlerts.reduce(
     (sum, a) => sum + (Number(a.estimated_loss_ngn) || 0),
-    0
+    0,
   );
 
   return (
-    <div className="mb-6 rounded-lg border-l-4 border-l-[#ffb4ab] bg-[#93000a]/20 p-4">
+    <div className="mb-6 rounded-lg border-l-4 border-l-[#ffb4ab] bg-[#93000a]/20 p-4 sticky top-0">
       <p className="font-semibold text-[#ffb4ab]">
         Fuel theft detected ({theftAlerts.length})
         {totalLossNgn > 0 && (
-          <span className="ml-2 font-mono text-sm">· {formatNgn(totalLossNgn)} est. loss</span>
+          <span className="ml-2 font-mono text-sm">
+            · {formatNgn(totalLossNgn)} est. loss
+          </span>
         )}
       </p>
       {theftAlerts.slice(0, 2).map((alert) => (
-        <div key={alert.id} className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <div
+          key={alert.id}
+          className="mt-2 flex flex-wrap items-center justify-between gap-2"
+        >
           <p className="text-sm text-[#ffb4ab]/90">
             {alert.license_plate ? `${alert.license_plate}: ` : ''}
             {alert.message}

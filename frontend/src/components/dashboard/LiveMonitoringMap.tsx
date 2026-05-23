@@ -7,7 +7,6 @@ import { FleetVehicle, VehicleTrack } from '@/lib/api';
 import {
   FLEET_MAPS_KEY,
   LAGOS_CENTER,
-  fleetMapContainerStyle,
   fleetMapDefaults,
 } from '@/lib/fleet-map-theme';
 import {
@@ -175,7 +174,7 @@ export function LiveMonitoringMap({
 
   if (!FLEET_MAPS_KEY) {
     return (
-      <div className="flex h-full min-h-[480px] items-center justify-center bg-[#0b1326] p-8 text-center">
+      <div className="flex h-full min-h-0 items-center justify-center bg-[#0b1326] p-8 text-center">
         <p className="text-[#8e90a2]">Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to enable live map</p>
       </div>
     );
@@ -192,52 +191,54 @@ export function LiveMonitoringMap({
   }
 
   return (
-    <div className="relative h-full min-h-[calc(100vh-8rem)] w-full overflow-hidden rounded-xl border border-[#434656]">
-      <APIProvider apiKey={FLEET_MAPS_KEY}>
-        <Map
-          {...fleetMapDefaults({
-            defaultCenter: initialCenter ?? LAGOS_CENTER,
-            defaultZoom: 13,
-          })}
-          style={fleetMapContainerStyle('calc(100vh - 8rem)')}
-        >
-          <MapResizeFix />
-          <MapInteractionGuard onUserInteract={handleUserInteract} />
-          <MapCameraFollow track={selectedTrack} enabled={followSelected && !!selectedTrack} />
+    <div className="relative h-full min-h-0 w-full overflow-hidden rounded-xl border border-[#434656]">
+      <div className="absolute inset-0">
+        <APIProvider apiKey={FLEET_MAPS_KEY}>
+          <Map
+            {...fleetMapDefaults({
+              defaultCenter: initialCenter ?? LAGOS_CENTER,
+              defaultZoom: 13,
+            })}
+            style={{ width: '100%', height: '100%' }}
+          >
+            <MapResizeFix />
+            <MapInteractionGuard onUserInteract={handleUserInteract} />
+            <MapCameraFollow track={selectedTrack} enabled={followSelected && !!selectedTrack} />
 
-          {animated.map((track) => (
-            <EmphasizedRoute
-              key={`route-${track.vehicleId}`}
-              path={track.path.slice(-40)}
-              color={track.color}
-              activeColor={track.color}
-              emphasized={track.vehicleId === selectedVehicleId}
-            />
-          ))}
+            {animated.map((track) => (
+              <EmphasizedRoute
+                key={`route-${track.vehicleId}`}
+                path={track.path.slice(-40)}
+                color={track.color}
+                activeColor={track.color}
+                emphasized={track.vehicleId === selectedVehicleId}
+              />
+            ))}
 
-          {animated.map((track) => (
-            <VehicleCarMarker
-              key={`car-${track.vehicleId}`}
-              lat={track.displayLat}
-              lng={track.displayLng}
-              heading={track.displayHeading}
-              accent={track.color}
-              selected={track.vehicleId === selectedVehicleId}
-              title={track.licensePlate}
-              onClick={() => onSelectVehicle(track.vehicleId)}
-            />
-          ))}
-        </Map>
-      </APIProvider>
+            {animated.map((track) => (
+              <VehicleCarMarker
+                key={`car-${track.vehicleId}`}
+                lat={track.displayLat}
+                lng={track.displayLng}
+                heading={track.displayHeading}
+                accent={track.color}
+                selected={track.vehicleId === selectedVehicleId}
+                title={track.licensePlate}
+                onClick={() => onSelectVehicle(track.vehicleId)}
+              />
+            ))}
+          </Map>
+        </APIProvider>
+      </div>
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 bg-gradient-to-b from-[#0b1326]/90 to-transparent p-4">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-[#0b1326]/90 to-transparent p-4">
         <p className="text-sm font-medium text-[#dae2fd]">Live monitoring</p>
         <p className="text-xs text-[#8e90a2]">
           {animated.length} vehicles · GPS updates every 2s · pinch or scroll to zoom
         </p>
       </div>
 
-      <div className="absolute bottom-4 left-4 right-4 flex gap-2 overflow-x-auto pb-1">
+      <div className="absolute bottom-4 left-4 right-4 z-10 flex gap-2 overflow-x-auto pb-1">
         {animated.map((track) => {
           const status = fleetStatus.get(track.vehicleId) ?? 'offline';
           const meta = fleetMeta.get(track.vehicleId);
@@ -279,7 +280,7 @@ export function LiveMonitoringMap({
       </div>
 
       {selectedTrack && (
-        <div className="pointer-events-none absolute right-4 top-16 w-64 rounded-xl border border-[#434656] bg-[#171f33]/95 p-4 backdrop-blur-md">
+        <div className="pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl border border-[#434656] bg-[#171f33]/95 p-4 backdrop-blur-md">
           <p className="font-semibold text-[#dae2fd]">{selectedTrack.licensePlate}</p>
           <p className="text-xs text-[#8e90a2]">
             {[selectedTrack.make, selectedTrack.model].filter(Boolean).join(' ')}
