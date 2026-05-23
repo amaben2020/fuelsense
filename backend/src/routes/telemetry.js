@@ -545,7 +545,7 @@ router.get('/fuel-purchases', async (req, res) => {
         fp.id,
         fp.vehicle_id,
         v.license_plate,
-        COALESCE(dr.full_name, v.driver_name) AS driver_name,
+        COALESCE(submit_dr.full_name, dr.full_name, v.driver_name) AS driver_name,
         fp.purchased_at AS timestamp,
         fp.obd_refuel_detected_at,
         fp.ignition_on_at,
@@ -560,6 +560,9 @@ router.get('/fuel-purchases', async (req, res) => {
       FROM fuel_purchases fp
       JOIN vehicles v ON v.id = fp.vehicle_id
       LEFT JOIN drivers dr ON dr.id = v.driver_id
+      LEFT JOIN fuel_receipts fr ON fp.source = 'driver_upload'
+        AND fp.receipt_reference = 'DRV-' || upper(substr(fr.id::text, 1, 8))
+      LEFT JOIN drivers submit_dr ON submit_dr.id = fr.driver_id
       WHERE fp.customer_id = ${customerId}
       ORDER BY fp.purchased_at DESC
       LIMIT ${limit} OFFSET ${offset}
@@ -620,7 +623,7 @@ router.get('/fuel-purchases', async (req, res) => {
       const dailyResult = await db.execute(sql`
         SELECT
           DATE(fp.purchased_at AT TIME ZONE 'Africa/Lagos') AS activity_date,
-          COALESCE(dr.full_name, v.driver_name, 'Unassigned') AS driver_name,
+          COALESCE(submit_dr.full_name, dr.full_name, v.driver_name, 'Unassigned') AS driver_name,
           SUM(fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${DEFAULT_FUEL_PRICE_NGN_LITER}))::int AS total_cost_ngn,
           SUM(fp.liters_declared::numeric)::numeric AS total_receipt_liters,
           SUM(COALESCE(fp.liters_actual::numeric, 0))::numeric AS total_obd_liters,
@@ -628,6 +631,9 @@ router.get('/fuel-purchases', async (req, res) => {
         FROM fuel_purchases fp
         JOIN vehicles v ON v.id = fp.vehicle_id
         LEFT JOIN drivers dr ON dr.id = v.driver_id
+        LEFT JOIN fuel_receipts fr ON fp.source = 'driver_upload'
+          AND fp.receipt_reference = 'DRV-' || upper(substr(fr.id::text, 1, 8))
+        LEFT JOIN drivers submit_dr ON submit_dr.id = fr.driver_id
         WHERE fp.customer_id = ${customerId}
         GROUP BY 1, 2
         ORDER BY 1 DESC, 2 ASC

@@ -96,7 +96,10 @@ const upsertDriver = async (customerId, driver, pinHash) => {
     .select({ id: drivers.id })
     .from(drivers)
     .where(
-      and(eq(drivers.customerId, customerId), eq(drivers.fullName, driver.fullName))
+      and(
+        eq(drivers.customerId, customerId),
+        eq(drivers.driverCode, driver.driverCode)
+      )
     );
 
   if (existing) {

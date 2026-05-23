@@ -336,6 +336,9 @@ const initDatabase = async () => {
 
   const { backfillDriverReceiptPurchases } = require('../lib/driver-receipt-sync');
   await backfillDriverReceiptPurchases(db);
+
+  const { syncDemoVehicleDrivers } = require('../lib/sync-vehicle-drivers');
+  await syncDemoVehicleDrivers(db);
 };
 
 const closePool = async () => {

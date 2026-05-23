@@ -97,6 +97,8 @@ export default function DashboardPage() {
   const [fuelEventCount, setFuelEventCount] = useState(0);
   const fleetRef = useRef(fleet);
   fleetRef.current = fleet;
+  const activeViewRef = useRef(activeView);
+  activeViewRef.current = activeView;
 
   const selectedVehicle = useMemo(
     () => fleet.find((v) => v.id === selectedVehicleId) ?? fleet[0] ?? null,
@@ -115,10 +117,13 @@ export default function DashboardPage() {
       const purchaseData = await api<FuelPurchasesResponse>(
         `/telemetry/fuel-purchases?${params.toString()}`
       );
-      setFuelPurchases(purchaseData);
+      setFuelPurchases((prev) => ({
+        ...purchaseData,
+        summary: purchaseData.summary ?? prev?.summary,
+      }));
       setFuelPurchasePage(purchaseData.page);
     } catch {
-      setFuelPurchases(null);
+      setFuelPurchases((prev) => prev);
     }
   };
 
@@ -173,9 +178,11 @@ export default function DashboardPage() {
       }
 
       try {
-        await loadFuelPurchases(fuelPurchasePage);
+        if (activeViewRef.current !== 'receipts') {
+          await loadFuelPurchases(fuelPurchasePage);
+        }
       } catch {
-        setFuelPurchases(null);
+        /* fuel tab handles its own refresh */
       }
 
       let driverRows: Driver[] = [];
@@ -248,12 +255,6 @@ export default function DashboardPage() {
     if (!getToken()) return;
     loadFuelPurchases(fuelPurchasePage, activeView === 'receipts');
   }, [fuelPurchasePage, activeView]);
-
-  useEffect(() => {
-    if (activeView !== 'receipts' || !getToken()) return;
-    const interval = setInterval(() => loadFuelPurchases(fuelPurchasePage, true), REFRESH_MS);
-    return () => clearInterval(interval);
-  }, [activeView, fuelPurchasePage]);
 
   useEffect(() => {
     const hash = globalThis.window?.location.hash.replace('#', '') as DashboardView;

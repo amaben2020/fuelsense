@@ -104,6 +104,26 @@ function TabButton({
   );
 }
 
+function SummaryCardsSkeleton({ columns }: { columns: 2 | 3 }) {
+  return (
+    <div
+      className={`grid min-h-[7.5rem] gap-4 ${columns === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
+      aria-hidden
+    >
+      {Array.from({ length: columns }).map((_, index) => (
+        <div
+          key={index}
+          className="rounded-lg border border-[#434656] bg-[#171f33] p-4"
+        >
+          <div className="h-3 w-24 animate-pulse rounded bg-[#2d3449]" />
+          <div className="mt-3 h-8 w-32 animate-pulse rounded bg-[#2d3449]" />
+          <div className="mt-2 h-3 w-40 animate-pulse rounded bg-[#2d3449]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ReceiptsPanel({
   data,
   fleet,
@@ -191,58 +211,65 @@ export function ReceiptsPanel({
       {selectedPurchase && (
         <ReceiptEventModal purchase={selectedPurchase} onClose={() => setSelectedPurchase(null)} />
       )}
-      {summary && activeTab === 'reconciled' && (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-            <p className="text-xs text-[#8e90a2]">Grand total (receipt cost)</p>
-            <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
-              {formatNgn(summary.grand_total.total_cost_ngn)}
-            </p>
-            <p className="mt-1 text-xs text-[#8e90a2]">
-              {summary.grand_total.receipt_count} receipts logged
-            </p>
-          </div>
-          <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-            <p className="text-xs text-[#8e90a2]">Receipt liters (manual)</p>
-            <p className="mt-1 font-mono text-2xl font-bold text-[#b8c3ff]">
-              {summary.grand_total.total_receipt_liters.toFixed(1)} L
-            </p>
-            <p className="mt-1 text-xs text-[#8e90a2]">Driver-entered at fuel station</p>
-          </div>
-          <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-            <p className="text-xs text-[#8e90a2]">OBD actual (FMC150)</p>
-            <p className="mt-1 font-mono text-2xl font-bold text-[#4edea3]">
-              {summary.grand_total.total_obd_liters.toFixed(1)} L
-            </p>
-            <p className="mt-1 text-xs text-[#ffb4ab]">
-              {theftCount} flagged as theft on this page
-            </p>
-          </div>
-        </div>
-      )}
 
-      {summary && activeTab === 'station' && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-            <p className="text-xs text-[#8e90a2]">Total logged at fuel stations</p>
-            <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
-              {formatNgn(summary.grand_total.total_cost_ngn)}
-            </p>
-            <p className="mt-1 text-xs text-[#8e90a2]">
-              {summary.grand_total.receipt_count} receipts · as entered by drivers
-            </p>
+      {activeTab === 'reconciled' &&
+        (summary ? (
+          <div className="grid min-h-[7.5rem] gap-4 sm:grid-cols-3">
+            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
+              <p className="text-xs text-[#8e90a2]">Grand total (receipt cost)</p>
+              <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
+                {formatNgn(summary.grand_total.total_cost_ngn)}
+              </p>
+              <p className="mt-1 text-xs text-[#8e90a2]">
+                {summary.grand_total.receipt_count} receipts logged
+              </p>
+            </div>
+            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
+              <p className="text-xs text-[#8e90a2]">Receipt liters (manual)</p>
+              <p className="mt-1 font-mono text-2xl font-bold text-[#b8c3ff]">
+                {summary.grand_total.total_receipt_liters.toFixed(1)} L
+              </p>
+              <p className="mt-1 text-xs text-[#8e90a2]">Driver-entered at fuel station</p>
+            </div>
+            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
+              <p className="text-xs text-[#8e90a2]">OBD actual (FMC150)</p>
+              <p className="mt-1 font-mono text-2xl font-bold text-[#4edea3]">
+                {summary.grand_total.total_obd_liters.toFixed(1)} L
+              </p>
+              <p className="mt-1 text-xs text-[#ffb4ab]">
+                {theftCount} flagged as theft on this page
+              </p>
+            </div>
           </div>
-          <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-            <p className="text-xs text-[#8e90a2]">Receipt liters (manual)</p>
-            <p className="mt-1 font-mono text-2xl font-bold text-[#b8c3ff]">
-              {summary.grand_total.total_receipt_liters.toFixed(1)} L
-            </p>
-            <p className="mt-1 text-xs text-[#8e90a2]">
-              Switch to Reconciled to compare against FMC150 OBD
-            </p>
+        ) : (
+          <SummaryCardsSkeleton columns={3} />
+        ))}
+
+      {activeTab === 'station' &&
+        (summary ? (
+          <div className="grid min-h-[7.5rem] gap-4 sm:grid-cols-2">
+            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
+              <p className="text-xs text-[#8e90a2]">Total logged at fuel stations</p>
+              <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
+                {formatNgn(summary.grand_total.total_cost_ngn)}
+              </p>
+              <p className="mt-1 text-xs text-[#8e90a2]">
+                {summary.grand_total.receipt_count} receipts · as entered by drivers
+              </p>
+            </div>
+            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
+              <p className="text-xs text-[#8e90a2]">Receipt liters (manual)</p>
+              <p className="mt-1 font-mono text-2xl font-bold text-[#b8c3ff]">
+                {summary.grand_total.total_receipt_liters.toFixed(1)} L
+              </p>
+              <p className="mt-1 text-xs text-[#8e90a2]">
+                Switch to Reconciled to compare against FMC150 OBD
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <SummaryCardsSkeleton columns={2} />
+        ))}
 
       <div className="overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#434656] px-6 py-4">
@@ -345,7 +372,16 @@ export function ReceiptsPanel({
 
         {message && <p className="px-6 py-2 text-xs text-[#b8c3ff]">{message}</p>}
 
-        {purchases.length === 0 ? (
+        {data === null ? (
+          <div className="min-h-[18rem] animate-pulse px-6 py-8">
+            <div className="mb-4 h-4 w-40 rounded bg-[#2d3449]" />
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="h-10 rounded bg-[#2d3449]/70" />
+              ))}
+            </div>
+          </div>
+        ) : purchases.length === 0 ? (
           <p className="p-6 text-sm text-[#8e90a2]">
             No receipts yet. Run{' '}
             <code className="text-[#b8c3ff]">npm run seed-fuel-purchases</code> or log a receipt
