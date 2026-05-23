@@ -225,6 +225,7 @@ export interface FleetEfficiencySummary {
   total_fuel_used_liters: number;
   total_expected_cost_ngn: number;
   total_actual_cost_ngn: number;
+  total_telemetry_cost_ngn?: number;
   total_loss_ngn: number;
   total_savings_ngn: number;
   total_theft_loss_ngn: number;
@@ -412,11 +413,51 @@ export interface Driver {
   created_at: string;
 }
 
+export interface FuelPurchaseTimeline {
+  purchased_at: string | null;
+  obd_refuel_detected_at: string | null;
+  ignition_on_at: string | null;
+  purchase_to_obd_minutes: number | null;
+  obd_to_ignition_minutes: number | null;
+  purchase_to_ignition_minutes: number | null;
+}
+
+export interface FuelPurchaseEventStep {
+  key: 'purchase' | 'obd' | 'ignition';
+  label: string;
+  at: string;
+  source: string;
+  detail: string;
+  minutes_after_previous: number | null;
+  note: string | null;
+}
+
+export interface FuelPurchaseEventAssessment {
+  chronological_timeline: FuelPurchaseEventStep[];
+  expected_sequence: string;
+  theft_probability: number;
+  verdict: 'verified' | 'review' | 'suspicious' | 'likely_theft';
+  summary: string;
+  reasons: string[];
+  signals: Array<{ code: string; weight: number; message: string }>;
+  estimated_loss_ngn: number;
+  license_plate: string | null;
+  liters_declared: number;
+  liters_actual: number | null;
+  difference_liters: number | null;
+}
+
 export interface FuelPurchase {
   id: string;
   vehicle_id: string;
   license_plate: string;
+  driver_name?: string | null;
   timestamp: string;
+  purchased_at?: string;
+  obd_refuel_detected_at?: string | null;
+  ignition_on_at?: string | null;
+  timeline?: FuelPurchaseTimeline;
+  event_assessment?: FuelPurchaseEventAssessment;
   liters_declared: number;
   liters_actual: number | null;
   difference_liters: number;
@@ -429,6 +470,25 @@ export interface FuelPurchase {
   actual_from?: string;
 }
 
+export interface FuelPurchaseDailyTotal {
+  activity_date: string;
+  driver_name: string;
+  receipt_count: number;
+  total_cost_ngn: number;
+  total_receipt_liters: number;
+  total_obd_liters: number;
+}
+
+export interface FuelPurchaseSummary {
+  daily_totals: FuelPurchaseDailyTotal[];
+  grand_total: {
+    receipt_count: number;
+    total_cost_ngn: number;
+    total_receipt_liters: number;
+    total_obd_liters: number;
+  };
+}
+
 export interface FuelPurchasesResponse {
   source: 'database' | 'empty' | 'telemetry' | 'demo';
   page: number;
@@ -436,6 +496,7 @@ export interface FuelPurchasesResponse {
   total: number;
   total_pages: number;
   purchases: FuelPurchase[];
+  summary?: FuelPurchaseSummary;
   note?: string;
 }
 

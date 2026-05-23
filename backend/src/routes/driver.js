@@ -12,7 +12,7 @@ const {
   and,
   desc,
 } = require('../lib/db-helpers');
-const { findObdRefuelLiters, reconcileReceipt } = require('../lib/receipt-reconciliation');
+const { findObdRefuelMatch, reconcileReceipt } = require('../lib/receipt-reconciliation');
 const { DEFAULT_FUEL_PRICE_NGN_LITER } = require('../lib/fuel-metrics');
 
 const router = express.Router();
@@ -185,7 +185,7 @@ router.post('/receipts', async (req, res) => {
     const total =
       totalAmount != null ? Number(totalAmount) : Math.round(declared * price);
 
-    const obdLitersActual = await findObdRefuelLiters({
+    const obdMatch = await findObdRefuelMatch({
       vehicleId,
       customerId: req.driver.customerId,
       transactionDate: when,
@@ -193,7 +193,7 @@ router.post('/receipts', async (req, res) => {
 
     const reconciliation = reconcileReceipt({
       declaredLiters: declared,
-      obdLitersActual,
+      obdLitersActual: obdMatch.liters,
       pricePerLiter: price,
     });
 
@@ -219,6 +219,8 @@ router.post('/receipts', async (req, res) => {
           reconciliation.differenceLiters != null
             ? reconciliation.differenceLiters.toFixed(2)
             : null,
+        obdRefuelDetectedAt: obdMatch.obdRefuelDetectedAt,
+        ignitionOnAt: obdMatch.ignitionOnAt,
         reconciliationStatus: reconciliation.reconciliationStatus,
         receiptLatitude: receiptLatitude?.toString() ?? null,
         receiptLongitude: receiptLongitude?.toString() ?? null,
@@ -237,6 +239,8 @@ router.post('/receipts', async (req, res) => {
         reconciliation.obdLitersActual != null
           ? reconciliation.obdLitersActual.toFixed(2)
           : null,
+      obdRefuelDetectedAt: obdMatch.obdRefuelDetectedAt,
+      ignitionOnAt: obdMatch.ignitionOnAt,
       costPerLiterNgn: Math.round(price),
       odometerKm: odometerKm ? Number(odometerKm) : null,
       status:

@@ -171,6 +171,10 @@ const initDatabase = async () => {
     CREATE INDEX IF NOT EXISTS idx_fuel_purchases_customer_purchased
       ON fuel_purchases (customer_id, purchased_at DESC)
   `);
+  await ensureColumn('fuel_purchases', 'obd_refuel_detected_at', 'TIMESTAMP');
+  await ensureColumn('fuel_purchases', 'ignition_on_at', 'TIMESTAMP');
+  await ensureColumn('fuel_receipts', 'obd_refuel_detected_at', 'TIMESTAMP');
+  await ensureColumn('fuel_receipts', 'ignition_on_at', 'TIMESTAMP');
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_drivers_customer
       ON drivers (customer_id)

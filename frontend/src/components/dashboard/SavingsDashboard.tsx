@@ -28,8 +28,8 @@ export function SavingsDashboard({
               {formatNgn(summary.total_loss_ngn)}
             </p>
             <p className="mt-1 text-xs text-[#8e90a2]">
-              Actual {formatNgn(summary.total_actual_cost_ngn)} vs expected{' '}
-              {formatNgn(summary.total_expected_cost_ngn)} at{' '}
+              OBD spend {formatNgn(summary.total_telemetry_cost_ngn ?? summary.total_actual_cost_ngn)}{' '}
+              vs expected {formatNgn(summary.total_expected_cost_ngn)} at{' '}
               {formatFuelPricePerLiter(summary.price_per_liter_ngn)}
             </p>
           </div>

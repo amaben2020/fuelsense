@@ -11,6 +11,7 @@ import {
   Play,
   Plus,
   Radio,
+  Receipt,
   Settings,
   X,
 } from 'lucide-react';
@@ -43,23 +44,25 @@ import {
   countActiveFuelEvents,
   FuelAnomaliesPanel,
 } from '@/components/dashboard/FuelAnomaliesPanel';
-import { FuelPurchaseTable } from '@/components/dashboard/FuelPurchaseTable';
+import { FuelPurchaseTable, ReceiptsPanel } from '@/components/dashboard/ReceiptsPanel';
 import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { FleetListPanel } from '@/components/dashboard/FleetListPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
 import { VehicleDetailPanel } from '@/components/dashboard/VehicleDetailPanel';
 import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
+import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 
 const REFRESH_MS = 3000;
 const LIVE_REFRESH_MS = 2000;
 
-type DashboardView = 'overview' | 'live' | 'fuel' | 'anomalies' | 'alerts' | 'settings';
+type DashboardView = 'overview' | 'live' | 'fuel' | 'receipts' | 'anomalies' | 'alerts' | 'settings';
 
 const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'overview', label: 'Fleet overview', hash: 'overview' },
   { id: 'live', label: 'Live monitoring', hash: 'live' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
+  { id: 'receipts', label: 'Receipts', hash: 'receipts' },
   { id: 'anomalies', label: 'Replay events', hash: 'anomalies' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
   { id: 'settings', label: 'Settings', hash: 'settings' },
@@ -102,10 +105,15 @@ export default function DashboardPage() {
 
   const onlineCount = fleet.filter((v) => v.connection_status === 'online').length;
 
-  const loadFuelPurchases = async (page = fuelPurchasePage) => {
+  const loadFuelPurchases = async (page = fuelPurchasePage, forReceipts = false) => {
     try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: forReceipts ? '50' : '10',
+      });
+      if (forReceipts) params.set('include_summary', 'true');
       const purchaseData = await api<FuelPurchasesResponse>(
-        `/telemetry/fuel-purchases?page=${page}&limit=10`
+        `/telemetry/fuel-purchases?${params.toString()}`
       );
       setFuelPurchases(purchaseData);
       setFuelPurchasePage(purchaseData.page);
@@ -238,8 +246,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!getToken()) return;
-    loadFuelPurchases(fuelPurchasePage);
-  }, [fuelPurchasePage]);
+    loadFuelPurchases(fuelPurchasePage, activeView === 'receipts');
+  }, [fuelPurchasePage, activeView]);
 
   useEffect(() => {
     const hash = globalThis.window?.location.hash.replace('#', '') as DashboardView;
@@ -296,17 +304,14 @@ export default function DashboardPage() {
     overview: 'Fleet overview',
     live: 'Live monitoring',
     fuel: 'Fuel analytics',
+    receipts: 'Receipts',
     anomalies: 'Replay events',
     alerts: 'Alerts',
     settings: 'Settings',
   }[activeView];
 
   if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0b1326] text-[#c4c5d9]">
-        Loading fleet command center...
-      </div>
-    );
+    return <FleetCommandLoader />;
   }
 
   const sidebar = (
@@ -340,6 +345,13 @@ export default function DashboardPage() {
           label="Fuel analytics"
           active={activeView === 'fuel'}
           onClick={() => switchView('fuel')}
+        />
+        <NavItem
+          icon={Receipt}
+          label="Receipts"
+          badge={fuelPurchases?.total || undefined}
+          active={activeView === 'receipts'}
+          onClick={() => switchView('receipts')}
         />
         <NavItem
           icon={Play}
@@ -548,9 +560,20 @@ export default function DashboardPage() {
                 fleet={fleet}
                 page={fuelPurchasePage}
                 onPageChange={setFuelPurchasePage}
-                onRefresh={() => loadFuelPurchases(fuelPurchasePage)}
+                onRefresh={() => loadFuelPurchases(fuelPurchasePage, false)}
+                onOpenReceipts={() => switchView('receipts')}
               />
             </div>
+          )}
+
+          {activeView === 'receipts' && (
+            <ReceiptsPanel
+              data={fuelPurchases}
+              fleet={fleet}
+              page={fuelPurchasePage}
+              onPageChange={setFuelPurchasePage}
+              onRefresh={() => loadFuelPurchases(fuelPurchasePage, true)}
+            />
           )}
 
           {activeView === 'anomalies' && (

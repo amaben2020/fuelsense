@@ -62,26 +62,27 @@ export function SavingsExplanationModal({
             </code>
           </Step>
 
-          <Step n={3} title="Actual cost">
+          <Step n={3} title="OBD consumption cost">
             <p className="text-sm text-[#c4c5d9]">
-              Sum of fuel receipts (declared liters) in the period, or OBD consumption × price if
-              no receipts logged
+              FMC150 fuel used in the period × diesel price — the ground truth for efficiency
             </p>
             <code className="mt-2 block rounded bg-[#0b1326] p-3 font-mono text-xs">
-              Actual cost = receipt totals (includes overcharging when flagged)
+              OBD cost = {summary.total_fuel_used_liters.toFixed(1)} L × {formatNgn(price)} ={' '}
+              {formatNgn(summary.total_telemetry_cost_ngn ?? summary.total_actual_cost_ngn)}
             </code>
           </Step>
 
-          <Step n={4} title="Your loss (or savings)" highlight>
-            <p className="text-sm text-[#c4c5d9]">Loss = Actual − Expected. Negative savings = money lost.</p>
+          <Step n={4} title="Preventable loss" highlight>
+            <p className="text-sm text-[#c4c5d9]">
+              Theft/fraud (receipt vs OBD, siphon alerts) plus extra burn above baseline efficiency.
+            </p>
             <code className="mt-2 block rounded bg-[#0b1326] p-3 font-mono text-xs">
-              Loss = {formatNgn(summary.total_actual_cost_ngn)} −{' '}
-              {formatNgn(summary.total_expected_cost_ngn)} ={' '}
+              Preventable loss = {formatNgn(summary.total_theft_loss_ngn)} (theft/fraud) +{' '}
+              {formatNgn(summary.total_efficiency_loss_ngn)} (inefficiency) ={' '}
               {formatNgn(summary.total_loss_ngn)}
             </code>
             <p className="mt-2 text-xs text-[#ffb4ab]">
-              Theft/fraud: {formatNgn(summary.total_theft_loss_ngn)} · Inefficiency:{' '}
-              {formatNgn(summary.total_efficiency_loss_ngn)}
+              Inefficiency = max(0, OBD cost − expected cost) per vehicle, summed across fleet
             </p>
           </Step>
         </div>

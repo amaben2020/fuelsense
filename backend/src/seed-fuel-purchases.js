@@ -4,6 +4,7 @@ const { db, initDatabase, closePool } = require('./db');
 const { customers, fuelPurchases } = require('./db/schema');
 const { eq, sql } = require('drizzle-orm');
 const { REFUEL_THRESHOLD_LITERS, DEFAULT_FUEL_PRICE_NGN_LITER } = require('./lib/fuel-metrics');
+const { findObdRefuelMatch } = require('./lib/receipt-reconciliation');
 
 const DEMO_EMAIL = 'demo@fuelsense.local';
 const MERCHANTS = [
@@ -76,10 +77,22 @@ const seedFuelPurchases = async () => {
     if (diff >= 10) status = 'flagged_theft';
     else if (diff > 2) status = 'pending_receipt';
 
+    const obdRefuelDetectedAt = new Date(row.recorded_at);
+    const purchaseOffsetMinutes = 4 + Math.floor(Math.random() * 9);
+    const purchasedAt = new Date(obdRefuelDetectedAt.getTime() - purchaseOffsetMinutes * 60_000);
+
+    const obdMatch = await findObdRefuelMatch({
+      vehicleId: row.vehicle_id,
+      customerId: customer.id,
+      transactionDate: obdRefuelDetectedAt,
+    });
+
     await db.insert(fuelPurchases).values({
       customerId: customer.id,
       vehicleId: row.vehicle_id,
-      purchasedAt: new Date(row.recorded_at),
+      purchasedAt,
+      obdRefuelDetectedAt,
+      ignitionOnAt: obdMatch.ignitionOnAt,
       merchant: MERCHANTS[i % MERCHANTS.length],
       receiptReference: `RCP-${String(count + 1).padStart(5, '0')}`,
       litersDeclared: declared.toFixed(2),
@@ -92,7 +105,9 @@ const seedFuelPurchases = async () => {
     count += 1;
   }
 
-  console.log(`Fuel purchases seeded: ${count} records (actual liters from OBD refuel deltas)`);
+  console.log(
+    `Fuel purchases seeded: ${count} records with pump time, OBD refuel, and ignition timestamps`
+  );
   await closePool();
 };
 

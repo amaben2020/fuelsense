@@ -189,9 +189,11 @@ All protected routes filter by `customer_id` from the JWT — tenants never see 
 
 ### Frontend (`frontend/.env.local`)
 
-| Variable | Default |
-|----------|---------|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:5001/api` |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:5001/api` | Backend API base URL |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | — | Google Maps JavaScript + Geocoding |
+| `CACHE_GEOCODE` | — | Set `true` to cache reverse-geocode results in replay (reduces Geocoding API calls) |
 
 ## Multi-tenant device flow
 

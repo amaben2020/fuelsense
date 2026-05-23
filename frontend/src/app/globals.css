@@ -24,3 +24,23 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@keyframes fleet-loader-dots {
+  0%,
+  20% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+
+.fleet-loader-dots {
+  display: inline-block;
+  width: 1.25rem;
+  text-align: left;
+  animation: fleet-loader-dots 1.4s ease-in-out infinite;
+}

@@ -25,6 +25,7 @@ const {
   DAILY_DISTANCE_BY_MODEL,
 } = require('../lib/activity-thresholds');
 const { generateDemoTracksForFleet } = require('../lib/demo-tracks');
+const { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } = require('../lib/receipt-reconciliation');
 
 const router = express.Router();
 
@@ -215,13 +216,23 @@ router.get('/fleet-efficiency', async (req, res) => {
   try {
     const customerId = req.user.customerId;
 
-    const [result, alertRows] = await Promise.all([
+    const [result, alertRows, siphonRows] = await Promise.all([
       db.execute(fleetEfficiencyAggSql({ customerId, days, pricePerLiter })),
       db.execute(sql`
         SELECT vehicle_id, alert_type, estimated_loss_ngn
         FROM alerts
         WHERE customer_id = ${customerId}
           AND is_resolved = false
+      `),
+      db.execute(sql`
+        SELECT
+          vehicle_id,
+          COALESCE(SUM(estimated_loss_ngn), 0)::int AS siphon_loss_ngn
+        FROM siphon_events
+        WHERE customer_id = ${customerId}
+          AND occurred_at > NOW() - (${days} || ' days')::interval
+          AND status NOT IN ('resolved', 'false_alarm')
+        GROUP BY vehicle_id
       `),
     ]);
 
@@ -233,6 +244,10 @@ router.get('/fleet-efficiency', async (req, res) => {
         alert.alert_type === 'fuel_theft' ? Number(alert.estimated_loss_ngn) || 0 : 0;
       alertTheftByVehicle.set(alert.vehicle_id, prev + loss);
     }
+
+    const siphonLossByVehicle = new Map(
+      siphonRows.rows.map((row) => [row.vehicle_id, Number(row.siphon_loss_ngn) || 0])
+    );
 
     const rows = result.rows.map((row) => {
       const distanceKm = Number(row.distance_km) || 0;
@@ -264,16 +279,19 @@ router.get('/fleet-efficiency', async (req, res) => {
       const expectedCostNgn = Math.round(expectedFuelLiters * pricePerLiter);
 
       const purchaseCostNgn = Math.round(Number(row.purchase_cost_ngn) || 0);
+      const telemetryCostNgn = Math.round(fuelUsed * pricePerLiter);
       const receiptFraudLossNgn = Math.round(Number(row.receipt_fraud_loss_ngn) || 0);
       const alertTheftLossNgn = alertTheftByVehicle.get(row.vehicle_id) || 0;
-      const theftLossNgn = receiptFraudLossNgn + alertTheftLossNgn;
+      const siphonLossNgn = siphonLossByVehicle.get(row.vehicle_id) || 0;
+      const theftLossNgn = receiptFraudLossNgn + alertTheftLossNgn + siphonLossNgn;
 
+      // Receipt spend for finance view; OBD consumption for efficiency comparison
       const actualCostNgn =
-        purchaseCostNgn > 0 ? purchaseCostNgn : Math.round(fuelUsed * pricePerLiter);
+        purchaseCostNgn > 0 ? purchaseCostNgn : telemetryCostNgn;
 
-      const totalLossNgn = actualCostNgn - expectedCostNgn;
-      const savingsNgn = expectedCostNgn - actualCostNgn;
-      const efficiencyLossNgn = Math.max(0, totalLossNgn - theftLossNgn);
+      const efficiencyLossNgn = Math.max(0, telemetryCostNgn - expectedCostNgn);
+      const totalLossNgn = theftLossNgn + efficiencyLossNgn;
+      const savingsNgn = expectedCostNgn - telemetryCostNgn;
 
       const co2EmissionsKg = Math.round(fuelUsed * CO2_KG_PER_LITER);
 
@@ -304,13 +322,15 @@ router.get('/fleet-efficiency', async (req, res) => {
         expected_fuel_liters: round1(expectedFuelLiters),
         expected_cost_ngn: expectedCostNgn,
         actual_cost_ngn: actualCostNgn,
+        telemetry_cost_ngn: telemetryCostNgn,
         fuel_cost_ngn: actualCostNgn,
         savings_ngn: Math.round(savingsNgn),
-        total_loss_ngn: Math.max(0, Math.round(totalLossNgn)),
+        total_loss_ngn: Math.round(totalLossNgn),
         efficiency_loss_ngn: Math.round(efficiencyLossNgn),
         theft_loss_ngn: theftLossNgn,
         receipt_fraud_loss_ngn: receiptFraudLossNgn,
         alert_theft_loss_ngn: alertTheftLossNgn,
+        siphon_loss_ngn: siphonLossNgn,
         co2_emissions_kg: co2EmissionsKg,
         status,
         period_days: days,
@@ -331,6 +351,7 @@ router.get('/fleet-efficiency', async (req, res) => {
       total_fuel_used_liters: round1(rows.reduce((s, r) => s + r.fuel_used_liters, 0)),
       total_expected_cost_ngn: rows.reduce((s, r) => s + r.expected_cost_ngn, 0),
       total_actual_cost_ngn: rows.reduce((s, r) => s + r.actual_cost_ngn, 0),
+      total_telemetry_cost_ngn: rows.reduce((s, r) => s + r.telemetry_cost_ngn, 0),
       total_loss_ngn: rows.reduce((s, r) => s + r.total_loss_ngn, 0),
       total_savings_ngn: rows.reduce((s, r) => s + r.savings_ngn, 0),
       total_theft_loss_ngn: rows.reduce((s, r) => s + r.theft_loss_ngn, 0),
@@ -483,9 +504,10 @@ router.get('/daily-activity/replay', async (req, res) => {
 
 router.get('/fuel-purchases', async (req, res) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
-  const limit = Math.min(Number(req.query.limit) || 10, 50);
+  const limit = Math.min(Number(req.query.limit) || 10, 100);
   const offset = (page - 1) * limit;
   const customerId = req.user.customerId;
+  const includeSummary = req.query.include_summary === 'true';
 
   try {
     const countResult = await db.execute(sql`
@@ -502,6 +524,19 @@ router.get('/fuel-purchases', async (req, res) => {
         total_pages: 0,
         purchases: [],
         note: 'Run npm run seed-fuel-purchases after seed-telemetry',
+        ...(includeSummary
+          ? {
+              summary: {
+                daily_totals: [],
+                grand_total: {
+                  receipt_count: 0,
+                  total_cost_ngn: 0,
+                  total_receipt_liters: 0,
+                  total_obd_liters: 0,
+                },
+              },
+            }
+          : {}),
       });
     }
 
@@ -510,7 +545,10 @@ router.get('/fuel-purchases', async (req, res) => {
         fp.id,
         fp.vehicle_id,
         v.license_plate,
+        COALESCE(dr.full_name, v.driver_name) AS driver_name,
         fp.purchased_at AS timestamp,
+        fp.obd_refuel_detected_at,
+        fp.ignition_on_at,
         fp.merchant,
         fp.receipt_reference,
         fp.liters_declared,
@@ -521,6 +559,7 @@ router.get('/fuel-purchases', async (req, res) => {
         fp.source
       FROM fuel_purchases fp
       JOIN vehicles v ON v.id = fp.vehicle_id
+      LEFT JOIN drivers dr ON dr.id = v.driver_id
       WHERE fp.customer_id = ${customerId}
       ORDER BY fp.purchased_at DESC
       LIMIT ${limit} OFFSET ${offset}
@@ -528,15 +567,40 @@ router.get('/fuel-purchases', async (req, res) => {
 
     const purchases = rows.rows.map((row) => {
       const declared = Number(row.liters_declared);
-      const actual = Number(row.liters_actual);
-      const diff = Math.max(0, Math.round((declared - actual) * 10) / 10);
+      const actualRaw = row.liters_actual != null ? Number(row.liters_actual) : null;
+      const actual =
+        row.status === 'pending_receipt' && (actualRaw == null || actualRaw === 0)
+          ? 0
+          : actualRaw;
+      const diff =
+        actual != null ? Math.max(0, Math.round((declared - actual) * 10) / 10) : declared;
       const costPerLiter = Number(row.cost_per_liter_ngn) || DEFAULT_FUEL_PRICE_NGN_LITER;
 
       return {
         id: row.id,
         vehicle_id: row.vehicle_id,
         license_plate: row.license_plate,
+        driver_name: row.driver_name,
         timestamp: row.timestamp,
+        purchased_at: row.timestamp,
+        obd_refuel_detected_at: row.obd_refuel_detected_at,
+        ignition_on_at: row.ignition_on_at,
+        timeline: buildReceiptTimeline({
+          purchasedAt: row.timestamp,
+          obdRefuelDetectedAt: row.obd_refuel_detected_at,
+          ignitionOnAt: row.ignition_on_at,
+        }),
+        event_assessment: assessReceiptEvent({
+          purchasedAt: row.timestamp,
+          obdRefuelDetectedAt: row.obd_refuel_detected_at,
+          ignitionOnAt: row.ignition_on_at,
+          litersDeclared: declared,
+          litersActual: actual,
+          status: row.status,
+          merchant: row.merchant,
+          licensePlate: row.license_plate,
+          costPerLiter,
+        }),
         merchant: row.merchant,
         receipt_reference: row.receipt_reference,
         liters_declared: declared,
@@ -551,6 +615,53 @@ router.get('/fuel-purchases', async (req, res) => {
       };
     });
 
+    let summary;
+    if (includeSummary) {
+      const dailyResult = await db.execute(sql`
+        SELECT
+          DATE(fp.purchased_at AT TIME ZONE 'Africa/Lagos') AS activity_date,
+          COALESCE(dr.full_name, v.driver_name, 'Unassigned') AS driver_name,
+          SUM(fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${DEFAULT_FUEL_PRICE_NGN_LITER}))::int AS total_cost_ngn,
+          SUM(fp.liters_declared::numeric)::numeric AS total_receipt_liters,
+          SUM(COALESCE(fp.liters_actual::numeric, 0))::numeric AS total_obd_liters,
+          COUNT(*)::int AS receipt_count
+        FROM fuel_purchases fp
+        JOIN vehicles v ON v.id = fp.vehicle_id
+        LEFT JOIN drivers dr ON dr.id = v.driver_id
+        WHERE fp.customer_id = ${customerId}
+        GROUP BY 1, 2
+        ORDER BY 1 DESC, 2 ASC
+      `);
+
+      const grandResult = await db.execute(sql`
+        SELECT
+          SUM(fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${DEFAULT_FUEL_PRICE_NGN_LITER}))::int AS total_cost_ngn,
+          SUM(fp.liters_declared::numeric)::numeric AS total_receipt_liters,
+          SUM(COALESCE(fp.liters_actual::numeric, 0))::numeric AS total_obd_liters,
+          COUNT(*)::int AS receipt_count
+        FROM fuel_purchases fp
+        WHERE fp.customer_id = ${customerId}
+      `);
+
+      const grand = grandResult.rows[0] ?? {};
+      summary = {
+        daily_totals: dailyResult.rows.map((row) => ({
+          activity_date: row.activity_date,
+          driver_name: row.driver_name,
+          receipt_count: Number(row.receipt_count),
+          total_cost_ngn: Number(row.total_cost_ngn),
+          total_receipt_liters: Math.round(Number(row.total_receipt_liters) * 10) / 10,
+          total_obd_liters: Math.round(Number(row.total_obd_liters) * 10) / 10,
+        })),
+        grand_total: {
+          receipt_count: Number(grand.receipt_count) || 0,
+          total_cost_ngn: Number(grand.total_cost_ngn) || 0,
+          total_receipt_liters: Math.round(Number(grand.total_receipt_liters || 0) * 10) / 10,
+          total_obd_liters: Math.round(Number(grand.total_obd_liters || 0) * 10) / 10,
+        },
+      };
+    }
+
     res.json({
       source: 'database',
       page,
@@ -558,6 +669,7 @@ router.get('/fuel-purchases', async (req, res) => {
       total,
       total_pages: Math.ceil(total / limit),
       purchases,
+      ...(summary ? { summary } : {}),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -582,25 +694,13 @@ router.post('/fuel-purchases/receipt', async (req, res) => {
     const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
     const when = purchasedAt ? new Date(purchasedAt) : new Date();
 
-    const obdResult = await db.execute(sql`
-      WITH readings AS (
-        SELECT fuel_level_liters::numeric AS fuel, recorded_at
-        FROM telemetry
-        WHERE vehicle_id = ${vehicleId}
-          AND customer_id = ${customerId}
-          AND recorded_at BETWEEN ${when.toISOString()}::timestamp - INTERVAL '2 hours'
-            AND ${when.toISOString()}::timestamp + INTERVAL '2 hours'
-        ORDER BY recorded_at ASC
-      ),
-      ordered AS (
-        SELECT fuel, LAG(fuel) OVER (ORDER BY recorded_at) AS prev_fuel FROM readings
-      )
-      SELECT MAX(fuel - prev_fuel) AS max_refuel
-      FROM ordered
-      WHERE prev_fuel IS NOT NULL AND fuel - prev_fuel >= ${REFUEL_THRESHOLD_LITERS}
-    `);
+    const obdMatch = await findObdRefuelMatch({
+      vehicleId,
+      customerId,
+      transactionDate: when,
+    });
 
-    const litersActual = Number(obdResult.rows[0]?.max_refuel) || null;
+    const litersActual = obdMatch.liters;
     const declared = Number(litersDeclared);
     const diff =
       litersActual != null ? Math.max(0, Math.round((declared - litersActual) * 10) / 10) : null;
@@ -621,6 +721,8 @@ router.post('/fuel-purchases/receipt', async (req, res) => {
         receiptReference: receiptReference || null,
         litersDeclared: declared.toFixed(2),
         litersActual: litersActual != null ? litersActual.toFixed(2) : null,
+        obdRefuelDetectedAt: obdMatch.obdRefuelDetectedAt,
+        ignitionOnAt: obdMatch.ignitionOnAt,
         costPerLiterNgn: pricePerLiter,
         status,
         source: 'receipt_upload',
@@ -633,11 +735,19 @@ router.post('/fuel-purchases/receipt', async (req, res) => {
       liters_actual: litersActual,
       difference_liters: diff,
       status,
+      purchased_at: when.toISOString(),
+      obd_refuel_detected_at: obdMatch.obdRefuelDetectedAt?.toISOString() ?? null,
+      ignition_on_at: obdMatch.ignitionOnAt?.toISOString() ?? null,
+      timeline: buildReceiptTimeline({
+        purchasedAt: when,
+        obdRefuelDetectedAt: obdMatch.obdRefuelDetectedAt,
+        ignitionOnAt: obdMatch.ignitionOnAt,
+      }),
       actual_from: litersActual != null ? 'obd_sensor' : 'pending_obd_match',
       message:
         litersActual != null
-          ? `OBD sensor recorded ${litersActual.toFixed(1)}L added near this time.`
-          : 'Receipt saved. Actual liters will match when the next OBD refuel event arrives.',
+          ? `OBD recorded ${litersActual.toFixed(1)}L at ${obdMatch.obdRefuelDetectedAt?.toLocaleTimeString('en-NG', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'Africa/Lagos' }) ?? 'refuel time'}.`
+          : 'Receipt saved. OBD timestamps will attach when a refuel event is detected nearby.',
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

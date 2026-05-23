@@ -25,6 +25,7 @@ import {
   fleetMapContainerStyle,
   fleetMapDefaults,
 } from '@/lib/fleet-map-theme';
+import { getCachedPlaceName, setCachedPlaceName } from '@/lib/geocode-cache';
 import {
   AnomalyMapMarker,
   EmphasizedRoute,
@@ -73,7 +74,10 @@ function formatGeocodeResult(result: google.maps.GeocoderResult): string {
 
 function usePlaceName(lat: number | null, lng: number | null) {
   const geocoding = useMapsLibrary('geocoding');
-  const [placeName, setPlaceName] = useState<string | null>(null);
+  const [placeName, setPlaceName] = useState<string | null>(() => {
+    if (lat == null || lng == null) return null;
+    return getCachedPlaceName(lat, lng) ?? null;
+  });
 
   useEffect(() => {
     if (!geocoding || lat == null || lng == null) {
@@ -81,11 +85,19 @@ function usePlaceName(lat: number | null, lng: number | null) {
       return;
     }
 
+    const cached = getCachedPlaceName(lat, lng);
+    if (cached !== undefined) {
+      setPlaceName(cached);
+      return;
+    }
+
     let cancelled = false;
     const geocoder = new geocoding.Geocoder();
     geocoder.geocode({ location: { lat, lng } }, (results, status) => {
       if (cancelled || status !== 'OK' || !results?.[0]) return;
-      setPlaceName(formatGeocodeResult(results[0]));
+      const name = formatGeocodeResult(results[0]);
+      setCachedPlaceName(lat, lng, name);
+      setPlaceName(name);
     });
 
     return () => {
