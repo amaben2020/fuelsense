@@ -2,7 +2,7 @@ const { sql } = require('drizzle-orm');
 const { telemetryDeltasCte } = require('./telemetry-deltas-sql');
 
 function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }) {
-  const fuelPrice = pricePerLiter ?? 650;
+  const fuelPrice = pricePerLiter ?? 1340;
 
   return sql`
     WITH ${telemetryDeltasCte({ customerId, days })},

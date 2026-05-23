@@ -31,11 +31,69 @@ const drivers = pgTable('drivers', {
     .notNull()
     .references(() => customers.id, { onDelete: 'cascade' }),
   fullName: varchar('full_name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }),
   phone: varchar('phone', { length: 50 }),
   licenseNumber: varchar('license_number', { length: 80 }),
+  driverCode: varchar('driver_code', { length: 50 }),
+  pinHash: varchar('pin_hash', { length: 255 }),
   status: varchar('status', { length: 30 }).default('active'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+const fuelReceipts = pgTable('fuel_receipts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id, { onDelete: 'cascade' }),
+  driverId: uuid('driver_id')
+    .notNull()
+    .references(() => drivers.id, { onDelete: 'cascade' }),
+  vehicleId: uuid('vehicle_id')
+    .notNull()
+    .references(() => vehicles.id, { onDelete: 'cascade' }),
+  receiptPhotoUrl: text('receipt_photo_url'),
+  merchantName: varchar('merchant_name', { length: 255 }),
+  merchantAddress: text('merchant_address'),
+  transactionDate: timestamp('transaction_date').notNull(),
+  declaredLiters: numeric('declared_liters', { precision: 10, scale: 2 }).notNull(),
+  pricePerLiter: numeric('price_per_liter', { precision: 10, scale: 2 }),
+  totalAmount: numeric('total_amount', { precision: 12, scale: 2 }),
+  odometerKm: integer('odometer_km'),
+  obdLitersActual: numeric('obd_liters_actual', { precision: 10, scale: 2 }),
+  differenceLiters: numeric('difference_liters', { precision: 10, scale: 2 }),
+  reconciliationStatus: varchar('reconciliation_status', { length: 30 }).default('pending'),
+  receiptLatitude: numeric('receipt_latitude', { precision: 10, scale: 8 }),
+  receiptLongitude: numeric('receipt_longitude', { precision: 11, scale: 8 }),
+  uploadedAt: timestamp('uploaded_at').defaultNow(),
+  reconciledAt: timestamp('reconciled_at'),
+});
+
+const siphonEvents = pgTable('siphon_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id, { onDelete: 'cascade' }),
+  vehicleId: uuid('vehicle_id')
+    .notNull()
+    .references(() => vehicles.id, { onDelete: 'cascade' }),
+  driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+  alertId: integer('alert_id'),
+  occurredAt: timestamp('occurred_at').notNull(),
+  litersStolen: numeric('liters_stolen', { precision: 10, scale: 2 }).notNull(),
+  estimatedLossNgn: integer('estimated_loss_ngn'),
+  fuelLevelBefore: numeric('fuel_level_before', { precision: 10, scale: 2 }),
+  fuelLevelAfter: numeric('fuel_level_after', { precision: 10, scale: 2 }),
+  engineStateBefore: boolean('engine_state_before'),
+  engineStateAfter: boolean('engine_state_after'),
+  parkedDurationMinutes: integer('parked_duration_minutes'),
+  latitude: numeric('latitude', { precision: 10, scale: 8 }),
+  longitude: numeric('longitude', { precision: 11, scale: 8 }),
+  locationName: varchar('location_name', { length: 255 }),
+  status: varchar('status', { length: 30 }).default('active'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow(),
+  resolvedAt: timestamp('resolved_at'),
 });
 
 const fuelPurchases = pgTable('fuel_purchases', {
@@ -177,6 +235,8 @@ module.exports = {
   telemetry,
   alerts,
   fuelPurchases,
+  fuelReceipts,
+  siphonEvents,
   subscriptions,
   payments,
   deviceOrders,

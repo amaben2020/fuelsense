@@ -6,6 +6,7 @@ const {
 const { db, devices, telemetry, alerts, vehicles, eq, and, desc } = require('./lib/db-helpers');
 const { detectAnomalies } = require('./lib/anomaly-detector');
 const { DEFAULT_FUEL_PRICE_NGN_LITER } = require('./lib/fuel-metrics');
+const { recordSiphonEvent } = require('./lib/siphon-recorder');
 
 const tcpServer = new TeltonikaTCPServer({
   codecs: {
@@ -163,18 +164,38 @@ const saveTelemetry = async (device, record) => {
         .limit(1);
 
       if (!existingAlert) {
-        await db.insert(alerts).values({
-          imei: device.imei,
+        const [alertRow] = await db
+          .insert(alerts)
+          .values({
+            imei: device.imei,
+            customerId: device.customerId,
+            vehicleId: device.vehicleId,
+            alertType: 'fuel_theft',
+            message: `Fuel theft detected${locationHint}! Level dropped ${drop.toFixed(1)}L while parked (${previousFuel.toFixed(1)}L → ${fuelLevelLiters.toFixed(1)}L). Estimated loss ${estimatedLossNgn.toLocaleString('en-NG')} NGN.`,
+            fuelLevelLiters: fuelLevelLiters.toString(),
+            fuelDropLiters: drop.toFixed(2),
+            estimatedLossNgn,
+            latitude: lat,
+            longitude: lng,
+          })
+          .returning({ id: alerts.id });
+
+        await recordSiphonEvent({
           customerId: device.customerId,
           vehicleId: device.vehicleId,
-          alertType: 'fuel_theft',
-          message: `Fuel theft detected${locationHint}! Level dropped ${drop.toFixed(1)}L while parked (${previousFuel.toFixed(1)}L → ${fuelLevelLiters.toFixed(1)}L). Estimated loss ${estimatedLossNgn.toLocaleString('en-NG')} NGN.`,
-          fuelLevelLiters: fuelLevelLiters.toString(),
-          fuelDropLiters: drop.toFixed(2),
+          alertId: alertRow.id,
+          occurredAt: recordedAt,
+          litersStolen: drop,
           estimatedLossNgn,
+          fuelLevelBefore: previousFuel,
+          fuelLevelAfter: fuelLevelLiters,
+          engineStateBefore: true,
+          engineStateAfter: false,
           latitude: lat,
           longitude: lng,
+          locationName: lat && lng ? `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}` : null,
         });
+
         console.log(
           `⚠️  FUEL THEFT ALERT for ${device.imei}: -${drop.toFixed(1)}L${locationHint}`
         );

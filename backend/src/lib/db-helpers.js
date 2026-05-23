@@ -7,6 +7,8 @@ const {
   telemetry,
   alerts,
   fuelPurchases,
+  fuelReceipts,
+  siphonEvents,
   payments,
   deviceOrders,
 } = require('../db/schema');
@@ -107,6 +109,8 @@ module.exports = {
   telemetry,
   alerts,
   fuelPurchases,
+  fuelReceipts,
+  siphonEvents,
   payments,
   deviceOrders,
   eq,

@@ -43,7 +43,9 @@ function LossCell({ amount }: { amount: number }) {
     return <span className="font-mono text-[#4edea3]">—</span>;
   }
   return (
-    <span className="font-mono font-semibold text-[#ffb4ab]">−{formatNgn(amount)}</span>
+    <span className="font-mono font-semibold text-[#ffb4ab]">
+      −{formatNgn(amount)}
+    </span>
   );
 }
 
@@ -56,16 +58,27 @@ export function FleetEfficiencyReport({
 }) {
   const [explainOpen, setExplainOpen] = useState(false);
   const periodDays = summary?.period_days ?? rows[0]?.period_days ?? 7;
-  const pricePerLiter = summary?.price_per_liter_ngn ?? rows[0]?.price_per_liter_ngn ?? 650;
+  const pricePerLiter =
+    summary?.price_per_liter_ngn ?? rows[0]?.price_per_liter_ngn ?? 1340;
 
-  const totalDistance = summary?.total_distance_km ?? rows.reduce((s, r) => s + r.distance_km, 0);
+  const totalDistance =
+    summary?.total_distance_km ?? rows.reduce((s, r) => s + r.distance_km, 0);
   const totalFuel =
-    summary?.total_fuel_used_liters ?? rows.reduce((s, r) => s + r.fuel_used_liters, 0);
-  const totalExpected = summary?.total_expected_cost_ngn ?? rows.reduce((s, r) => s + r.expected_cost_ngn, 0);
-  const totalActual = summary?.total_actual_cost_ngn ?? rows.reduce((s, r) => s + r.actual_cost_ngn, 0);
-  const totalLoss = summary?.total_loss_ngn ?? rows.reduce((s, r) => s + r.total_loss_ngn, 0);
-  const totalTheft = summary?.total_theft_loss_ngn ?? rows.reduce((s, r) => s + r.theft_loss_ngn, 0);
-  const fleetEfficiency = totalDistance > 0 && totalFuel >= 0.5 ? totalDistance / totalFuel : null;
+    summary?.total_fuel_used_liters ??
+    rows.reduce((s, r) => s + r.fuel_used_liters, 0);
+  const totalExpected =
+    summary?.total_expected_cost_ngn ??
+    rows.reduce((s, r) => s + r.expected_cost_ngn, 0);
+  const totalActual =
+    summary?.total_actual_cost_ngn ??
+    rows.reduce((s, r) => s + r.actual_cost_ngn, 0);
+  const totalLoss =
+    summary?.total_loss_ngn ?? rows.reduce((s, r) => s + r.total_loss_ngn, 0);
+  const totalTheft =
+    summary?.total_theft_loss_ngn ??
+    rows.reduce((s, r) => s + r.theft_loss_ngn, 0);
+  const fleetEfficiency =
+    totalDistance > 0 && totalFuel >= 0.5 ? totalDistance / totalFuel : null;
   const fleetExpectedEff =
     rows.length > 0
       ? rows.reduce((s, r) => s + r.expected_efficiency_km_l, 0) / rows.length
@@ -76,10 +89,12 @@ export function FleetEfficiencyReport({
       <div className="overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#434656] px-6 py-4">
           <div>
-            <h2 className="font-semibold text-[#dae2fd]">Fleet efficiency & savings report</h2>
+            <h2 className="font-semibold text-[#dae2fd]">
+              Fleet efficiency & savings report
+            </h2>
             <p className="mt-1 text-xs text-[#8e90a2]">
-              Last {periodDays} days · {formatFuelPricePerLiter(pricePerLiter)} diesel · OBD
-              telemetry
+              Last {periodDays} days · {formatFuelPricePerLiter(pricePerLiter)}{' '}
+              diesel · OBD telemetry
             </p>
           </div>
           <button
@@ -93,7 +108,8 @@ export function FleetEfficiencyReport({
 
         {rows.length === 0 ? (
           <p className="p-6 text-sm text-[#8e90a2]">
-            Run <code className="text-[#b8c3ff]">npm run seed-telemetry</code> for demo history.
+            Run <code className="text-[#b8c3ff]">npm run seed-telemetry</code>{' '}
+            for demo history.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -121,15 +137,24 @@ export function FleetEfficiencyReport({
                 {rows.map((row) => {
                   const variance = row.variance_percent;
                   const tankEff = row.tank_efficiency_km_l;
-                  const tankDist = row.tank_distance_km ?? row.distance_since_purchase_km ?? 0;
+                  const tankDist =
+                    row.tank_distance_km ?? row.distance_since_purchase_km ?? 0;
                   return (
                     <tr key={row.vehicle_id} className="hover:bg-[#222a3d]">
-                      <td className="px-3 py-3 font-medium text-[#b8c3ff]">{row.license_plate}</td>
+                      <td className="px-3 py-3 font-medium text-[#b8c3ff]">
+                        {row.license_plate}
+                      </td>
                       <td className="px-3 py-3">{row.driver_name ?? '—'}</td>
-                      <td className="px-3 py-3 font-mono">{row.distance_km.toLocaleString()}</td>
-                      <td className="px-3 py-3 font-mono">{row.fuel_used_liters.toFixed(1)} L</td>
+                      <td className="px-3 py-3 font-mono">
+                        {row.distance_km.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-3 font-mono">
+                        {row.fuel_used_liters.toFixed(1)} L
+                      </td>
                       <td className="px-3 py-3 font-mono font-bold text-[#dae2fd]">
-                        {row.efficiency_km_l != null ? row.efficiency_km_l.toFixed(1) : '—'}
+                        {row.efficiency_km_l != null
+                          ? row.efficiency_km_l.toFixed(1)
+                          : '—'}
                       </td>
                       <td className="px-3 py-3 font-mono text-[#8e90a2]">
                         {row.expected_efficiency_km_l.toFixed(1)} km/L
@@ -138,7 +163,9 @@ export function FleetEfficiencyReport({
                         {variance != null ? (
                           <span
                             className={`inline-flex items-center gap-0.5 font-mono text-xs ${
-                              variance >= 0 ? 'text-[#4edea3]' : 'text-[#ffb4ab]'
+                              variance >= 0
+                                ? 'text-[#4edea3]'
+                                : 'text-[#ffb4ab]'
                             }`}
                           >
                             {variance >= 0 ? (
@@ -156,14 +183,18 @@ export function FleetEfficiencyReport({
                       <td className="px-3 py-3 font-mono">{tankDist} km</td>
                       <td
                         className={`px-3 py-3 font-mono ${
-                          tankEff != null && tankEff >= row.expected_efficiency_km_l * 0.95
+                          tankEff != null &&
+                          tankEff >= row.expected_efficiency_km_l * 0.95
                             ? 'text-[#4edea3]'
                             : 'text-[#ffb95f]'
                         }`}
                       >
                         {tankEff != null ? tankEff.toFixed(1) : '—'}
                       </td>
-                      <td className="px-3 py-3 font-mono text-xs text-[#4edea3]" title="Liters added at last refuel (OBD sensor)">
+                      <td
+                        className="px-3 py-3 font-mono text-xs text-[#4edea3]"
+                        title="Liters added at last refuel (OBD sensor)"
+                      >
                         {row.last_fuel_added_liters != null
                           ? `${row.last_fuel_added_liters.toFixed(1)} L`
                           : '—'}
@@ -171,7 +202,9 @@ export function FleetEfficiencyReport({
                       <td className="px-3 py-3 font-mono text-[#8e90a2]">
                         {formatNgn(row.expected_cost_ngn)}
                       </td>
-                      <td className="px-3 py-3 font-mono">{formatNgn(row.actual_cost_ngn)}</td>
+                      <td className="px-3 py-3 font-mono">
+                        {formatNgn(row.actual_cost_ngn)}
+                      </td>
                       <td className="px-3 py-3">
                         <LossCell amount={row.total_loss_ngn} />
                       </td>
@@ -195,18 +228,32 @@ export function FleetEfficiencyReport({
                 <tr>
                   <td className="px-3 py-3">Total</td>
                   <td className="px-3 py-3" />
-                  <td className="px-3 py-3 font-mono">{totalDistance.toLocaleString()} km</td>
-                  <td className="px-3 py-3 font-mono">{totalFuel.toFixed(0)} L</td>
                   <td className="px-3 py-3 font-mono">
-                    {fleetEfficiency != null ? `${fleetEfficiency.toFixed(1)} km/L` : '—'}
+                    {totalDistance.toLocaleString()} km
+                  </td>
+                  <td className="px-3 py-3 font-mono">
+                    {totalFuel.toFixed(0)} L
+                  </td>
+                  <td className="px-3 py-3 font-mono">
+                    {fleetEfficiency != null
+                      ? `${fleetEfficiency.toFixed(1)} km/L`
+                      : '—'}
                   </td>
                   <td className="px-3 py-3 font-mono text-[#8e90a2]">
-                    {fleetExpectedEff != null ? `${fleetExpectedEff.toFixed(1)} avg` : '—'}
+                    {fleetExpectedEff != null
+                      ? `${fleetExpectedEff.toFixed(1)} avg`
+                      : '—'}
                   </td>
                   <td className="px-3 py-3" colSpan={4} />
-                  <td className="px-3 py-3 font-mono">{formatNgn(totalExpected)}</td>
-                  <td className="px-3 py-3 font-mono">{formatNgn(totalActual)}</td>
-                  <td className="px-3 py-3 font-mono text-[#ffb4ab]">−{formatNgn(totalLoss)}</td>
+                  <td className="px-3 py-3 font-mono">
+                    {formatNgn(totalExpected)}
+                  </td>
+                  <td className="px-3 py-3 font-mono">
+                    {formatNgn(totalActual)}
+                  </td>
+                  <td className="px-3 py-3 font-mono text-[#ffb4ab]">
+                    −{formatNgn(totalLoss)}
+                  </td>
                   <td className="px-3 py-3 font-mono text-[#ffb4ab]">
                     {totalTheft > 0 ? formatNgn(totalTheft) : '—'}
                   </td>
@@ -219,7 +266,9 @@ export function FleetEfficiencyReport({
 
         {totalLoss > 0 && (
           <div className="border-t border-[#434656] bg-[#93000a]/10 px-6 py-3 text-xs text-[#ffb4ab]">
-            {rows.some((r) => r.receipt_fraud_loss_ngn && r.receipt_fraud_loss_ngn > 0) && (
+            {rows.some(
+              (r) => r.receipt_fraud_loss_ngn && r.receipt_fraud_loss_ngn > 0,
+            ) && (
               <span>
                 Receipt fraud detected on{' '}
                 {rows
@@ -232,13 +281,17 @@ export function FleetEfficiencyReport({
             {rows.some((r) => (r.alert_theft_loss_ngn ?? 0) > 0) && (
               <span>OBD siphon alerts active. </span>
             )}
-            You lost {formatNgn(totalLoss)} vs baseline — ~90% recoverable with FuelSense.
+            You lost {formatNgn(totalLoss)} vs baseline — ~90% recoverable with
+            FuelSense.
           </div>
         )}
       </div>
 
       {explainOpen && (
-        <SavingsExplanationModal summary={summary} onClose={() => setExplainOpen(false)} />
+        <SavingsExplanationModal
+          summary={summary}
+          onClose={() => setExplainOpen(false)}
+        />
       )}
     </>
   );

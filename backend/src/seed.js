@@ -14,32 +14,39 @@ const DEMO_DRIVERS = [
     phone: '+234 803 111 2233',
     licenseNumber: 'LAG/2019/88421',
     vehiclePlate: 'ABC-123',
+    driverCode: 'CHIDI-ABC',
   },
   {
     fullName: 'Amara Eze',
     phone: '+234 802 445 6677',
     licenseNumber: 'LAG/2020/55210',
     vehiclePlate: 'LAG-456-CD',
+    driverCode: 'AMARA-456',
   },
   {
     fullName: 'Ngozi Obi',
     phone: '+234 805 778 9900',
     licenseNumber: 'LAG/2018/33102',
     vehiclePlate: 'LAG-789-EF',
+    driverCode: 'NGOZI-789',
   },
   {
     fullName: 'Emeka Nwosu',
     phone: '+234 809 123 4567',
     licenseNumber: 'FCT/2021/10293',
     vehiclePlate: 'ABJ-101-GH',
+    driverCode: 'EMEKA-101',
   },
   {
     fullName: 'Ibrahim Musa',
     phone: '+234 701 555 8899',
     licenseNumber: 'RIV/2022/77104',
     vehiclePlate: 'RIV-202-IJ',
+    driverCode: 'IBRAHIM-202',
   },
 ];
+
+const DEMO_DRIVER_PIN = '1234';
 
 const DEMO_FLEET = [
   {
@@ -84,7 +91,7 @@ const DEMO_FLEET = [
   },
 ];
 
-const upsertDriver = async (customerId, driver) => {
+const upsertDriver = async (customerId, driver, pinHash) => {
   const [existing] = await db
     .select({ id: drivers.id })
     .from(drivers)
@@ -98,6 +105,8 @@ const upsertDriver = async (customerId, driver) => {
       .set({
         phone: driver.phone,
         licenseNumber: driver.licenseNumber,
+        driverCode: driver.driverCode,
+        pinHash,
         status: 'active',
       })
       .where(eq(drivers.id, existing.id));
@@ -111,6 +120,8 @@ const upsertDriver = async (customerId, driver) => {
       fullName: driver.fullName,
       phone: driver.phone,
       licenseNumber: driver.licenseNumber,
+      driverCode: driver.driverCode,
+      pinHash,
       status: 'active',
     })
     .returning({ id: drivers.id });
@@ -205,9 +216,10 @@ const seed = async () => {
     console.log('Demo customer exists — syncing fleet');
   }
 
+  const driverPinHash = await bcrypt.hash(DEMO_DRIVER_PIN, 12);
   const driverByPlate = new Map();
   for (const driver of DEMO_DRIVERS) {
-    const driverId = await upsertDriver(customer.id, driver);
+    const driverId = await upsertDriver(customer.id, driver, driverPinHash);
     driverByPlate.set(driver.vehiclePlate, { driverId, driverName: driver.fullName });
   }
 
@@ -229,7 +241,11 @@ const seed = async () => {
   console.log('\nSeed complete:');
   console.log(`  Email:    ${DEMO_EMAIL}`);
   console.log(`  Password: ${DEMO_PASSWORD}`);
-  console.log(`  Drivers:  ${DEMO_DRIVERS.length}`);
+  console.log(`  Drivers:  ${DEMO_DRIVERS.length} (PIN: ${DEMO_DRIVER_PIN})`);
+  console.log('  Driver codes:');
+  for (const d of DEMO_DRIVERS) {
+    console.log(`    ${d.driverCode} → ${d.fullName} (${d.vehiclePlate})`);
+  }
   console.log(`  Fleet:    ${DEMO_FLEET.length} vehicles with IMEIs`);
   console.log('\n  Next:');
   console.log('    npm run seed-telemetry');

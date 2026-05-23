@@ -76,6 +76,79 @@ const initDatabase = async () => {
 
   await ensureColumn('vehicles', 'driver_id', 'UUID REFERENCES drivers(id) ON DELETE SET NULL');
 
+  await ensureColumn('drivers', 'email', 'VARCHAR(255)');
+  await ensureColumn('drivers', 'driver_code', 'VARCHAR(50)');
+  await ensureColumn('drivers', 'pin_hash', 'VARCHAR(255)');
+
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_drivers_code
+      ON drivers (driver_code)
+      WHERE driver_code IS NOT NULL
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS fuel_receipts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      driver_id UUID NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      receipt_photo_url TEXT,
+      merchant_name VARCHAR(255),
+      merchant_address TEXT,
+      transaction_date TIMESTAMP NOT NULL,
+      declared_liters DECIMAL(10,2) NOT NULL,
+      price_per_liter DECIMAL(10,2),
+      total_amount DECIMAL(12,2),
+      odometer_km INTEGER,
+      obd_liters_actual DECIMAL(10,2),
+      difference_liters DECIMAL(10,2),
+      reconciliation_status VARCHAR(30) DEFAULT 'pending',
+      receipt_latitude DECIMAL(10,8),
+      receipt_longitude DECIMAL(11,8),
+      uploaded_at TIMESTAMP DEFAULT NOW(),
+      reconciled_at TIMESTAMP
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_receipts_vehicle_time
+      ON fuel_receipts (vehicle_id, transaction_date DESC)
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS siphon_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      driver_id UUID REFERENCES drivers(id) ON DELETE SET NULL,
+      alert_id BIGINT,
+      occurred_at TIMESTAMP NOT NULL,
+      liters_stolen DECIMAL(10,2) NOT NULL,
+      estimated_loss_ngn INTEGER,
+      fuel_level_before DECIMAL(10,2),
+      fuel_level_after DECIMAL(10,2),
+      engine_state_before BOOLEAN,
+      engine_state_after BOOLEAN,
+      parked_duration_minutes INTEGER,
+      latitude DECIMAL(10,8),
+      longitude DECIMAL(11,8),
+      location_name VARCHAR(255),
+      status VARCHAR(30) DEFAULT 'active',
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      resolved_at TIMESTAMP
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_siphon_events_vehicle
+      ON siphon_events (vehicle_id, occurred_at DESC)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_siphon_events_status
+      ON siphon_events (customer_id, status)
+  `);
+
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS fuel_purchases (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

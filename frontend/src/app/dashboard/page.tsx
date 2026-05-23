@@ -33,9 +33,10 @@ import { buildVehicleTracks, buildDemoTracksFromFleet } from '@/lib/map-utils';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
+import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { FleetEfficiencyReport } from '@/components/dashboard/FleetEfficiencyReport';
 import { SavingsDashboard } from '@/components/dashboard/SavingsDashboard';
-import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
+import { SiphonEventsSidebar } from '@/components/dashboard/SiphonEventsSidebar';
 import { FuelPurchaseTable } from '@/components/dashboard/FuelPurchaseTable';
 import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { FleetListPanel } from '@/components/dashboard/FleetListPanel';
@@ -82,6 +83,7 @@ export default function DashboardPage() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [followVehicle, setFollowVehicle] = useState(true);
+  const [siphonSidebarOpen, setSiphonSidebarOpen] = useState(false);
   const fleetRef = useRef(fleet);
   fleetRef.current = fleet;
 
@@ -494,6 +496,15 @@ export default function DashboardPage() {
 
           {activeView === 'fuel' && (
             <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSiphonSidebarOpen(true)}
+                  className="rounded-lg border border-[#ffb4ab]/40 bg-[#93000a]/20 px-4 py-2 text-sm text-[#ffb4ab] hover:bg-[#93000a]/30"
+                >
+                  Siphon & receipt fraud →
+                </button>
+              </div>
               <DashboardKpis summary={summary} />
               {efficiencyError && (
                 <p className="text-sm text-[#ffb95f]">{efficiencyError}</p>
@@ -544,13 +555,20 @@ export default function DashboardPage() {
                     <p className="font-medium text-[#dae2fd]">Add vehicle + IMEI</p>
                     <p className="text-xs text-[#8e90a2]">Register a new tracker</p>
                   </button>
-                  <Link
-                    href="/dashboard/orders/new"
-                    className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
-                  >
-                    <p className="font-medium text-[#dae2fd]">Order trackers</p>
-                    <p className="text-xs text-[#8e90a2]">Buy additional FMC150 devices</p>
-                  </Link>
+                <Link
+                  href="/driver"
+                  className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
+                >
+                  <p className="font-medium text-[#dae2fd]">Driver receipt portal</p>
+                  <p className="text-xs text-[#8e90a2]">Mobile upload — matches OBD automatically</p>
+                </Link>
+                <Link
+                  href="/dashboard/orders/new"
+                  className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
+                >
+                  <p className="font-medium text-[#dae2fd]">Order trackers</p>
+                  <p className="text-xs text-[#8e90a2]">Buy additional FMC150 devices</p>
+                </Link>
                 </div>
               </div>
               <DriverSettingsPanel
@@ -567,6 +585,16 @@ export default function DashboardPage() {
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         onAdded={handleDeviceAdded}
+      />
+
+      <SiphonEventsSidebar
+        isOpen={siphonSidebarOpen}
+        onClose={() => setSiphonSidebarOpen(false)}
+        onViewOnMap={(lat, lng, vehicleId) => {
+          setSelectedVehicleId(vehicleId);
+          setSiphonSidebarOpen(false);
+          switchView('live');
+        }}
       />
     </div>
   );

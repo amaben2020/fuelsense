@@ -11,6 +11,7 @@
     "seed": "node src/seed.js",
     "seed-telemetry": "node src/seed-telemetry.js",
     "seed-fuel-purchases": "node src/seed-fuel-purchases.js",
+    "seed-fuel-events": "node src/seed-fuel-events.js",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
   },

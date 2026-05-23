@@ -260,6 +260,47 @@ export interface DailyActivityResponse {
   rows: DailyActivityRow[];
 }
 
+export interface SiphonEventRow {
+  id: string;
+  vehicle_id: string;
+  vehicle_plate: string;
+  driver_name: string | null;
+  occurred_at: string;
+  liters_stolen: number;
+  estimated_loss_ngn: number;
+  location_name: string | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
+  status: string;
+  evidence: {
+    fuel_level_before: number;
+    fuel_level_after: number;
+    engine_state_before: boolean | null;
+    engine_state_after: boolean | null;
+    parked_duration_minutes: number | null;
+  };
+}
+
+export interface ReceiptFlagRow {
+  id: string;
+  vehicle_plate: string;
+  driver_name: string | null;
+  merchant_name: string | null;
+  transaction_date: string;
+  declared_liters: number;
+  obd_actual_liters: number | null;
+  difference_liters: number | null;
+  estimated_loss_ngn: number;
+  status: string;
+  receipt_photo_url: string | null;
+}
+
+export interface FuelEventsResponse {
+  total_preventable_loss_ngn: number;
+  siphon_events: SiphonEventRow[];
+  receipt_flags: ReceiptFlagRow[];
+}
+
 export interface Driver {
   id: string;
   full_name: string;

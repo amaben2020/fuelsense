@@ -13,6 +13,8 @@ const alertRoutes = require('./routes/alerts');
 const orderRoutes = require('./routes/orders');
 const dashboardRoutes = require('./routes/dashboard');
 const driverRoutes = require('./routes/drivers');
+const driverPortalRoutes = require('./routes/driver');
+const fuelEventsRoutes = require('./routes/fuel-events');
 
 const app = express();
 app.use(cors());
@@ -29,6 +31,8 @@ app.use('/api/telemetry', telemetryRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/drivers', driverRoutes);
+app.use('/api/driver', driverPortalRoutes);
+app.use('/api/fuel-events', fuelEventsRoutes);
 app.use('/api/orders', orderRoutes);
 
 const start = async () => {
