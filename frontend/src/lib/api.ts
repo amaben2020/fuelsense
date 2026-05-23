@@ -301,6 +301,38 @@ export interface FuelEventsResponse {
   receipt_flags: ReceiptFlagRow[];
 }
 
+export interface EventReplayReading {
+  recorded_at: string;
+  fuel_level_liters: number | null;
+  speed_kph: number;
+  ignition_on: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  odometer_km: number | null;
+}
+
+export interface EventReplayResponse {
+  event_type: 'siphon' | 'receipt_fraud';
+  vehicle_plate: string;
+  driver_name: string | null;
+  vehicle_id: string;
+  range_start: string;
+  range_end: string;
+  anomaly_at: string;
+  anomaly_index: number;
+  location_name: string | null;
+  readings: EventReplayReading[];
+  anomaly: {
+    type: string;
+    liters_lost: number;
+    estimated_loss_ngn: number;
+    confidence_percent: number;
+    reasons: string[];
+    declared_liters?: number;
+    obd_liters_actual?: number | null;
+  };
+}
+
 export interface Driver {
   id: string;
   full_name: string;

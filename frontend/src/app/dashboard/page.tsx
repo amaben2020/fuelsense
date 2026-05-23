@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Fuel,
   Menu,
+  Play,
   Plus,
   Radio,
   Settings,
@@ -25,6 +26,7 @@ import {
   FleetEfficiencySummary,
   FleetVehicle,
   FuelAnomaly,
+  FuelEventsResponse,
   FuelPurchasesResponse,
   getToken,
   TrackPoint,
@@ -37,6 +39,10 @@ import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { FleetEfficiencyReport } from '@/components/dashboard/FleetEfficiencyReport';
 import { SavingsDashboard } from '@/components/dashboard/SavingsDashboard';
 import { SiphonEventsSidebar } from '@/components/dashboard/SiphonEventsSidebar';
+import {
+  countActiveFuelEvents,
+  FuelAnomaliesPanel,
+} from '@/components/dashboard/FuelAnomaliesPanel';
 import { FuelPurchaseTable } from '@/components/dashboard/FuelPurchaseTable';
 import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { FleetListPanel } from '@/components/dashboard/FleetListPanel';
@@ -48,12 +54,13 @@ import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList'
 const REFRESH_MS = 3000;
 const LIVE_REFRESH_MS = 2000;
 
-type DashboardView = 'overview' | 'live' | 'fuel' | 'alerts' | 'settings';
+type DashboardView = 'overview' | 'live' | 'fuel' | 'anomalies' | 'alerts' | 'settings';
 
 const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'overview', label: 'Fleet overview', hash: 'overview' },
   { id: 'live', label: 'Live monitoring', hash: 'live' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
+  { id: 'anomalies', label: 'Replay events', hash: 'anomalies' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
   { id: 'settings', label: 'Settings', hash: 'settings' },
 ];
@@ -84,6 +91,7 @@ export default function DashboardPage() {
   const [tick, setTick] = useState(0);
   const [followVehicle, setFollowVehicle] = useState(true);
   const [siphonSidebarOpen, setSiphonSidebarOpen] = useState(false);
+  const [fuelEventCount, setFuelEventCount] = useState(0);
   const fleetRef = useRef(fleet);
   fleetRef.current = fleet;
 
@@ -120,11 +128,12 @@ export default function DashboardPage() {
 
   const loadDashboard = async () => {
     try {
-      const [me, fleetRows, alertList, anomalyList] = await Promise.all([
+      const [me, fleetRows, alertList, anomalyList, fuelEvents] = await Promise.all([
         api<Customer>('/auth/me'),
         api<FleetVehicle[]>('/vehicles/fleet'),
         api<Alert[]>('/alerts'),
         api<FuelAnomaly[]>('/alerts/anomalies').catch(() => [] as FuelAnomaly[]),
+        api<FuelEventsResponse>('/fuel-events').catch(() => null),
       ]);
 
       if (!me.onboarding_completed && fleetRows.length === 0) {
@@ -179,6 +188,7 @@ export default function DashboardPage() {
       setFleet(fleetRows);
       setAlerts(alertList);
       setAnomalies(anomalyList);
+      setFuelEventCount(countActiveFuelEvents(fuelEvents));
       setEfficiency(efficiencyRows);
       setSummary(summaryRow);
       setDrivers(driverRows);
@@ -286,6 +296,7 @@ export default function DashboardPage() {
     overview: 'Fleet overview',
     live: 'Live monitoring',
     fuel: 'Fuel analytics',
+    anomalies: 'Replay events',
     alerts: 'Alerts',
     settings: 'Settings',
   }[activeView];
@@ -329,6 +340,13 @@ export default function DashboardPage() {
           label="Fuel analytics"
           active={activeView === 'fuel'}
           onClick={() => switchView('fuel')}
+        />
+        <NavItem
+          icon={Play}
+          label="Replay events"
+          badge={fuelEventCount || undefined}
+          active={activeView === 'anomalies'}
+          onClick={() => switchView('anomalies')}
         />
         <NavItem
           icon={AlertTriangle}
@@ -499,10 +517,10 @@ export default function DashboardPage() {
               <div className="flex flex-wrap items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setSiphonSidebarOpen(true)}
+                  onClick={() => switchView('anomalies')}
                   className="rounded-lg border border-[#ffb4ab]/40 bg-[#93000a]/20 px-4 py-2 text-sm text-[#ffb4ab] hover:bg-[#93000a]/30"
                 >
-                  Siphon & receipt fraud →
+                  Replay events →
                 </button>
               </div>
               <DashboardKpis summary={summary} />
@@ -528,6 +546,16 @@ export default function DashboardPage() {
                 onRefresh={() => loadFuelPurchases(fuelPurchasePage)}
               />
             </div>
+          )}
+
+          {activeView === 'anomalies' && (
+            <FuelAnomaliesPanel
+              active={activeView === 'anomalies'}
+              onViewOnMap={(lat, lng, vehicleId) => {
+                setSelectedVehicleId(vehicleId);
+                switchView('live');
+              }}
+            />
           )}
 
           {activeView === 'alerts' && (

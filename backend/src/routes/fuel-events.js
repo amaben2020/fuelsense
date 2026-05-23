@@ -12,6 +12,11 @@ const {
   sql,
 } = require('../lib/db-helpers');
 
+const {
+  buildSiphonEventReplay,
+  buildReceiptEventReplay,
+} = require('../lib/event-replay');
+
 const router = express.Router();
 
 router.use(authenticateCustomer);
@@ -116,6 +121,32 @@ router.get('/', async (req, res) => {
         receipt_photo_url: row.receipt_photo_url,
       })),
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/siphon-events/:id/replay', async (req, res) => {
+  try {
+    const replay = await buildSiphonEventReplay({
+      customerId: req.user.customerId,
+      eventId: req.params.id,
+    });
+    if (!replay) return res.status(404).json({ error: 'Siphon event not found' });
+    res.json(replay);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/receipts/:id/replay', async (req, res) => {
+  try {
+    const replay = await buildReceiptEventReplay({
+      customerId: req.user.customerId,
+      receiptId: req.params.id,
+    });
+    if (!replay) return res.status(404).json({ error: 'Receipt not found' });
+    res.json(replay);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
