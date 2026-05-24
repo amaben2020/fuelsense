@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { HelpCircle, Receipt, TrendingDown } from 'lucide-react';
 import { FleetEfficiencySummary, formatFuelPricePerLiter, formatNgn } from '@/lib/api';
+import { formatMillionsNgn } from '@/lib/trust-language';
 
 import { SavingsExplanationModal } from './SavingsExplanationModal';
 
@@ -15,7 +16,7 @@ export function SavingsDashboard({
   if (!summary) return null;
 
   const periodDays = summary.period_days;
-  const annualizedLoss = Math.round((summary.total_loss_ngn / periodDays) * 365);
+  const annualSavingsOpportunity = Math.round((summary.total_loss_ngn / periodDays) * 365);
   const recoverable = summary.recoverable_ngn;
 
   return (
@@ -34,10 +35,12 @@ export function SavingsDashboard({
             </p>
           </div>
           <div className="text-right">
-            <p className="text-sm text-[#c4c5d9]">Annualized loss</p>
-            <p className="text-2xl font-bold text-[#ffb4ab]">{formatNgn(annualizedLoss)}</p>
-            <p className="mt-1 text-xs text-[#4edea3]">
-              ~{formatNgn(recoverable)} recoverable ({periodDays}d × 90%)
+            <p className="text-sm text-[#c4c5d9]">Potential annual savings opportunity</p>
+            <p className="text-2xl font-bold text-[#4edea3]">
+              {formatMillionsNgn(annualSavingsOpportunity)}
+            </p>
+            <p className="mt-1 text-xs text-[#8e90a2]">
+              ~{formatNgn(recoverable)} recoverable in last {periodDays} days if addressed
             </p>
           </div>
           <button
@@ -54,7 +57,7 @@ export function SavingsDashboard({
         <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
           <div className="mb-3 flex items-center gap-2">
             <Receipt className="h-4 w-4 text-[#ffb4ab]" />
-            <h3 className="font-semibold text-[#dae2fd]">Theft & receipt fraud</h3>
+            <h3 className="font-semibold text-[#dae2fd]">Suspicious fuel patterns</h3>
           </div>
           <p className="text-2xl font-bold text-[#ffb4ab]">
             {formatNgn(summary.total_theft_loss_ngn)}

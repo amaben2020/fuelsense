@@ -67,16 +67,16 @@ export function FuelAnomalyModal({
               <AnomalyCard
                 icon={Droplet}
                 color="#ffb4ab"
-                title="Fuel theft (siphoning)"
-                body="Fuel drops while parked (ignition OFF). Someone physically drained the tank."
-                rule="Engine OFF + fuel ↓ &gt; 5 L = THEFT"
+                title="Possible fuel anomaly (siphoning)"
+                body="Fuel drops while parked (ignition OFF). Flagged for investigation — not a final verdict."
+                rule="Engine OFF + fuel ↓ &gt; 5 L = REVIEW"
               />
               <AnomalyCard
                 icon={Receipt}
                 color="#ffb95f"
                 title="Receipt overcharging"
                 body="Receipt claims more liters than OBD recorded entering the tank."
-                rule="Receipt L − OBD L &gt; 5 L = FRAUD"
+                rule="Receipt L − OBD L &gt; 5 L = REVIEW"
               />
               <AnomalyCard
                 icon={Battery}

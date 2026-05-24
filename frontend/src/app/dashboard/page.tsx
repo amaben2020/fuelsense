@@ -34,6 +34,7 @@ import {
 } from '@/lib/api';
 import { buildVehicleTracks, buildDemoTracksFromFleet } from '@/lib/map-utils';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
+import { FleetOperationsOverview } from '@/components/dashboard/FleetOperationsOverview';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
@@ -46,10 +47,8 @@ import {
 } from '@/components/dashboard/FuelAnomaliesPanel';
 import { FuelPurchaseTable, ReceiptsPanel } from '@/components/dashboard/ReceiptsPanel';
 import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
-import { FleetListPanel } from '@/components/dashboard/FleetListPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
-import { VehicleDetailPanel } from '@/components/dashboard/VehicleDetailPanel';
 import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
 import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 
@@ -59,7 +58,7 @@ const LIVE_REFRESH_MS = 2000;
 type DashboardView = 'overview' | 'live' | 'fuel' | 'receipts' | 'anomalies' | 'alerts' | 'settings';
 
 const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
-  { id: 'overview', label: 'Fleet overview', hash: 'overview' },
+  { id: 'overview', label: 'Operations', hash: 'overview' },
   { id: 'live', label: 'Live monitoring', hash: 'live' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
@@ -80,6 +79,8 @@ export default function DashboardPage() {
   const [fuelPurchasePage, setFuelPurchasePage] = useState(1);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [todaySummary, setTodaySummary] = useState<DashboardSummary | null>(null);
+  const [fuelEvents, setFuelEvents] = useState<FuelEventsResponse | null>(null);
   const [liveTracks, setLiveTracks] = useState(
     () => buildVehicleTracks([] as TrackPoint[])
   );
@@ -177,6 +178,13 @@ export default function DashboardPage() {
         summaryRow = null;
       }
 
+      let todayRow: DashboardSummary | null = null;
+      try {
+        todayRow = await api<DashboardSummary>('/dashboard/summary?days=1');
+      } catch {
+        todayRow = null;
+      }
+
       try {
         if (activeViewRef.current !== 'receipts') {
           await loadFuelPurchases(fuelPurchasePage);
@@ -203,9 +211,11 @@ export default function DashboardPage() {
       setFleet(fleetRows);
       setAlerts(alertList);
       setAnomalies(anomalyList);
+      setFuelEvents(fuelEvents);
       setFuelEventCount(countActiveFuelEvents(fuelEvents));
       setEfficiency(efficiencyRows);
       setSummary(summaryRow);
+      setTodaySummary(todayRow);
       setDrivers(driverRows);
       const builtTracks = buildVehicleTracks(trackPoints);
       setLiveTracks(
@@ -308,7 +318,7 @@ export default function DashboardPage() {
   };
 
   const viewTitle = {
-    overview: 'Fleet overview',
+    overview: 'Operations',
     live: 'Live monitoring',
     fuel: 'Fuel analytics',
     receipts: 'Receipts',
@@ -507,26 +517,27 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'overview' && (
-            <TheftAlertBanner alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
-          )}
-
-          {activeView === 'overview' && (
             <div className="space-y-6">
-              <DashboardKpis summary={summary} />
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                <div className="xl:col-span-2">
-                  <FleetListPanel
-                    fleet={fleet}
-                    alerts={alerts}
-                    selectedId={selectedVehicle?.id ?? null}
-                    onSelect={(id) => {
-                      setSelectedVehicleId(id);
-                      switchView('live');
-                    }}
-                  />
-                </div>
-                <VehicleDetailPanel vehicle={selectedVehicle} alerts={alerts} />
-              </div>
+              <TheftAlertBanner alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
+              <FleetOperationsOverview
+                summary={summary}
+                todaySummary={todaySummary}
+                efficiency={efficiency}
+                efficiencySummary={efficiencySummary}
+                alerts={alerts}
+                anomalies={anomalies}
+                fuelEvents={fuelEvents}
+                fleet={fleet}
+                onOpenLive={(vehicleId) => {
+                  if (vehicleId) setSelectedVehicleId(vehicleId);
+                  switchView('live');
+                }}
+                onOpenAnomalies={() => switchView('anomalies')}
+                onViewOnMap={(vehicleId) => {
+                  setSelectedVehicleId(vehicleId);
+                  switchView('live');
+                }}
+              />
             </div>
           )}
 
@@ -609,7 +620,7 @@ export default function DashboardPage() {
             <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
               <h2 className="font-semibold text-[#dae2fd]">All active alerts</h2>
               <p className="mt-1 text-xs text-[#8e90a2]">
-                Fuel theft alerts include GPS coordinates from the tracker
+                Fuel anomaly alerts include GPS coordinates from the tracker
               </p>
               <div className="mt-4">
                 <AlertsList alerts={alerts} onViewOnMap={handleViewAlertOnMap} />

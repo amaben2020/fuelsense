@@ -108,7 +108,7 @@ export function ReceiptEventModal({
             <div className={`rounded-lg border p-4 ${probabilityTone(probability)}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-wider opacity-80">Fraud probability</p>
+                  <p className="text-xs uppercase tracking-wider opacity-80">Review confidence</p>
                   <p className="mt-1 text-3xl font-bold">{probability}%</p>
                 </div>
                 <StatusBadge status={purchase.status} verdict={assessment.verdict} />
@@ -188,7 +188,7 @@ export function ReceiptEventModal({
                   <Shield className="h-4 w-4 text-[#b8c3ff]" />
                 )}
                 {isTheft || probability >= 70
-                  ? 'Why we think this is theft'
+                  ? 'Why this was flagged for review'
                   : 'Assessment notes'}
               </h3>
               <ul className="mt-3 space-y-2">
@@ -259,7 +259,7 @@ function StatusBadge({
   if (status === 'flagged_theft' || verdict === 'likely_theft') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-[#93000a]/30 px-3 py-1 text-xs font-medium text-[#ffb4ab]">
-        <AlertTriangle className="h-3.5 w-3.5" /> Likely theft
+        <AlertTriangle className="h-3.5 w-3.5" /> Requires review
       </span>
     );
   }

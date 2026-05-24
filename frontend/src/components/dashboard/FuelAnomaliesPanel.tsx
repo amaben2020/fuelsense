@@ -17,6 +17,14 @@ import {
 } from '@/lib/api';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
+import {
+  TRUST_COPY,
+  receiptMismatchConfidence,
+  receiptMismatchContextLines,
+  severityLabel,
+  siphonConfidence,
+  siphonContextLines,
+} from '@/lib/trust-language';
 
 export function countActiveFuelEvents(data: FuelEventsResponse | null) {
   if (!data) return 0;
@@ -84,7 +92,7 @@ export function FuelAnomaliesPanel({
             <AlertTriangle className="h-5 w-5 text-[#ffb4ab]" /> Fuel anomalies
           </h2>
           <p className="mt-1 text-xs text-[#8e90a2]">
-            Siphon detection + receipt fraud — click Replay to see timeline, map, and OBD evidence
+            {TRUST_COPY.notVerdict} — use evidence replay before deciding
           </p>
         </div>
 
@@ -99,13 +107,13 @@ export function FuelAnomaliesPanel({
           <TabButton
             active={activeTab === 'siphon'}
             onClick={() => setActiveTab('siphon')}
-            label={`Siphon (${siphonEvents.length})`}
+            label={`Fuel anomalies (${siphonEvents.length})`}
             icon={Droplet}
           />
           <TabButton
             active={activeTab === 'receipt'}
             onClick={() => setActiveTab('receipt')}
-            label={`Receipt fraud (${receiptFlags.length})`}
+            label={`Receipt review (${receiptFlags.length})`}
             icon={Receipt}
           />
         </div>
@@ -138,7 +146,7 @@ export function FuelAnomaliesPanel({
 
           {activeTab === 'receipt' &&
             (receiptFlags.length === 0 ? (
-              <EmptyState message="No receipt fraud flagged" />
+              <EmptyState message="No receipt flags pending review" />
             ) : (
               <div className="grid gap-3 lg:grid-cols-2">
                 {receiptFlags.map((flag) => (
@@ -207,23 +215,36 @@ function SiphonCard({
   onReplay: () => void;
   onViewMap: () => void;
 }) {
+  const confidence = siphonConfidence(event);
+  const severity = severityLabel(confidence);
+  const reasons = siphonContextLines(event).slice(0, 3);
+
   return (
     <div
       className={`cursor-pointer rounded-lg border bg-[#0b1326] p-4 ${expanded ? 'border-[#b8c3ff]' : 'border-[#2d3449]'}`}
       onClick={onToggle}
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-semibold text-[#dae2fd]">{event.vehicle_plate}</p>
-          <p className="text-xs text-[#8e90a2]">{event.driver_name ?? '—'}</p>
+          <p className="font-semibold text-[#dae2fd]">{TRUST_COPY.siphonTitle}</p>
+          <p className="text-xs text-[#8e90a2]">
+            {event.vehicle_plate} · {event.driver_name ?? '—'}
+          </p>
         </div>
-        <span className="rounded-full bg-[#ffb4ab]/20 px-2 py-0.5 text-xs text-[#ffb4ab]">
-          {event.status}
+        <span className="rounded-full bg-[#ffb4ab]/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-[#ffb4ab]">
+          {severity} · {confidence}%
         </span>
       </div>
+      <ul className="mt-2 space-y-0.5">
+        {reasons.map((line) => (
+          <li key={line} className="text-xs text-[#8e90a2]">
+            • {line}
+          </li>
+        ))}
+      </ul>
       <div className="mt-2 space-y-1 text-sm">
-        <Row label="Stolen" value={`${event.liters_stolen.toFixed(1)} L`} highlight />
-        <Row label="Loss" value={formatNgn(event.estimated_loss_ngn)} highlight />
+        <Row label="Fuel drop" value={`−${event.liters_stolen.toFixed(1)} L`} highlight />
+        <Row label="Est. impact" value={formatNgn(event.estimated_loss_ngn)} highlight />
         <Row label="When" value={new Date(event.occurred_at).toLocaleString()} />
       </div>
       {!expanded && (
@@ -233,9 +254,9 @@ function SiphonCard({
             e.stopPropagation();
             onReplay();
           }}
-          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg border border-[#2e5bff]/40 bg-[#2e5bff]/15 py-2 text-xs font-medium text-[#b8c3ff]"
+          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg bg-[#2e5bff] py-2.5 text-xs font-semibold text-white shadow-lg shadow-[#2e5bff]/20"
         >
-          <Play className="h-3.5 w-3.5" /> Replay event
+          <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
         </button>
       )}
       {expanded && (
@@ -252,7 +273,7 @@ function SiphonCard({
               onClick={onReplay}
               className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#2e5bff] py-2 text-xs font-medium text-white"
             >
-              <Play className="h-3.5 w-3.5" /> Replay
+              <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
             </button>
             <button
               type="button"
@@ -284,10 +305,28 @@ function ReceiptFlagCard({
   onResolve: () => void;
   onReplay: () => void;
 }) {
+  const confidence = receiptMismatchConfidence(flag);
+  const severity = severityLabel(confidence);
+  const reasons = receiptMismatchContextLines(flag).slice(0, 3);
+
   return (
     <div className="rounded-lg border border-[#ffb4ab]/30 bg-[#0b1326] p-4">
-      <p className="font-semibold text-[#dae2fd]">{flag.vehicle_plate}</p>
-      <p className="text-xs text-[#8e90a2]">{flag.driver_name} · {flag.merchant_name}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-semibold text-[#dae2fd]">{TRUST_COPY.receiptMismatchTitle}</p>
+        <span className="rounded-full bg-[#ffb95f]/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-[#ffb95f]">
+          {severity} · {confidence}%
+        </span>
+      </div>
+      <p className="text-xs text-[#8e90a2]">
+        {flag.vehicle_plate} · {flag.driver_name} · {flag.merchant_name}
+      </p>
+      <ul className="mt-2 space-y-0.5">
+        {reasons.map((line) => (
+          <li key={line} className="text-xs text-[#8e90a2]">
+            • {line}
+          </li>
+        ))}
+      </ul>
       <div className="mt-2 space-y-1 text-sm">
         <Row label="Receipt claimed" value={`${flag.declared_liters} L`} />
         <Row label="OBD recorded" value={`${flag.obd_actual_liters ?? '—'} L`} highlight />
@@ -297,9 +336,9 @@ function ReceiptFlagCard({
         <button
           type="button"
           onClick={onReplay}
-          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#2e5bff] py-2 text-xs font-medium text-white"
+          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#2e5bff] py-2.5 text-xs font-semibold text-white"
         >
-          <Play className="h-3.5 w-3.5" /> Replay
+          <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
         </button>
         <button
           type="button"

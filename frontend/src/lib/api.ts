@@ -399,6 +399,17 @@ export interface EventReplayResponse {
     reasons: string[];
     declared_liters?: number;
     obd_liters_actual?: number | null;
+    primary_explanation?: string;
+    why_flagged?: string[];
+    confidence_factors?: string[];
+    recommended_actions?: string[];
+    baseline_comparison?: {
+      normal_label: string;
+      normal_range: string;
+      observed_label: string;
+      observed_value: string;
+    };
+    certainty_timeline?: { time: string; percent: number }[];
   };
 }
 

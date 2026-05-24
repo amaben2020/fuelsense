@@ -261,6 +261,20 @@ function buildSiphonReplay(event, rawRows) {
   const anomalyIndex =
     rows.length > 1 ? findSteepestDropIndex(rows) : findClosestIndex(rows, event.occurred_at);
 
+  const confidencePercent = Math.min(Math.round(confidence), 96);
+  const { seconds: dropSeconds } = dropWindowMeta(rows, anomalyIndex);
+  const ignitionOff = !event.engine_state_before && !event.engine_state_after;
+  const enriched = enrichAnomalyFields({
+    rows,
+    anomalyIndex,
+    confidence: confidencePercent,
+    reasons,
+    drop,
+    dropSeconds,
+    ignitionOff,
+    eventType: 'siphon',
+  });
+
   return attachMoments(
     {
       event_type: 'siphon',
@@ -274,11 +288,12 @@ function buildSiphonReplay(event, rawRows) {
       location_name: event.location_name,
       readings: rows,
       anomaly: {
-        type: 'Sudden fuel drop',
+        type: 'Possible fuel anomaly',
         liters_lost: drop,
         estimated_loss_ngn: Number(event.estimated_loss_ngn) || Math.round(drop * DEFAULT_FUEL_PRICE_NGN_LITER),
-        confidence_percent: Math.min(Math.round(confidence), 96),
+        confidence_percent: confidencePercent,
         reasons,
+        ...enriched,
       },
     },
     rows,
@@ -310,13 +325,28 @@ function buildReceiptReplay(receipt, rawRows) {
   ];
   if (actual != null) {
     reasons.push(`OBD sensor recorded only ${actual.toFixed(1)}L refuel`);
-    reasons.push(`Discrepancy of ${diff.toFixed(1)}L exceeds fraud threshold`);
+    reasons.push(`Discrepancy of ${diff.toFixed(1)}L exceeds review threshold`);
   } else {
     reasons.push('OBD refuel delta could not be matched to receipt');
   }
-  reasons.push('No legitimate refuel event supports declared volume');
+  reasons.push('Declared volume not supported by OBD refuel curve');
 
   const anomalyIndex = findClosestIndex(rows, receipt.transaction_date);
+  const confidencePercent = actual != null ? Math.min(88 + Math.min(diff / 2, 8), 97) : 72;
+  const primary =
+    actual != null
+      ? `Receipt claimed ${declared.toFixed(1)}L but OBD recorded ${actual.toFixed(1)}L in the refuel window`
+      : `Receipt could not be matched to OBD refuel signal`;
+  const enriched = enrichAnomalyFields({
+    rows,
+    anomalyIndex,
+    confidence: confidencePercent,
+    reasons: [primary, ...reasons.slice(1)],
+    drop: Math.max(0, diff),
+    dropSeconds: 60,
+    ignitionOff: false,
+    eventType: 'receipt_fraud',
+  });
 
   return attachMoments(
     {
@@ -331,14 +361,15 @@ function buildReceiptReplay(receipt, rawRows) {
       location_name: receipt.merchant_name,
       readings: rows,
       anomaly: {
-        type: 'Receipt fraud',
+        type: 'Receipt vs OBD mismatch',
         liters_lost: Math.max(0, diff),
         estimated_loss_ngn:
           Number(receipt.estimated_loss_ngn) || Math.round(Math.max(0, diff) * price),
-        confidence_percent: actual != null ? Math.min(88 + Math.min(diff / 2, 8), 97) : 72,
+        confidence_percent: confidencePercent,
         reasons,
         declared_liters: declared,
         obd_liters_actual: actual,
+        ...enriched,
       },
     },
     rows,
@@ -458,6 +489,124 @@ function findMaxDropLiters(rows) {
     maxDrop = Math.max(maxDrop, prev - curr);
   }
   return maxDrop;
+}
+
+function dropWindowMeta(rows, anomalyIndex) {
+  const end = rows[anomalyIndex];
+  if (!end?.fuel_level_liters) return { drop: 0, seconds: 0, startIndex: anomalyIndex };
+
+  let startIndex = anomalyIndex;
+  let drop = 0;
+  for (let i = anomalyIndex; i > 0; i -= 1) {
+    const prev = rows[i - 1];
+    const curr = rows[i];
+    if (prev.fuel_level_liters == null || curr.fuel_level_liters == null) break;
+    const step = prev.fuel_level_liters - curr.fuel_level_liters;
+    if (step <= 0.2) break;
+    drop += step;
+    startIndex = i - 1;
+  }
+  if (drop <= 0 && anomalyIndex > 0) {
+    const prev = rows[anomalyIndex - 1];
+    if (prev.fuel_level_liters != null && end.fuel_level_liters != null) {
+      drop = Math.max(0, prev.fuel_level_liters - end.fuel_level_liters);
+      startIndex = anomalyIndex - 1;
+    }
+  }
+
+  const start = rows[startIndex];
+  const seconds =
+    start && end
+      ? Math.max(
+          1,
+          Math.round(
+            (new Date(end.recorded_at).getTime() - new Date(start.recorded_at).getTime()) / 1000
+          )
+        )
+      : 0;
+  return { drop, seconds, startIndex };
+}
+
+function buildCertaintyTimeline(rows, anomalyIndex, finalPercent) {
+  const { startIndex } = dropWindowMeta(rows, anomalyIndex);
+  const start = rows[startIndex];
+  const peak = rows[anomalyIndex];
+  if (!start || !peak) {
+    return [{ time: peak?.recorded_at ?? new Date().toISOString(), percent: finalPercent }];
+  }
+  const midTime = new Date(
+    (new Date(start.recorded_at).getTime() + new Date(peak.recorded_at).getTime()) / 2
+  ).toISOString();
+  const low = Math.max(38, Math.round(finalPercent * 0.45));
+  const mid = Math.max(low + 8, Math.round(finalPercent * 0.75));
+  return [
+    { time: start.recorded_at, percent: low },
+    { time: midTime, percent: mid },
+    { time: peak.recorded_at, percent: finalPercent },
+  ];
+}
+
+function enrichAnomalyFields({
+  rows,
+  anomalyIndex,
+  confidence,
+  reasons,
+  drop,
+  dropSeconds,
+  ignitionOff,
+  eventType,
+}) {
+  const durLabel =
+    dropSeconds >= 60
+      ? `${Math.round(dropSeconds / 60)} min`
+      : `${dropSeconds} second${dropSeconds === 1 ? '' : 's'}`;
+
+  let primary_explanation = `Fuel dropped ${drop.toFixed(1)}L within ${durLabel} while ignition ${ignitionOff ? 'OFF' : 'ON'}`;
+  const confidence_factors = [
+    'Stable OBD fuel readings in replay window',
+    ignitionOff ? 'Ignition OFF correlated with fuel drop' : 'Ignition state logged during drop',
+    'No verified refuel in same window',
+    'Vehicle stationary during drop',
+  ];
+  const recommended_actions = [
+    'Walk through synchronized replay before deciding',
+    'Verify fuel receipts for this vehicle on the same day',
+    'Contact assigned driver for operational context',
+    'Review depot CCTV if available',
+  ];
+
+  if (eventType === 'receipt_fraud') {
+    primary_explanation = reasons[0] ?? primary_explanation;
+    confidence_factors.length = 0;
+    confidence_factors.push(
+      'Receipt timestamp matched to telemetry window',
+      'OBD refuel delta below declared volume',
+      'Gap exceeds review threshold'
+    );
+    recommended_actions.length = 0;
+    recommended_actions.push(
+      'Verify fuel receipt and station timestamp',
+      'Compare declared liters to OBD refuel curve',
+      'Contact assigned driver for context',
+    );
+  }
+
+  return {
+    primary_explanation,
+    why_flagged: [primary_explanation, ...reasons.slice(0, 4), 'Investigation assist — not a final accusation'],
+    confidence_factors,
+    recommended_actions,
+    certainty_timeline: buildCertaintyTimeline(rows, anomalyIndex, confidence),
+    baseline_comparison: {
+      normal_label: 'Normal fuel drift while parked',
+      normal_range: '0.1–0.3 L/hr',
+      observed_label: 'Observed during event',
+      observed_value:
+        dropSeconds < 90
+          ? `${drop.toFixed(1)}L in ${dropSeconds}s`
+          : `${drop.toFixed(1)}L in ~${Math.max(1, Math.round(dropSeconds / 60))} min`,
+    },
+  };
 }
 
 async function buildSiphonEventReplay({ customerId, eventId }) {

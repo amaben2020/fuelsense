@@ -1,5 +1,6 @@
-import { MapPin } from 'lucide-react';
+import { MapPin, Play } from 'lucide-react';
 import { Alert, formatNgn } from '@/lib/api';
+import { TRUST_COPY } from '@/lib/trust-language';
 
 export function AlertsList({
   alerts,
@@ -27,8 +28,13 @@ export function AlertsList({
             <div>
               <p className="font-medium text-[#dae2fd]">
                 {alert.license_plate ? `${alert.license_plate}: ` : ''}
-                {alert.message}
+                {alert.alert_type === 'fuel_theft'
+                  ? TRUST_COPY.alertFuelTitle
+                  : alert.message}
               </p>
+              {alert.alert_type === 'fuel_theft' && (
+                <p className="mt-0.5 text-xs text-[#8e90a2]">{alert.message}</p>
+              )}
               <p className="mt-1 text-xs text-[#8e90a2]">
                 {new Date(alert.created_at).toLocaleString()}
                 {alert.fuel_drop_liters != null && (
@@ -68,49 +74,53 @@ export function AlertsList({
   );
 }
 
-export function TheftAlertBanner({
+export function FuelAnomalyBanner({
   alerts,
   onViewOnMap,
 }: {
   alerts: Alert[];
   onViewOnMap: (alert: Alert) => void;
 }) {
-  const theftAlerts = alerts.filter((a) => a.alert_type === 'fuel_theft');
-  if (theftAlerts.length === 0) return null;
+  const fuelAlerts = alerts.filter((a) => a.alert_type === 'fuel_theft');
+  if (fuelAlerts.length === 0) return null;
 
-  const totalLossNgn = theftAlerts.reduce(
+  const totalLossNgn = fuelAlerts.reduce(
     (sum, a) => sum + (Number(a.estimated_loss_ngn) || 0),
     0,
   );
 
   return (
-    <div className="mb-6 rounded-lg border-l-4 border-l-[#ffb4ab] bg-[#93000a]/20 p-4 sticky top-0">
-      <p className="font-semibold text-[#ffb4ab]">
-        Fuel theft detected ({theftAlerts.length})
+    <div className="sticky top-0 mb-6 rounded-lg border-l-4 border-l-[#ffb95f] bg-[#996100]/15 p-4">
+      <p className="font-semibold text-[#ffb95f]">
+        {TRUST_COPY.siphonTitle} ({fuelAlerts.length})
         {totalLossNgn > 0 && (
-          <span className="ml-2 font-mono text-sm">
-            · {formatNgn(totalLossNgn)} est. loss
+          <span className="ml-2 font-mono text-sm font-normal text-[#c4c5d9]">
+            · {formatNgn(totalLossNgn)} est. impact · {TRUST_COPY.requiresReview}
           </span>
         )}
       </p>
-      {theftAlerts.slice(0, 2).map((alert) => (
+      <p className="mt-1 text-xs text-[#8e90a2]">{TRUST_COPY.notVerdict}</p>
+      {fuelAlerts.slice(0, 2).map((alert) => (
         <div
           key={alert.id}
           className="mt-2 flex flex-wrap items-center justify-between gap-2"
         >
-          <p className="text-sm text-[#ffb4ab]/90">
+          <p className="text-sm text-[#c4c5d9]">
             {alert.license_plate ? `${alert.license_plate}: ` : ''}
             {alert.message}
           </p>
           <button
             type="button"
             onClick={() => onViewOnMap(alert)}
-            className="rounded-lg border border-[#ffb4ab]/40 px-3 py-1 text-xs font-medium text-[#ffb4ab] hover:bg-[#93000a]/40"
+            className="inline-flex items-center gap-1 rounded-lg border border-[#2e5bff]/40 bg-[#2e5bff]/15 px-3 py-1 text-xs font-medium text-[#b8c3ff] hover:bg-[#2e5bff]/25"
           >
-            View on map
+            <Play className="h-3 w-3" /> Investigate on map
           </button>
         </div>
       ))}
     </div>
   );
 }
+
+/** Back-compat alias for dashboard imports */
+export { FuelAnomalyBanner as TheftAlertBanner };

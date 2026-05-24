@@ -1,12 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  APIProvider,
-  Map,
-  useMap,
-  useMapsLibrary,
-} from '@vis.gl/react-google-maps';
+import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -17,6 +12,19 @@ import {
   Truck,
 } from 'lucide-react';
 import { EventReplayMoment, EventReplayResponse, api, formatNgn } from '@/lib/api';
+import {
+  anomalyDisplayTitle,
+  buildBaselineComparison,
+  buildCausalTimeline,
+  buildCertaintyTimeline,
+  buildConfidenceFactors,
+  buildCorrelationAt,
+  buildPrimaryExplanation,
+  buildRecommendedActions,
+  formatReplayClock,
+  improveWhyFlagged,
+} from '@/lib/replay-intelligence';
+import { TRUST_COPY, severityLabel } from '@/lib/trust-language';
 import { ReplayTarget, replayApiPath } from '@/lib/replay-target';
 import { bearingDeg } from '@/lib/map-utils';
 import {
@@ -25,7 +33,6 @@ import {
   fleetMapContainerStyle,
   fleetMapDefaults,
 } from '@/lib/fleet-map-theme';
-import { getCachedPlaceName, setCachedPlaceName } from '@/lib/geocode-cache';
 import {
   AnomalyMapMarker,
   EmphasizedRoute,
@@ -33,7 +40,8 @@ import {
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
 
-const REPLAY_MAP_MIN_HEIGHT = 320;
+const REPLAY_MAP_MIN_HEIGHT = 220;
+const FUEL_CHART_HEIGHT = 200;
 const PLAY_INTERVAL_MS = 550;
 const PAUSE_MOMENT_TYPES = new Set<EventReplayMoment['type']>(['anomaly', 'fuel_drop']);
 
@@ -50,103 +58,6 @@ function formatTime(iso: string) {
 
 function formatRange(start: string, end: string) {
   return `${formatTime(start)} → ${formatTime(end)}`;
-}
-
-function formatGeocodeResult(result: google.maps.GeocoderResult): string {
-  for (const component of result.address_components ?? []) {
-    if (
-      component.types.includes('establishment') ||
-      component.types.includes('point_of_interest') ||
-      component.types.includes('premise')
-    ) {
-      return component.long_name;
-    }
-  }
-
-  const parts: string[] = [];
-  for (const type of ['route', 'neighborhood', 'sublocality', 'locality']) {
-    const match = result.address_components?.find((c) => c.types.includes(type));
-    if (match && !parts.includes(match.long_name)) parts.push(match.long_name);
-  }
-  if (parts.length) return parts.slice(0, 2).join(', ');
-  return result.formatted_address?.split(',')[0] ?? 'this location';
-}
-
-function usePlaceName(lat: number | null, lng: number | null) {
-  const geocoding = useMapsLibrary('geocoding');
-  const [placeName, setPlaceName] = useState<string | null>(() => {
-    if (lat == null || lng == null) return null;
-    return getCachedPlaceName(lat, lng) ?? null;
-  });
-
-  useEffect(() => {
-    if (!geocoding || lat == null || lng == null) {
-      setPlaceName(null);
-      return;
-    }
-
-    const cached = getCachedPlaceName(lat, lng);
-    if (cached !== undefined) {
-      setPlaceName(cached);
-      return;
-    }
-
-    let cancelled = false;
-    const geocoder = new geocoding.Geocoder();
-    geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-      if (cancelled || status !== 'OK' || !results?.[0]) return;
-      const name = formatGeocodeResult(results[0]);
-      setCachedPlaceName(lat, lng, name);
-      setPlaceName(name);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [geocoding, lat, lng]);
-
-  return placeName;
-}
-
-function buildNarrative({
-  moment,
-  placeName,
-  data,
-  staticLocation,
-}: {
-  moment: EventReplayMoment | null;
-  placeName: string | null;
-  data: EventReplayResponse;
-  staticLocation: string | null;
-}) {
-  const location =
-    placeName ?? staticLocation ?? (moment?.latitude != null ? 'this GPS pin on the map' : 'this location');
-
-  if (!moment) {
-    return `Press Play to walk through ${data.vehicle_plate}'s telemetry — we pause at each fuel event so you can verify exactly what happened.`;
-  }
-
-  const time = formatTime(moment.recorded_at);
-
-  if (moment.type === 'fuel_drop' || moment.type === 'anomaly') {
-    const liters =
-      moment.fuel_drop_liters ??
-      (moment.fuel_before != null && moment.fuel_after != null
-        ? moment.fuel_before - moment.fuel_after
-        : data.anomaly.liters_lost);
-    const ignition = moment.ignition_on ? 'engine running' : 'engine off';
-    return `This is exactly when fuel dropped ${liters.toFixed(1)}L at ${time} around ${location} — vehicle ${ignition}, ${moment.speed_kph ?? 0} km/h.`;
-  }
-
-  if (moment.type === 'fuel_rise') {
-    return `Refuel detected: +${(moment.fuel_rise_liters ?? 0).toFixed(1)}L at ${time} near ${location}. Compare this to any receipt on file.`;
-  }
-
-  if (moment.type === 'trip_start') {
-    return `Trip started at ${time} near ${location} — watch fuel consumption from here.`;
-  }
-
-  return moment.label;
 }
 
 function ReplayMap({
@@ -250,7 +161,7 @@ function FuelChart({
   const min = Math.max(0, Math.min(...fuels) - 5);
   const max = Math.max(...fuels) + 5;
   const width = 640;
-  const height = 140;
+  const height = FUEL_CHART_HEIGHT;
   const pad = { top: 12, right: 12, bottom: 24, left: 36 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
@@ -274,7 +185,7 @@ function FuelChart({
 
   return (
     <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-36 w-full min-w-[320px]">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-52 w-full min-w-[320px]">
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = pad.top + innerH * (1 - t);
           const val = min + (max - min) * t;
@@ -300,7 +211,7 @@ function FuelChart({
               strokeDasharray="4 3"
             />
             <text x={anomalyPoint.x + 4} y={pad.top + 10} fill="#ffb4ab" fontSize="10">
-              anomaly
+              flagged
             </text>
           </>
         )}
@@ -343,66 +254,12 @@ function StatusBand({
   );
 }
 
-function NarrativeBanner({
-  data,
-  activeIndex,
-  moments,
-}: {
-  data: EventReplayResponse;
-  activeIndex: number;
-  moments: EventReplayMoment[];
-}) {
-  const activeMoment =
-    moments.find((m) => m.index === activeIndex) ??
-    data.anomaly_moment ??
-    moments.find((m) => PAUSE_MOMENT_TYPES.has(m.type)) ??
-    null;
-
-  const lat = activeMoment?.latitude ?? data.readings[data.anomaly_index]?.latitude ?? null;
-  const lng = activeMoment?.longitude ?? data.readings[data.anomaly_index]?.longitude ?? null;
-  const placeName = usePlaceName(lat, lng);
-
-  const narrative = buildNarrative({
-    moment: activeMoment,
-    placeName,
-    data,
-    staticLocation: data.location_name,
-  });
-
-  const isCritical = activeMoment && PAUSE_MOMENT_TYPES.has(activeMoment.type);
-
-  return (
-    <div
-      className={`absolute inset-x-3 top-3 z-10 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-md ${
-        isCritical
-          ? 'border-[#ffb4ab]/50 bg-[#1a1020]/90'
-          : 'border-[#434656]/80 bg-[#0b1326]/90'
-      }`}
-    >
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8e90a2]">
-        {isCritical ? 'Verified moment' : 'Event replay'}
-      </p>
-      <p className={`mt-1 text-sm leading-relaxed ${isCritical ? 'text-[#ffb4ab]' : 'text-[#dae2fd]'}`}>
-        {narrative}
-      </p>
-      {placeName && (
-        <p className="mt-1 flex items-center gap-1 text-xs text-[#8e90a2]">
-          <MapPin className="h-3 w-3 shrink-0" />
-          {placeName}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function ReplayMapSection({
-  data,
   readings,
   activeIndex,
   anomalyIndex,
   moments,
 }: {
-  data: EventReplayResponse;
   readings: EventReplayResponse['readings'];
   activeIndex: number;
   anomalyIndex: number;
@@ -413,7 +270,7 @@ function ReplayMapSection({
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden bg-[#151a28]"
+      className="relative h-full w-full overflow-hidden rounded-lg border border-[#434656] bg-[#151a28]"
       style={{ minHeight: REPLAY_MAP_MIN_HEIGHT }}
     >
       <Map
@@ -434,11 +291,89 @@ function ReplayMapSection({
           moments={moments}
         />
       </Map>
-
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-10">
-        <NarrativeBanner data={data} activeIndex={activeIndex} moments={moments} />
-      </div>
     </div>
+  );
+}
+
+function CorrelationGrid({
+  rows,
+}: {
+  rows: ReturnType<typeof buildCorrelationAt>;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {rows.map((row) => (
+        <div
+          key={row.signal}
+          className={`rounded-lg border px-3 py-2 ${
+            row.tone === 'alert'
+              ? 'border-[#ffb4ab]/40 bg-[#93000a]/15'
+              : row.tone === 'warn'
+                ? 'border-[#ffb95f]/30 bg-[#996100]/10'
+                : 'border-[#434656] bg-[#0b1326]'
+          }`}
+        >
+          <p className="text-[10px] uppercase tracking-wide text-[#8e90a2]">{row.signal}</p>
+          <p className="mt-0.5 font-mono text-sm font-semibold text-[#dae2fd]">{row.state}</p>
+          <p className="mt-0.5 text-[10px] leading-snug text-[#8e90a2]">{row.detail}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CausalTimelineList({ steps }: { steps: ReturnType<typeof buildCausalTimeline> }) {
+  return (
+    <ol className="relative space-y-0 border-l border-[#434656] pl-4">
+      {steps.map((step, i) => (
+        <li key={`${step.time}-${i}`} className="relative pb-4 last:pb-0">
+          <span
+            className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full border-2 border-[#0b1326] ${
+              step.kind === 'anomaly'
+                ? 'bg-[#ffb4ab]'
+                : step.kind === 'alert'
+                  ? 'bg-[#2e5bff]'
+                  : 'bg-[#8e90a2]'
+            }`}
+          />
+          <p className="font-mono text-xs text-[#b8c3ff]">{formatReplayClock(step.time)}</p>
+          <p
+            className={`text-sm ${
+              step.kind === 'anomaly' ? 'font-medium text-[#ffb4ab]' : 'text-[#c4c5d9]'
+            }`}
+          >
+            {step.label}
+          </p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function CertaintyTimelineList({
+  points,
+}: {
+  points: ReturnType<typeof buildCertaintyTimeline>;
+}) {
+  return (
+    <ul className="space-y-2">
+      {points.map((point, i) => (
+        <li key={`${point.time}-${i}`} className="flex items-center justify-between gap-3 text-sm">
+          <span className="font-mono text-xs text-[#b8c3ff]">{formatReplayClock(point.time)}</span>
+          <div className="flex flex-1 items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#171f33]">
+              <div
+                className="h-full rounded-full bg-[#4edea3]"
+                style={{ width: `${point.percent}%` }}
+              />
+            </div>
+            <span className="w-10 font-mono text-xs font-semibold text-[#4edea3]">
+              {point.percent}%
+            </span>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -510,8 +445,30 @@ export function EventReplayPanel({
     setActiveIndex(index);
   };
 
-  const mapPath = readings.filter((r) => r.latitude != null && r.longitude != null);
-  const mapCenter = mapPath[activeIndex] ?? mapPath[0];
+  const intelligence = useMemo(() => {
+    if (!data) return null;
+    const confidence = data.anomaly.confidence_percent;
+    return {
+      title: anomalyDisplayTitle(data),
+      primary: buildPrimaryExplanation(data, readings, anomalyIndex),
+      whyFlagged: improveWhyFlagged(data, readings, anomalyIndex),
+      factors: buildConfidenceFactors(data),
+      causal: buildCausalTimeline(data, readings, moments, anomalyIndex),
+      certainty:
+        data.anomaly.certainty_timeline ??
+        buildCertaintyTimeline(readings, anomalyIndex, confidence),
+      baseline: data.anomaly.baseline_comparison
+        ? {
+            normalRange: data.anomaly.baseline_comparison.normal_range,
+            observed: data.anomaly.baseline_comparison.observed_value,
+            isAbnormal: true,
+          }
+        : buildBaselineComparison(readings, anomalyIndex),
+      correlation: buildCorrelationAt(readings[activeIndex], data),
+      actions: buildRecommendedActions(data),
+      severity: severityLabel(confidence),
+    };
+  }, [data, readings, moments, anomalyIndex, activeIndex]);
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-[#0b1326]">
@@ -530,9 +487,12 @@ export function EventReplayPanel({
               {data?.vehicle_plate ?? 'Loading…'}
             </h2>
             {data && (
-              <p className="text-xs text-[#8e90a2]">
-                {data.driver_name ?? '—'} · {formatRange(data.range_start, data.range_end)}
-              </p>
+              <>
+                <p className="text-xs text-[#8e90a2]">
+                  {data.driver_name ?? '—'} · {formatRange(data.range_start, data.range_end)}
+                </p>
+                <p className="mt-0.5 text-[10px] text-[#8e90a2]">{TRUST_COPY.notVerdict}</p>
+              </>
             )}
           </div>
         </div>
@@ -553,7 +513,7 @@ export function EventReplayPanel({
             className="inline-flex items-center gap-2 rounded-lg bg-[#2e5bff] px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
             {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            {playing ? 'Pause' : 'Play replay'}
+            {playing ? 'Pause' : 'Play timeline'}
           </button>
         </div>
       </header>
@@ -565,43 +525,65 @@ export function EventReplayPanel({
         <div className="flex flex-1 items-center justify-center text-[#ffb4ab]">{error}</div>
       )}
 
-      {!loading && !error && data && (
-        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_320px]">
-          <div className="flex min-h-0 flex-col border-b border-[#434656] lg:border-b-0 lg:border-r">
-            <div
-              className="relative min-h-[320px] flex-1 overflow-hidden bg-[#171f33]"
-              style={{ minHeight: REPLAY_MAP_MIN_HEIGHT }}
-            >
-              {!FLEET_MAPS_KEY ? (
-                <div
-                  className="flex items-center justify-center p-6 text-center text-sm text-[#8e90a2]"
-                  style={{ minHeight: REPLAY_MAP_MIN_HEIGHT }}
-                >
-                  <div>
-                    <MapPin className="mx-auto mb-2 h-8 w-8 text-[#b8c3ff]" />
-                    GPS trace unavailable — add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-                    {mapCenter && (
-                      <p className="mt-2 font-mono text-xs">
-                        {mapCenter.latitude?.toFixed(5)}, {mapCenter.longitude?.toFixed(5)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <APIProvider apiKey={FLEET_MAPS_KEY}>
-                  <ReplayMapSection
-                    data={data}
-                    readings={readings}
-                    activeIndex={activeIndex}
-                    anomalyIndex={anomalyIndex}
-                    moments={moments}
-                  />
-                </APIProvider>
-              )}
-            </div>
+      {!loading && !error && data && intelligence && (
+        <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,1fr)]">
+          <div className="flex min-h-0 flex-col overflow-y-auto border-b border-[#434656] xl:border-b-0 xl:border-r">
+            <div className="space-y-5 p-4 md:p-6">
+              <section className="rounded-xl border border-[#ffb4ab]/30 bg-gradient-to-br from-[#93000a]/15 to-[#171f33] p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[#ffb4ab]">
+                  What happened (operational summary)
+                </p>
+                <p className="mt-2 text-base leading-relaxed text-[#dae2fd]">
+                  {intelligence.primary}
+                </p>
+              </section>
 
-            <div className="shrink-0 space-y-4 border-t border-[#434656] p-4">
-              <div>
+              <section>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#8e90a2]">
+                  Signal correlation (scrubber position)
+                </p>
+                <CorrelationGrid rows={intelligence.correlation} />
+              </section>
+
+              <section className="rounded-xl border border-[#434656] bg-[#171f33] p-4">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-[#dae2fd]">Fuel level — primary evidence</p>
+                  <span className="font-mono text-xs text-[#8e90a2]">
+                    {readings[activeIndex]
+                      ? formatTime(readings[activeIndex].recorded_at)
+                      : '—'}
+                  </span>
+                </div>
+                <FuelChart
+                  readings={readings}
+                  activeIndex={activeIndex}
+                  anomalyIndex={anomalyIndex}
+                  moments={moments}
+                />
+              </section>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <section className="rounded-xl border border-[#434656] bg-[#171f33] p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                    Incident timeline (causality)
+                  </p>
+                  <CausalTimelineList steps={intelligence.causal} />
+                </section>
+                <section className="rounded-xl border border-[#434656] bg-[#171f33] p-4">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                    Detection confidence rising
+                  </p>
+                  <p className="mb-3 text-[10px] text-[#8e90a2]">
+                    How certainty built as telemetry accumulated
+                  </p>
+                  <CertaintyTimelineList points={intelligence.certainty} />
+                </section>
+              </div>
+
+              <section className="rounded-xl border border-[#434656] bg-[#171f33] p-4">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                  Synchronized playback
+                </p>
                 <div className="mb-2 flex items-center justify-between text-xs text-[#8e90a2]">
                   <span>{formatTime(readings[0]?.recorded_at ?? data.range_start)}</span>
                   <span className="font-mono text-[#dae2fd]">
@@ -623,7 +605,7 @@ export function EventReplayPanel({
                   className="w-full accent-[#2e5bff]"
                 />
                 {moments.length > 0 && (
-                  <div className="relative mt-1 h-3">
+                  <div className="relative mt-2 h-3">
                     {moments.map((m) => {
                       const pct =
                         readings.length > 1 ? (m.index / (readings.length - 1)) * 100 : 50;
@@ -644,58 +626,140 @@ export function EventReplayPanel({
                     })}
                   </div>
                 )}
-              </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <StatusBand
+                    label="Ignition"
+                    readings={readings}
+                    activeIndex={activeIndex}
+                    value={(r) => (r.ignition_on ? 'ON' : 'OFF')}
+                  />
+                  <StatusBand
+                    label="Speed"
+                    readings={readings}
+                    activeIndex={activeIndex}
+                    value={(r) => `${r.speed_kph ?? 0} km/h`}
+                  />
+                </div>
+              </section>
 
-              <StatusBand
-                label="Ignition"
-                readings={readings}
-                activeIndex={activeIndex}
-                value={(r) => (r.ignition_on ? 'ON' : 'OFF')}
-              />
-              <StatusBand
-                label="Speed"
-                readings={readings}
-                activeIndex={activeIndex}
-                value={(r) => `${r.speed_kph ?? 0} km/h`}
-              />
-
-              <div>
-                <p className="mb-2 text-[10px] uppercase tracking-wide text-[#8e90a2]">Fuel level (OBD)</p>
-                <FuelChart
-                  readings={readings}
-                  activeIndex={activeIndex}
-                  anomalyIndex={anomalyIndex}
-                  moments={moments}
-                />
-              </div>
+              <section>
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#8e90a2]">
+                  Location context (secondary)
+                </p>
+                {!FLEET_MAPS_KEY ? (
+                  <div className="rounded-lg border border-[#434656] p-4 text-center text-sm text-[#8e90a2]">
+                    GPS map unavailable — add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+                  </div>
+                ) : (
+                  <APIProvider apiKey={FLEET_MAPS_KEY}>
+                    <ReplayMapSection
+                      readings={readings}
+                      activeIndex={activeIndex}
+                      anomalyIndex={anomalyIndex}
+                      moments={moments}
+                    />
+                  </APIProvider>
+                )}
+                {data.location_name && (
+                  <p className="mt-2 flex items-center gap-1 text-xs text-[#8e90a2]">
+                    <MapPin className="h-3 w-3" />
+                    {data.location_name}
+                  </p>
+                )}
+              </section>
             </div>
           </div>
 
-          <aside className="overflow-y-auto p-4 md:p-6">
+          <aside className="overflow-y-auto border-[#434656] bg-[#0b1326] p-4 md:p-6 xl:border-l">
             <div className="rounded-lg border border-[#ffb4ab]/30 bg-[#ffb4ab]/10 p-4">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#ffb4ab]" />
-                <div>
-                  <p className="font-semibold text-[#ffb4ab]">{data.anomaly.type}</p>
-                  <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
-                    −{data.anomaly.liters_lost.toFixed(1)} L
-                  </p>
-                  <p className="text-sm text-[#ffb4ab]">{formatNgn(data.anomaly.estimated_loss_ngn)} est. loss</p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#ffb4ab]" />
+                  <div>
+                    <p className="font-semibold text-[#ffb4ab]">{intelligence.title}</p>
+                    <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
+                      −{data.anomaly.liters_lost.toFixed(1)} L
+                    </p>
+                    <p className="text-sm text-[#c4c5d9]">
+                      Est. impact {formatNgn(data.anomaly.estimated_loss_ngn)} ·{' '}
+                      {TRUST_COPY.requiresReview}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                    intelligence.severity === 'HIGH'
+                      ? 'bg-[#ffb4ab]/20 text-[#ffb4ab]'
+                      : intelligence.severity === 'MEDIUM'
+                        ? 'bg-[#ffb95f]/20 text-[#ffb95f]'
+                        : 'bg-[#8e90a2]/20 text-[#c4c5d9]'
+                  }`}
+                >
+                  {intelligence.severity} · {data.anomaly.confidence_percent}%
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-[#434656] bg-[#171f33] p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                Why flagged
+              </p>
+              <ul className="mt-3 space-y-2">
+                {intelligence.whyFlagged.map((reason) => (
+                  <li key={reason} className="flex gap-2 text-sm leading-relaxed text-[#c4c5d9]">
+                    <span className="text-[#b8c3ff]">•</span>
+                    {reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-[#434656] bg-[#171f33] p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                Confidence based on
+              </p>
+              <ul className="mt-3 space-y-1.5">
+                {intelligence.factors.map((factor) => (
+                  <li key={factor} className="text-sm text-[#c4c5d9]">
+                    • {factor}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-[#2e5bff]/30 bg-[#2e5bff]/10 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#b8c3ff]">
+                Compare vs normal behavior
+              </p>
+              <div className="mt-3 grid gap-2 text-sm">
+                <div className="flex justify-between gap-2">
+                  <span className="text-[#8e90a2]">Normal fuel drift while parked</span>
+                  <span className="font-mono text-[#4edea3]">
+                    {data.anomaly.baseline_comparison?.normal_range ??
+                      intelligence.baseline.normalRange}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-[#8e90a2]">Observed during event</span>
+                  <span
+                    className={`font-mono font-semibold ${
+                      intelligence.baseline.isAbnormal ? 'text-[#ffb4ab]' : 'text-[#dae2fd]'
+                    }`}
+                  >
+                    {data.anomaly.baseline_comparison?.observed_value ??
+                      intelligence.baseline.observed}
+                  </span>
                 </div>
               </div>
-              <p className="mt-3 text-xs text-[#c4c5d9]">
-                Confidence:{' '}
-                <span className="font-mono font-semibold text-[#4edea3]">
-                  {data.anomaly.confidence_percent}%
-                </span>
-              </p>
             </div>
 
             {data.event_type === 'receipt_fraud' && data.anomaly.declared_liters != null && (
               <div className="mt-4 rounded-lg border border-[#434656] bg-[#171f33] p-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-[#8e90a2]">Receipt claimed</span>
-                  <span className="font-mono text-[#dae2fd]">{data.anomaly.declared_liters.toFixed(1)} L</span>
+                  <span className="font-mono text-[#dae2fd]">
+                    {data.anomaly.declared_liters.toFixed(1)} L
+                  </span>
                 </div>
                 <div className="mt-2 flex justify-between">
                   <span className="text-[#8e90a2]">OBD recorded</span>
@@ -706,10 +770,24 @@ export function EventReplayPanel({
               </div>
             )}
 
+            <div className="mt-4 rounded-lg border border-[#4edea3]/30 bg-[#4edea3]/10 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#4edea3]">
+                Recommended next steps
+              </p>
+              <ul className="mt-3 space-y-2">
+                {intelligence.actions.map((action) => (
+                  <li key={action} className="flex gap-2 text-sm text-[#c4c5d9]">
+                    <span className="text-[#4edea3]">→</span>
+                    {action}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
             {moments.length > 0 && (
               <div className="mt-4">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
-                  Key moments
+                  Jump to moment
                 </p>
                 <ul className="space-y-2">
                   {moments.map((moment) => (
@@ -720,12 +798,14 @@ export function EventReplayPanel({
                         className={`w-full rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
                           moment.index === activeIndex
                             ? 'border-[#4edea3] bg-[#4edea3]/10 text-[#dae2fd]'
-                            : 'border-[#2d3449] bg-[#0b1326] text-[#c4c5d9] hover:border-[#434656]'
+                            : 'border-[#2d3449] bg-[#171f33] text-[#c4c5d9] hover:border-[#434656]'
                         }`}
                       >
                         <span
                           className={
-                            PAUSE_MOMENT_TYPES.has(moment.type) ? 'text-[#ffb4ab]' : 'text-[#b8c3ff]'
+                            PAUSE_MOMENT_TYPES.has(moment.type)
+                              ? 'text-[#ffb4ab]'
+                              : 'text-[#b8c3ff]'
                           }
                         >
                           {formatTime(moment.recorded_at)}
@@ -737,34 +817,6 @@ export function EventReplayPanel({
                 </ul>
               </div>
             )}
-
-            <div className="mt-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">Why flagged</p>
-              <ul className="space-y-2">
-                {data.anomaly.reasons.map((reason) => (
-                  <li key={reason} className="flex gap-2 text-sm text-[#c4c5d9]">
-                    <span className="text-[#ffb4ab]">•</span>
-                    {reason}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {data.location_name && (
-              <div className="mt-4 flex items-start gap-2 rounded-lg border border-[#434656] bg-[#171f33] p-3 text-sm text-[#c4c5d9]">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#b8c3ff]" />
-                {data.location_name}
-              </div>
-            )}
-
-            <div className="mt-4 rounded-lg border border-[#434656] bg-[#171f33] p-3 text-xs text-[#8e90a2]">
-              <p className="font-semibold text-[#c4c5d9]">At scrubber position</p>
-              <div className="mt-2 space-y-1 font-mono">
-                <p>Fuel: {readings[activeIndex]?.fuel_level_liters?.toFixed(1) ?? '—'} L</p>
-                <p>Speed: {readings[activeIndex]?.speed_kph ?? 0} km/h</p>
-                <p>Ignition: {readings[activeIndex]?.ignition_on ? 'ON' : 'OFF'}</p>
-              </div>
-            </div>
           </aside>
         </div>
       )}

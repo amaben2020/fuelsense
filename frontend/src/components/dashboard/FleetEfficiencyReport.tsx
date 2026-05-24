@@ -20,7 +20,7 @@ function StatusBadge({ status }: { status: FleetEfficiency['status'] }) {
   if (status === 'theft_alert') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-[#93000a]/20 px-2 py-1 text-xs text-[#ffb4ab]">
-        <AlertTriangle className="h-3 w-3" /> Theft alert
+        <AlertTriangle className="h-3 w-3" /> Review needed
       </span>
     );
   }
@@ -131,7 +131,7 @@ export function FleetEfficiencyReport({
                   <th className="px-3 py-3">Expected ₦</th>
                   <th className="px-3 py-3">Actual ₦</th>
                   <th className="px-3 py-3">Loss ₦</th>
-                  <th className="px-3 py-3">Theft ₦</th>
+                  <th className="px-3 py-3">Anomaly ₦</th>
                   <th className="px-3 py-3">Status</th>
                 </tr>
               </thead>
@@ -272,7 +272,7 @@ export function FleetEfficiencyReport({
               (r) => r.receipt_fraud_loss_ngn && r.receipt_fraud_loss_ngn > 0,
             ) && (
               <span>
-                Receipt fraud detected on{' '}
+                Receipt mismatch flagged on{' '}
                 {rows
                   .filter((r) => (r.receipt_fraud_loss_ngn ?? 0) > 0)
                   .map((r) => r.license_plate)
@@ -281,10 +281,9 @@ export function FleetEfficiencyReport({
               </span>
             )}
             {rows.some((r) => (r.alert_theft_loss_ngn ?? 0) > 0) && (
-              <span>OBD siphon alerts active. </span>
+              <span>Fuel anomaly patterns flagged for review. </span>
             )}
-            You lost {formatNgn(totalLoss)} vs baseline — ~90% recoverable with
-            FuelSense.
+            Preventable gap {formatNgn(totalLoss)} vs baseline — investigate with evidence replay.
           </div>
         )}
       </div>

@@ -17,6 +17,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { FuelAnomaly, formatNgn } from '@/lib/api';
+import { TRUST_COPY, anomalyConfidence, anomalyContextLines, severityLabel } from '@/lib/trust-language';
 import { FuelAnomalyModal } from './FuelAnomalyModal';
 
 export function FuelAnomalies({
@@ -107,7 +108,7 @@ export function FuelAnomalies({
               </div>
               <p className="text-[#c4c5d9]">Waiting for telemetry…</p>
               <p className="mt-1 text-xs text-[#8e90a2]">
-                Fleet simulator sends live GPS, fuel, and odometer every 4s. Theft alerts appear
+                Fleet simulator sends live GPS, fuel, and odometer every 4s. Anomaly flags appear
                 within ~1 minute.
               </p>
             </div>
@@ -148,6 +149,13 @@ function AnomalyRow({
   onViewOnMap?: (anomaly: FuelAnomaly) => void;
 }) {
   const isCritical = anomaly.severity === 'critical';
+  const confidence = anomalyConfidence(anomaly);
+  const severity = severityLabel(confidence);
+  const reasons = anomalyContextLines(anomaly);
+  const displayTitle =
+    anomaly.type === 'theft' || anomaly.type === 'fraud'
+      ? TRUST_COPY.siphonTitle
+      : anomaly.message;
   const Icon =
     anomaly.type === 'theft' || anomaly.type === 'fraud'
       ? Droplet
@@ -179,12 +187,33 @@ function AnomalyRow({
             >
               {isCritical ? 'Critical' : 'Warning'}
             </span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                severity === 'HIGH'
+                  ? 'bg-[#ffb4ab]/20 text-[#ffb4ab]'
+                  : severity === 'MEDIUM'
+                    ? 'bg-[#ffb95f]/20 text-[#ffb95f]'
+                    : 'bg-[#8e90a2]/20 text-[#c4c5d9]'
+              }`}
+            >
+              {severity} · {confidence}%
+            </span>
             {!anomaly.acknowledged && (
               <span className="text-xs text-[#ffb4ab]">● New</span>
             )}
           </div>
-          <p className="text-sm font-medium text-[#dae2fd]">{anomaly.message}</p>
+          <p className="text-sm font-medium text-[#dae2fd]">{displayTitle}</p>
+          {displayTitle !== anomaly.message && (
+            <p className="mt-0.5 text-xs text-[#8e90a2]">{anomaly.message}</p>
+          )}
           <p className="mt-0.5 text-xs text-[#c4c5d9]">{anomaly.details}</p>
+          <ul className="mt-2 space-y-0.5">
+            {reasons.map((line) => (
+              <li key={line} className="text-xs text-[#8e90a2]">
+                • {line}
+              </li>
+            ))}
+          </ul>
           <div className="mt-2 flex flex-wrap items-center gap-4 text-xs">
             {anomaly.liters_lost != null && (
               <span className="inline-flex items-center gap-1 font-mono text-[#ffb4ab]">

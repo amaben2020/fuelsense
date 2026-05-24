@@ -237,7 +237,7 @@ export function ReceiptsPanel({
                 {summary.grand_total.total_obd_liters.toFixed(1)} L
               </p>
               <p className="mt-1 text-xs text-[#ffb4ab]">
-                {theftCount} flagged as theft on this page
+                {theftCount} flagged for review on this page
               </p>
             </div>
           </div>
@@ -756,7 +756,7 @@ function ReconciledReceiptRow({
         <td className="px-6 py-3">
           {isTheft ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-[#93000a]/20 px-2 py-1 text-xs text-[#ffb4ab]">
-              <AlertTriangle className="h-3 w-3" /> Theft
+              <AlertTriangle className="h-3 w-3" /> Review
             </span>
           ) : isPending ? (
             <span className="text-xs text-[#ffb95f]">Pending</span>

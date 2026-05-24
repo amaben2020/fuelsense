@@ -74,10 +74,10 @@ export function SavingsExplanationModal({
 
           <Step n={4} title="Preventable loss" highlight>
             <p className="text-sm text-[#c4c5d9]">
-              Theft/fraud (receipt vs OBD, siphon alerts) plus extra burn above baseline efficiency.
+              Suspicious fuel patterns (receipt vs OBD, siphon alerts) plus extra burn above baseline efficiency.
             </p>
             <code className="mt-2 block rounded bg-[#0b1326] p-3 font-mono text-xs">
-              Preventable loss = {formatNgn(summary.total_theft_loss_ngn)} (theft/fraud) +{' '}
+              Preventable loss = {formatNgn(summary.total_theft_loss_ngn)} (anomalies) +{' '}
               {formatNgn(summary.total_efficiency_loss_ngn)} (inefficiency) ={' '}
               {formatNgn(summary.total_loss_ngn)}
             </code>
