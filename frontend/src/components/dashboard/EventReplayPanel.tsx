@@ -40,12 +40,13 @@ import {
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
 
-const REPLAY_MAP_MIN_HEIGHT = 220;
+const REPLAY_MAP_HEIGHT = 'min(42vh, 420px)';
+const REPLAY_MAP_MIN_HEIGHT_PX = 300;
 const FUEL_CHART_HEIGHT = 200;
 const PLAY_INTERVAL_MS = 550;
 const PAUSE_MOMENT_TYPES = new Set<EventReplayMoment['type']>(['anomaly', 'fuel_drop']);
 
-const replayMapStyle = fleetMapContainerStyle(REPLAY_MAP_MIN_HEIGHT);
+const replayMapStyle = fleetMapContainerStyle(REPLAY_MAP_MIN_HEIGHT_PX);
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-NG', {
@@ -259,19 +260,23 @@ function ReplayMapSection({
   activeIndex,
   anomalyIndex,
   moments,
+  locationName,
 }: {
   readings: EventReplayResponse['readings'];
   activeIndex: number;
   anomalyIndex: number;
   moments: EventReplayMoment[];
+  locationName?: string | null;
 }) {
   const mapPath = readings.filter((r) => r.latitude != null && r.longitude != null);
   const mapCenter = mapPath[activeIndex] ?? mapPath[0];
+  const active = readings[activeIndex];
+  const atAnomaly = Math.abs(activeIndex - anomalyIndex) <= 2;
 
   return (
     <div
-      className="relative h-full w-full overflow-hidden rounded-lg border border-[#434656] bg-[#151a28]"
-      style={{ minHeight: REPLAY_MAP_MIN_HEIGHT }}
+      className="relative w-full overflow-hidden rounded-lg border border-[#434656] bg-[#151a28]"
+      style={{ height: REPLAY_MAP_HEIGHT, minHeight: REPLAY_MAP_MIN_HEIGHT_PX }}
     >
       <Map
         {...fleetMapDefaults({
@@ -291,6 +296,23 @@ function ReplayMapSection({
           moments={moments}
         />
       </Map>
+
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 max-w-lg rounded-xl border border-[#434656]/80 bg-[#0b1326]/90 px-4 py-3 shadow-lg backdrop-blur-md">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8e90a2]">
+          {atAnomaly ? 'At flagged moment' : 'Synchronized map'}
+        </p>
+        <p className={`mt-1 text-sm ${atAnomaly ? 'text-[#ffb4ab]' : 'text-[#dae2fd]'}`}>
+          {active
+            ? `${formatTime(active.recorded_at)} · ${active.speed_kph ?? 0} km/h · ignition ${active.ignition_on ? 'ON' : 'OFF'} · ${active.fuel_level_liters?.toFixed(1) ?? '—'}L`
+            : 'Scrub the timeline to move the vehicle'}
+        </p>
+        {locationName && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-[#8e90a2]">
+            <MapPin className="h-3 w-3 shrink-0" />
+            {locationName}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -526,7 +548,35 @@ export function EventReplayPanel({
       )}
 
       {!loading && !error && data && intelligence && (
-        <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,1fr)]">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 border-b border-[#434656] bg-[#171f33] p-4 md:px-6">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+              GPS trace — synced with fuel timeline
+            </p>
+            {!FLEET_MAPS_KEY ? (
+              <div
+                className="flex items-center justify-center rounded-lg border border-[#434656] bg-[#0b1326] text-sm text-[#8e90a2]"
+                style={{ height: REPLAY_MAP_HEIGHT, minHeight: REPLAY_MAP_MIN_HEIGHT_PX }}
+              >
+                <div className="text-center">
+                  <MapPin className="mx-auto mb-2 h-8 w-8 text-[#b8c3ff]" />
+                  Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to show the replay map
+                </div>
+              </div>
+            ) : (
+              <APIProvider apiKey={FLEET_MAPS_KEY}>
+                <ReplayMapSection
+                  readings={readings}
+                  activeIndex={activeIndex}
+                  anomalyIndex={anomalyIndex}
+                  moments={moments}
+                  locationName={data.location_name}
+                />
+              </APIProvider>
+            )}
+          </div>
+
+          <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,1fr)]">
           <div className="flex min-h-0 flex-col overflow-y-auto border-b border-[#434656] xl:border-b-0 xl:border-r">
             <div className="space-y-5 p-4 md:p-6">
               <section className="rounded-xl border border-[#ffb4ab]/30 bg-gradient-to-br from-[#93000a]/15 to-[#171f33] p-4">
@@ -640,32 +690,6 @@ export function EventReplayPanel({
                     value={(r) => `${r.speed_kph ?? 0} km/h`}
                   />
                 </div>
-              </section>
-
-              <section>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#8e90a2]">
-                  Location context (secondary)
-                </p>
-                {!FLEET_MAPS_KEY ? (
-                  <div className="rounded-lg border border-[#434656] p-4 text-center text-sm text-[#8e90a2]">
-                    GPS map unavailable — add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-                  </div>
-                ) : (
-                  <APIProvider apiKey={FLEET_MAPS_KEY}>
-                    <ReplayMapSection
-                      readings={readings}
-                      activeIndex={activeIndex}
-                      anomalyIndex={anomalyIndex}
-                      moments={moments}
-                    />
-                  </APIProvider>
-                )}
-                {data.location_name && (
-                  <p className="mt-2 flex items-center gap-1 text-xs text-[#8e90a2]">
-                    <MapPin className="h-3 w-3" />
-                    {data.location_name}
-                  </p>
-                )}
               </section>
             </div>
           </div>
@@ -818,6 +842,7 @@ export function EventReplayPanel({
               </div>
             )}
           </aside>
+          </div>
         </div>
       )}
     </div>
