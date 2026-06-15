@@ -120,7 +120,6 @@ export const customerPublicSelect = {
 };
 
 export {
-  IMEI_PATTERN as default,
   serializeForApi,
   db,
   customers,

@@ -50,7 +50,7 @@ export function detectDataAnomaly({ distanceKm, fuelUsed, efficiencyL100km, idle
 }
 
 interface ClassifyDailyRowParams {
-  model: string | null;
+  model: string | null | undefined;
   distanceKm: number;
   fuelUsed: number;
   efficiencyL100km: number | null;
@@ -244,8 +244,8 @@ export function buildDailyInsight({
   return `Operating within normal pattern for ${vehicleType}`;
 }
 
-export function dailyDistanceThreshold(model: string): { min: number; max: number; expected: number } {
-  return DAILY_DISTANCE_BY_MODEL[model] || DEFAULT_DAILY_DISTANCE;
+export function dailyDistanceThreshold(model: string | null | undefined): { min: number; max: number; expected: number } {
+  return DAILY_DISTANCE_BY_MODEL[model ?? ''] || DEFAULT_DAILY_DISTANCE;
 }
 
 /** Positive % = worse (more L/100km than baseline). */
