@@ -1,10 +1,10 @@
-const express = require('express');
-const { authenticateCustomer } = require('../middleware/auth');
-const { db, telemetry, vehicles, fuelPurchases, eq, desc, sql } = require('../lib/db-helpers');
-const { fleetEfficiencyAggSql } = require('../lib/fleet-efficiency-sql');
-const { dailyActivitySql } = require('../lib/daily-activity-sql');
-const { buildDailyActivityReplay } = require('../lib/event-replay');
-const {
+import express, { Request, Response } from 'express';
+import { authenticateCustomer } from '../middleware/auth';
+import { db, telemetry, vehicles, fuelPurchases, eq, desc, sql } from '../lib/db-helpers';
+import { fleetEfficiencyAggSql } from '../lib/fleet-efficiency-sql';
+import { dailyActivitySql } from '../lib/daily-activity-sql';
+import { buildDailyActivityReplay } from '../lib/event-replay';
+import {
   CO2_KG_PER_LITER,
   round1,
   round2,
@@ -14,8 +14,8 @@ const {
   efficiencyDeviationPercentL100km,
   REFUEL_THRESHOLD_LITERS,
   DEFAULT_FUEL_PRICE_NGN_LITER,
-} = require('../lib/fuel-metrics');
-const {
+} from '../lib/fuel-metrics';
+import {
   dailyDistanceThreshold,
   buildDailyFlags,
   classifyDailyRow,
@@ -23,14 +23,14 @@ const {
   EFFICIENCY_TIERS,
   EFFICIENCY_VARIANCE_THRESHOLD_PERCENT,
   DAILY_DISTANCE_BY_MODEL,
-} = require('../lib/activity-thresholds');
-const { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } = require('../lib/receipt-reconciliation');
+} from '../lib/activity-thresholds';
+import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../lib/receipt-reconciliation';
 
 const router = express.Router();
 
 router.use(authenticateCustomer);
 
-router.get('/latest', async (req, res) => {
+router.get('/latest', async (req: Request, res: Response) => {
   try {
     const [row] = await db
       .select({
@@ -56,11 +56,11 @@ router.get('/latest', async (req, res) => {
 
     res.json(row || null);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.get('/history', async (req, res) => {
+router.get('/history', async (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query.limit) || 100, 500);
 
   try {
@@ -88,11 +88,11 @@ router.get('/history', async (req, res) => {
 
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.get('/tracks', async (req, res) => {
+router.get('/tracks', async (req: Request, res: Response) => {
   const minutes = Math.min(Number(req.query.minutes) || 90, 240);
   const limit = Math.min(Number(req.query.limit) || 2000, 5000);
   const customerId = req.user.customerId;
@@ -175,11 +175,11 @@ router.get('/tracks', async (req, res) => {
     res.setHeader('X-Track-Source', source);
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.get('/fleet-efficiency', async (req, res) => {
+router.get('/fleet-efficiency', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
   const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
@@ -206,27 +206,32 @@ router.get('/fleet-efficiency', async (req, res) => {
       `),
     ]);
 
-    const alertTheftByVehicle = new Map();
+    const alertTheftByVehicle = new Map<string, number>();
     for (const alert of alertRows.rows) {
-      if (!alert.vehicle_id) continue;
-      const prev = alertTheftByVehicle.get(alert.vehicle_id) || 0;
+      const a = alert as Record<string, unknown>;
+      if (!a.vehicle_id) continue;
+      const prev = alertTheftByVehicle.get(a.vehicle_id as string) || 0;
       const loss =
-        alert.alert_type === 'fuel_theft' ? Number(alert.estimated_loss_ngn) || 0 : 0;
-      alertTheftByVehicle.set(alert.vehicle_id, prev + loss);
+        a.alert_type === 'fuel_theft' ? Number(a.estimated_loss_ngn) || 0 : 0;
+      alertTheftByVehicle.set(a.vehicle_id as string, prev + loss);
     }
 
-    const siphonLossByVehicle = new Map(
-      siphonRows.rows.map((row) => [row.vehicle_id, Number(row.siphon_loss_ngn) || 0])
+    const siphonLossByVehicle = new Map<string, number>(
+      siphonRows.rows.map((row) => {
+        const r = row as Record<string, unknown>;
+        return [r.vehicle_id as string, Number(r.siphon_loss_ngn) || 0];
+      })
     );
 
     const rows = result.rows.map((row) => {
-      const distanceKm = Number(row.distance_km) || 0;
-      const fuelUsed = Number(row.fuel_used_liters) || 0;
-      const expectedKmL = baselineEfficiencyKmL(row.model);
-      const expectedL100km = baselineEfficiencyL100km(row.model);
+      const r = row as Record<string, unknown>;
+      const distanceKm = Number(r.distance_km) || 0;
+      const fuelUsed = Number(r.fuel_used_liters) || 0;
+      const expectedKmL = baselineEfficiencyKmL(r.model as string | null | undefined);
+      const expectedL100km = baselineEfficiencyL100km(r.model as string | null | undefined);
 
-      const tankDistance = Number(row.tank_distance_km) || Number(row.distance_since_purchase_km) || 0;
-      const tankFuel = Number(row.tank_fuel_used_liters) || Number(row.fuel_since_purchase_liters) || 0;
+      const tankDistance = Number(r.tank_distance_km) || Number(r.distance_since_purchase_km) || 0;
+      const tankFuel = Number(r.tank_fuel_used_liters) || Number(r.fuel_since_purchase_liters) || 0;
       const tankEfficiencyKmL =
         tankDistance > 0 && tankFuel >= 0.5 ? tankDistance / tankFuel : null;
       const tankEfficiencyL100km = computeL100km(tankFuel, tankDistance);
@@ -248,14 +253,13 @@ router.get('/fleet-efficiency', async (req, res) => {
       const expectedFuelLiters = expectedKmL > 0 ? distanceKm / expectedKmL : 0;
       const expectedCostNgn = Math.round(expectedFuelLiters * pricePerLiter);
 
-      const purchaseCostNgn = Math.round(Number(row.purchase_cost_ngn) || 0);
+      const purchaseCostNgn = Math.round(Number(r.purchase_cost_ngn) || 0);
       const telemetryCostNgn = Math.round(fuelUsed * pricePerLiter);
-      const receiptFraudLossNgn = Math.round(Number(row.receipt_fraud_loss_ngn) || 0);
-      const alertTheftLossNgn = alertTheftByVehicle.get(row.vehicle_id) || 0;
-      const siphonLossNgn = siphonLossByVehicle.get(row.vehicle_id) || 0;
+      const receiptFraudLossNgn = Math.round(Number(r.receipt_fraud_loss_ngn) || 0);
+      const alertTheftLossNgn = alertTheftByVehicle.get(r.vehicle_id as string) || 0;
+      const siphonLossNgn = siphonLossByVehicle.get(r.vehicle_id as string) || 0;
       const theftLossNgn = receiptFraudLossNgn + alertTheftLossNgn + siphonLossNgn;
 
-      // Receipt spend for finance view; OBD consumption for efficiency comparison
       const actualCostNgn =
         purchaseCostNgn > 0 ? purchaseCostNgn : telemetryCostNgn;
 
@@ -272,11 +276,11 @@ router.get('/fleet-efficiency', async (req, res) => {
       }
 
       return {
-        vehicle_id: row.vehicle_id,
-        license_plate: row.license_plate,
-        driver_name: row.driver_name,
-        model: row.model,
-        tank_capacity_liters: row.tank_capacity_liters,
+        vehicle_id: r.vehicle_id,
+        license_plate: r.license_plate,
+        driver_name: r.driver_name,
+        model: r.model,
+        tank_capacity_liters: r.tank_capacity_liters,
         distance_km: Math.round(distanceKm),
         fuel_used_liters: round1(fuelUsed),
         efficiency_km_l: periodEfficiencyKmL != null ? round2(periodEfficiencyKmL) : null,
@@ -305,14 +309,14 @@ router.get('/fleet-efficiency', async (req, res) => {
         status,
         period_days: days,
         price_per_liter_ngn: pricePerLiter,
-        last_purchase_at: row.last_purchase_at ?? null,
+        last_purchase_at: r.last_purchase_at ?? null,
         last_fuel_added_liters:
-          row.last_fuel_added_liters != null ? round1(Number(row.last_fuel_added_liters)) : null,
+          r.last_fuel_added_liters != null ? round1(Number(r.last_fuel_added_liters)) : null,
         last_receipt_liters:
-          row.last_receipt_liters != null ? round1(Number(row.last_receipt_liters)) : null,
-        last_purchase_merchant: row.last_purchase_merchant ?? null,
-        distance_since_purchase_km: Math.round(Number(row.distance_since_purchase_km) || 0),
-        fuel_since_purchase_liters: round1(Number(row.fuel_since_purchase_liters) || 0),
+          r.last_receipt_liters != null ? round1(Number(r.last_receipt_liters)) : null,
+        last_purchase_merchant: r.last_purchase_merchant ?? null,
+        distance_since_purchase_km: Math.round(Number(r.distance_since_purchase_km) || 0),
+        fuel_since_purchase_liters: round1(Number(r.fuel_since_purchase_liters) || 0),
       };
     });
 
@@ -333,11 +337,11 @@ router.get('/fleet-efficiency', async (req, res) => {
 
     res.json({ summary, vehicles: rows });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.get('/daily-activity', async (req, res) => {
+router.get('/daily-activity', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 30, 90);
   const page = Math.max(Number(req.query.page) || 1, 1);
   const limit = Math.min(Number(req.query.limit) || 20, 50);
@@ -347,25 +351,26 @@ router.get('/daily-activity', async (req, res) => {
     const result = await db.execute(dailyActivitySql({ customerId, days }));
 
     const allRows = result.rows.map((row) => {
-      const distanceKm = Number(row.distance_km) || 0;
-      const fuelUsed = Number(row.fuel_used_liters) || 0;
-      const idleHours = Number(row.idle_hours) || 0;
-      const tripCount = Number(row.trip_count) || 0;
-      const expectedKmL = baselineEfficiencyKmL(row.model);
-      const expectedL100km = baselineEfficiencyL100km(row.model);
+      const r = row as Record<string, unknown>;
+      const distanceKm = Number(r.distance_km) || 0;
+      const fuelUsed = Number(r.fuel_used_liters) || 0;
+      const idleHours = Number(r.idle_hours) || 0;
+      const tripCount = Number(r.trip_count) || 0;
+      const expectedKmL = baselineEfficiencyKmL(r.model as string | null | undefined);
+      const expectedL100km = baselineEfficiencyL100km(r.model as string | null | undefined);
       const efficiencyL100km = computeL100km(fuelUsed, distanceKm);
-      const band = dailyDistanceThreshold(row.model);
+      const band = dailyDistanceThreshold(r.model as string | null | undefined);
       const deviationPercent = efficiencyDeviationPercentL100km(
         efficiencyL100km,
         expectedL100km
       );
       const activityDate =
-        row.activity_date instanceof Date
-          ? row.activity_date.toISOString().slice(0, 10)
-          : String(row.activity_date).slice(0, 10);
+        r.activity_date instanceof Date
+          ? r.activity_date.toISOString().slice(0, 10)
+          : String(r.activity_date).slice(0, 10);
 
       const classification = classifyDailyRow({
-        model: row.model,
+        model: r.model as string | undefined,
         distanceKm,
         fuelUsed,
         efficiencyL100km,
@@ -376,10 +381,10 @@ router.get('/daily-activity', async (req, res) => {
       });
 
       return {
-        vehicle_id: row.vehicle_id,
-        license_plate: row.license_plate,
-        driver_name: row.driver_name,
-        model: row.model,
+        vehicle_id: r.vehicle_id,
+        license_plate: r.license_plate,
+        driver_name: r.driver_name,
+        model: r.model,
         activity_date: activityDate,
         activity_date_display: formatActivityDateDisplay(activityDate),
         distance_km: Math.round(distanceKm),
@@ -403,11 +408,11 @@ router.get('/daily-activity', async (req, res) => {
         idle_hours: round1(idleHours),
         trip_count: tripCount,
         _flags: buildDailyFlags({
-          vehicleId: row.vehicle_id,
-          licensePlate: row.license_plate,
-          driverName: row.driver_name,
+          vehicleId: r.vehicle_id as string,
+          licensePlate: r.license_plate as string,
+          driverName: r.driver_name as string | null,
           activityDate,
-          model: row.model,
+          model: r.model as string | null,
           distanceKm,
           fuelUsed,
           idleHours,
@@ -422,7 +427,7 @@ router.get('/daily-activity', async (req, res) => {
     const total = allRows.length;
     const totalPages = Math.max(Math.ceil(total / limit), 1);
     const offset = (page - 1) * limit;
-    const rows = allRows.slice(offset, offset + limit).map(({ _flags, ...row }) => row);
+    const rows = allRows.slice(offset, offset + limit).map(({ _flags: _f, ...row }) => row);
 
     res.json({
       period_days: days,
@@ -442,18 +447,19 @@ router.get('/daily-activity', async (req, res) => {
       active_flags: activeFlags,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.get('/daily-activity/replay', async (req, res) => {
+router.get('/daily-activity/replay', async (req: Request, res: Response) => {
   const customerId = req.user.customerId;
   const vehicleId = String(req.query.vehicle_id || '').trim();
   const date = String(req.query.date || '').trim();
   const flagType = String(req.query.flag_type || 'efficiency').trim();
 
   if (!vehicleId || !date) {
-    return res.status(400).json({ error: 'vehicle_id and date are required' });
+    res.status(400).json({ error: 'vehicle_id and date are required' });
+    return;
   }
 
   try {
@@ -464,15 +470,16 @@ router.get('/daily-activity/replay', async (req, res) => {
       flagType,
     });
     if (!replay) {
-      return res.status(404).json({ error: 'No replay data for this day' });
+      res.status(404).json({ error: 'No replay data for this day' });
+      return;
     }
     res.json(replay);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.get('/fuel-purchases', async (req, res) => {
+router.get('/fuel-purchases', async (req: Request, res: Response) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
   const limit = Math.min(Number(req.query.limit) || 10, 100);
   const offset = (page - 1) * limit;
@@ -483,10 +490,10 @@ router.get('/fuel-purchases', async (req, res) => {
     const countResult = await db.execute(sql`
       SELECT COUNT(*)::int AS total FROM fuel_purchases WHERE customer_id = ${customerId}
     `);
-    const total = countResult.rows[0]?.total ?? 0;
+    const total = (countResult.rows[0] as Record<string, unknown>)?.total ?? 0;
 
     if (total === 0) {
-      return res.json({
+      res.json({
         source: 'empty',
         page,
         limit,
@@ -508,6 +515,7 @@ router.get('/fuel-purchases', async (req, res) => {
             }
           : {}),
       });
+      return;
     }
 
     const rows = await db.execute(sql`
@@ -539,56 +547,57 @@ router.get('/fuel-purchases', async (req, res) => {
     `);
 
     const purchases = rows.rows.map((row) => {
-      const declared = Number(row.liters_declared);
-      const actualRaw = row.liters_actual != null ? Number(row.liters_actual) : null;
+      const r = row as Record<string, unknown>;
+      const declared = Number(r.liters_declared);
+      const actualRaw = r.liters_actual != null ? Number(r.liters_actual) : null;
       const actual =
-        row.status === 'pending_receipt' && (actualRaw == null || actualRaw === 0)
+        r.status === 'pending_receipt' && (actualRaw == null || actualRaw === 0)
           ? 0
           : actualRaw;
       const diff =
         actual != null ? Math.max(0, Math.round((declared - actual) * 10) / 10) : declared;
-      const costPerLiter = Number(row.cost_per_liter_ngn) || DEFAULT_FUEL_PRICE_NGN_LITER;
+      const costPerLiter = Number(r.cost_per_liter_ngn) || DEFAULT_FUEL_PRICE_NGN_LITER;
 
       return {
-        id: row.id,
-        vehicle_id: row.vehicle_id,
-        license_plate: row.license_plate,
-        driver_name: row.driver_name,
-        timestamp: row.timestamp,
-        purchased_at: row.timestamp,
-        obd_refuel_detected_at: row.obd_refuel_detected_at,
-        ignition_on_at: row.ignition_on_at,
+        id: r.id,
+        vehicle_id: r.vehicle_id,
+        license_plate: r.license_plate,
+        driver_name: r.driver_name,
+        timestamp: r.timestamp,
+        purchased_at: r.timestamp,
+        obd_refuel_detected_at: r.obd_refuel_detected_at,
+        ignition_on_at: r.ignition_on_at,
         timeline: buildReceiptTimeline({
-          purchasedAt: row.timestamp,
-          obdRefuelDetectedAt: row.obd_refuel_detected_at,
-          ignitionOnAt: row.ignition_on_at,
+          purchasedAt: r.timestamp as Date,
+          obdRefuelDetectedAt: r.obd_refuel_detected_at as Date | null,
+          ignitionOnAt: r.ignition_on_at as Date | null,
         }),
         event_assessment: assessReceiptEvent({
-          purchasedAt: row.timestamp,
-          obdRefuelDetectedAt: row.obd_refuel_detected_at,
-          ignitionOnAt: row.ignition_on_at,
+          purchasedAt: r.timestamp as Date,
+          obdRefuelDetectedAt: r.obd_refuel_detected_at as Date | null,
+          ignitionOnAt: r.ignition_on_at as Date | null,
           litersDeclared: declared,
           litersActual: actual,
-          status: row.status,
-          merchant: row.merchant,
-          licensePlate: row.license_plate,
+          status: r.status as string,
+          merchant: r.merchant as string | null,
+          licensePlate: r.license_plate as string,
           costPerLiter,
         }),
-        merchant: row.merchant,
-        receipt_reference: row.receipt_reference,
+        merchant: r.merchant,
+        receipt_reference: r.receipt_reference,
         liters_declared: declared,
         liters_actual: actual,
         difference_liters: diff,
         cost_per_liter_ngn: costPerLiter,
         total_cost_ngn: Math.round(declared * costPerLiter),
-        odometer_km: row.odometer_km,
-        status: row.status,
-        source: row.source,
+        odometer_km: r.odometer_km,
+        status: r.status,
+        source: r.source,
         actual_from: 'obd_sensor',
       };
     });
 
-    let summary;
+    let summary: unknown;
     if (includeSummary) {
       const dailyResult = await db.execute(sql`
         SELECT
@@ -619,16 +628,19 @@ router.get('/fuel-purchases', async (req, res) => {
         WHERE fp.customer_id = ${customerId}
       `);
 
-      const grand = grandResult.rows[0] ?? {};
+      const grand = (grandResult.rows[0] ?? {}) as Record<string, unknown>;
       summary = {
-        daily_totals: dailyResult.rows.map((row) => ({
-          activity_date: row.activity_date,
-          driver_name: row.driver_name,
-          receipt_count: Number(row.receipt_count),
-          total_cost_ngn: Number(row.total_cost_ngn),
-          total_receipt_liters: Math.round(Number(row.total_receipt_liters) * 10) / 10,
-          total_obd_liters: Math.round(Number(row.total_obd_liters) * 10) / 10,
-        })),
+        daily_totals: dailyResult.rows.map((row) => {
+          const r = row as Record<string, unknown>;
+          return {
+            activity_date: r.activity_date,
+            driver_name: r.driver_name,
+            receipt_count: Number(r.receipt_count),
+            total_cost_ngn: Number(r.total_cost_ngn),
+            total_receipt_liters: Math.round(Number(r.total_receipt_liters) * 10) / 10,
+            total_obd_liters: Math.round(Number(r.total_obd_liters) * 10) / 10,
+          };
+        }),
         grand_total: {
           receipt_count: Number(grand.receipt_count) || 0,
           total_cost_ngn: Number(grand.total_cost_ngn) || 0,
@@ -643,26 +655,33 @@ router.get('/fuel-purchases', async (req, res) => {
       page,
       limit,
       total,
-      total_pages: Math.ceil(total / limit),
+      total_pages: Math.ceil(Number(total) / limit),
       purchases,
       ...(summary ? { summary } : {}),
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.post('/fuel-purchases/receipt', async (req, res) => {
+router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
   const {
     vehicle_id: vehicleId,
     liters_declared: litersDeclared,
     merchant,
     receipt_reference: receiptReference,
     purchased_at: purchasedAt,
-  } = req.body;
+  } = req.body as {
+    vehicle_id?: string;
+    liters_declared?: number;
+    merchant?: string;
+    receipt_reference?: string;
+    purchased_at?: string;
+  };
 
   if (!vehicleId || !litersDeclared) {
-    return res.status(400).json({ error: 'vehicle_id and liters_declared are required' });
+    res.status(400).json({ error: 'vehicle_id and liters_declared are required' });
+    return;
   }
 
   try {
@@ -682,7 +701,7 @@ router.post('/fuel-purchases/receipt', async (req, res) => {
       litersActual != null ? Math.max(0, Math.round((declared - litersActual) * 10) / 10) : null;
 
     let status = 'pending_receipt';
-    if (litersActual != null) {
+    if (litersActual != null && diff != null) {
       if (diff >= 10) status = 'flagged_theft';
       else if (diff <= 2) status = 'verified';
     }
@@ -726,11 +745,11 @@ router.post('/fuel-purchases/receipt', async (req, res) => {
           : 'Receipt saved. OBD timestamps will attach when a refuel event is detected nearby.',
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.get('/readings', async (req, res) => {
+router.get('/readings', async (req: Request, res: Response) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
   const limit = Math.min(Number(req.query.limit) || 20, 100);
   const offset = (page - 1) * limit;
@@ -740,7 +759,7 @@ router.get('/readings', async (req, res) => {
     const countResult = await db.execute(sql`
       SELECT COUNT(*)::int AS total FROM telemetry WHERE customer_id = ${customerId}
     `);
-    const total = countResult.rows[0]?.total ?? 0;
+    const total = (countResult.rows[0] as Record<string, unknown>)?.total ?? 0;
 
     const rows = await db.execute(sql`
       SELECT
@@ -767,15 +786,15 @@ router.get('/readings', async (req, res) => {
       page,
       limit,
       total,
-      total_pages: Math.ceil(total / limit),
+      total_pages: Math.ceil(Number(total) / limit),
       rows: rows.rows,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-router.get('/efficiency', async (req, res) => {
+router.get('/efficiency', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
 
   try {
@@ -793,8 +812,8 @@ router.get('/efficiency', async (req, res) => {
 
     res.json(result.rows);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
-module.exports = router;
+export default router;

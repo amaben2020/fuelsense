@@ -1,5 +1,5 @@
-const { sql } = require('drizzle-orm');
-const {
+import { sql } from 'drizzle-orm';
+import {
   pgTable,
   uuid,
   varchar,
@@ -10,9 +10,9 @@ const {
   numeric,
   text,
   unique,
-} = require('drizzle-orm/pg-core');
+} from 'drizzle-orm/pg-core';
 
-const customers = pgTable('customers', {
+export const customers = pgTable('customers', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: varchar('name', { length: 255 }).notNull(),
   email: varchar('email', { length: 255 }).notNull().unique(),
@@ -25,7 +25,7 @@ const customers = pgTable('customers', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-const drivers = pgTable('drivers', {
+export const drivers = pgTable('drivers', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id')
     .notNull()
@@ -41,7 +41,27 @@ const drivers = pgTable('drivers', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-const fuelReceipts = pgTable('fuel_receipts', {
+export const vehicles = pgTable(
+  'vehicles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    licensePlate: varchar('license_plate', { length: 50 }).notNull(),
+    make: varchar('make', { length: 100 }),
+    model: varchar('model', { length: 100 }),
+    year: integer('year'),
+    tankCapacityLiters: integer('tank_capacity_liters'),
+    driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+    driverName: varchar('driver_name', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (table) => [unique().on(table.customerId, table.licensePlate)]
+);
+
+export const fuelReceipts = pgTable('fuel_receipts', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id')
     .notNull()
@@ -72,7 +92,7 @@ const fuelReceipts = pgTable('fuel_receipts', {
   reconciledAt: timestamp('reconciled_at'),
 });
 
-const siphonEvents = pgTable('siphon_events', {
+export const siphonEvents = pgTable('siphon_events', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id')
     .notNull()
@@ -99,7 +119,7 @@ const siphonEvents = pgTable('siphon_events', {
   resolvedAt: timestamp('resolved_at'),
 });
 
-const fuelPurchases = pgTable('fuel_purchases', {
+export const fuelPurchases = pgTable('fuel_purchases', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id')
     .notNull()
@@ -121,27 +141,7 @@ const fuelPurchases = pgTable('fuel_purchases', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-const vehicles = pgTable(
-  'vehicles',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    customerId: uuid('customer_id')
-      .notNull()
-      .references(() => customers.id, { onDelete: 'cascade' }),
-    licensePlate: varchar('license_plate', { length: 50 }).notNull(),
-    make: varchar('make', { length: 100 }),
-    model: varchar('model', { length: 100 }),
-    year: integer('year'),
-    tankCapacityLiters: integer('tank_capacity_liters'),
-    driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
-    driverName: varchar('driver_name', { length: 255 }),
-    createdAt: timestamp('created_at').defaultNow(),
-    updatedAt: timestamp('updated_at').defaultNow(),
-  },
-  (table) => [unique().on(table.customerId, table.licensePlate)]
-);
-
-const devices = pgTable('devices', {
+export const devices = pgTable('devices', {
   imei: varchar('imei', { length: 20 }).primaryKey(),
   vehicleId: uuid('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
   customerId: uuid('customer_id')
@@ -156,7 +156,7 @@ const devices = pgTable('devices', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-const telemetry = pgTable('telemetry', {
+export const telemetry = pgTable('telemetry', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   imei: varchar('imei', { length: 20 }).references(() => devices.imei),
   customerId: uuid('customer_id').references(() => customers.id),
@@ -171,7 +171,7 @@ const telemetry = pgTable('telemetry', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-const alerts = pgTable('alerts', {
+export const alerts = pgTable('alerts', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   imei: varchar('imei', { length: 20 }).references(() => devices.imei),
   customerId: uuid('customer_id').references(() => customers.id),
@@ -188,7 +188,7 @@ const alerts = pgTable('alerts', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-const subscriptions = pgTable('subscriptions', {
+export const subscriptions = pgTable('subscriptions', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id')
     .notNull()
@@ -202,7 +202,7 @@ const subscriptions = pgTable('subscriptions', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-const payments = pgTable('payments', {
+export const payments = pgTable('payments', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id')
     .notNull()
@@ -218,7 +218,7 @@ const payments = pgTable('payments', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-const deviceOrders = pgTable('device_orders', {
+export const deviceOrders = pgTable('device_orders', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id')
     .notNull()
@@ -231,18 +231,3 @@ const deviceOrders = pgTable('device_orders', {
   shippingAddress: text('shipping_address'),
   createdAt: timestamp('created_at').defaultNow(),
 });
-
-module.exports = {
-  customers,
-  drivers,
-  vehicles,
-  devices,
-  telemetry,
-  alerts,
-  fuelPurchases,
-  fuelReceipts,
-  siphonEvents,
-  subscriptions,
-  payments,
-  deviceOrders,
-};

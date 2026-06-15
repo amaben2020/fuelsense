@@ -87,6 +87,79 @@ Important: If code now reads a **new env key**, add it to `.env` manually (it wi
 curl http://127.0.0.1:5001/api/health
 sudo systemctl status fuelsense-backend --no-pager
 sudo journalctl -u fuelsense-backend -n 100 --no-pager
+sudo journalctl -u fuelsense-backend -f
+```
+
+## Telemetry not writing to Postgres?
+
+Work through these in order while watching `journalctl -f`:
+
+### 1. IMEI must exist in `devices` table
+
+The TCP server **rejects unknown IMEIs** before any insert. Your device:
+
+- IMEI: `862129084847783`
+- CCID: `89234010006276368382` (stored in `firmware_version` as `CCID:…` for reference)
+
+On EC2, register once:
+
+```bash
+cd /home/ec2-user/backend
+node src/seed-real-device.js
+```
+
+Verify in psql:
+
+```sql
+SELECT imei, vehicle_id, customer_id, is_active, last_seen_at FROM devices WHERE imei = '862129084847783';
+```
+
+**Log you want:** `Device 862129084847783 connected for customer …`  
+**Log that means no writes:** `Unknown device 862129084847783 - rejecting connection`
+
+### 2. `DATABASE_URL` in `/home/ec2-user/backend/.env`
+
+Must point at the **same** Postgres you query. Neon needs `?sslmode=require`.
+
+After `.env` changes:
+
+```bash
+sudo systemctl restart fuelsense-backend
+```
+
+**Log on DB failure:** `❌ TELEMETRY SAVE FAILED` or `[REAL DEVICE] insert error`
+
+### 3. Port 5027 open + device pointed at EC2
+
+Teltonika server: `tcp://ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:5027`
+
+From your Mac:
+
+```bash
+nc -zv -w 5 ec2-13-61-2-216.eu-north-1.compute.amazonaws.com 5027
+```
+
+AWS security group must allow **inbound TCP 5027** from `0.0.0.0/0` (or your SIM carrier IPs).
+
+### 4. Disable test simulator on EC2
+
+In `.env`:
+
+```bash
+NODE_ENV=production
+ENABLE_FLEET_SIMULATOR=false
+```
+
+Restart service. Startup should log: `Fleet simulator disabled — expecting real Teltonika devices`.
+
+### 5. Confirm rows in DB
+
+```sql
+SELECT recorded_at, fuel_level_liters, latitude, longitude, speed_kph
+FROM telemetry
+WHERE imei = '862129084847783'
+ORDER BY recorded_at DESC
+LIMIT 10;
 ```
 
 ## Caddy (HTTP reverse proxy)

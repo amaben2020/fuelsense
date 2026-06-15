@@ -1,18 +1,29 @@
-const { db, sql } = require('./db-helpers');
-const { REFUEL_THRESHOLD_LITERS, DEFAULT_FUEL_PRICE_NGN_LITER } = require('./fuel-metrics');
+import { db, sql } from './db-helpers';
+import { REFUEL_THRESHOLD_LITERS, DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics';
 
-const RECEIPT_FRAUD_THRESHOLD_LITERS = 5;
+export const RECEIPT_FRAUD_THRESHOLD_LITERS = 5;
 const MATCH_TOLERANCE_LITERS = 3;
 
-function toDate(value) {
-  return value instanceof Date ? value : new Date(value);
+function toDate(value: Date | string | null | undefined): Date {
+  return value instanceof Date ? value : new Date(value as string);
+}
+
+interface ObdRefuelMatchParams {
+  vehicleId: string;
+  customerId: string;
+  transactionDate: Date | string;
+}
+
+interface ObdRefuelMatchResult {
+  liters: number | null;
+  obdRefuelDetectedAt: Date | null;
+  ignitionOnAt: Date | null;
 }
 
 /**
  * Match OBD refuel delta and telemetry timestamps near a declared purchase time.
- * Returns liters added, when FMC150 recorded the rise, and nearest ignition-on edge.
  */
-async function findObdRefuelMatch({ vehicleId, customerId, transactionDate }) {
+export async function findObdRefuelMatch({ vehicleId, customerId, transactionDate }: ObdRefuelMatchParams): Promise<ObdRefuelMatchResult> {
   const when = toDate(transactionDate);
 
   const result = await db.execute(sql`
@@ -80,7 +91,7 @@ async function findObdRefuelMatch({ vehicleId, customerId, transactionDate }) {
     FROM best_refuel br
   `);
 
-  const row = result.rows[0];
+  const row = result.rows[0] as { delta_liters?: number | null; obd_refuel_detected_at?: unknown; ignition_on_at?: unknown } | undefined;
   if (!row?.delta_liters) {
     return {
       liters: null,
@@ -91,17 +102,30 @@ async function findObdRefuelMatch({ vehicleId, customerId, transactionDate }) {
 
   return {
     liters: Number(row.delta_liters),
-    obdRefuelDetectedAt: row.obd_refuel_detected_at ? new Date(row.obd_refuel_detected_at) : null,
-    ignitionOnAt: row.ignition_on_at ? new Date(row.ignition_on_at) : null,
+    obdRefuelDetectedAt: row.obd_refuel_detected_at ? new Date(row.obd_refuel_detected_at as string) : null,
+    ignitionOnAt: row.ignition_on_at ? new Date(row.ignition_on_at as string) : null,
   };
 }
 
-async function findObdRefuelLiters(args) {
+export async function findObdRefuelLiters(args: ObdRefuelMatchParams): Promise<number | null> {
   const match = await findObdRefuelMatch(args);
   return match.liters;
 }
 
-function reconcileReceipt({ declaredLiters, obdLitersActual, pricePerLiter }) {
+interface ReconcileReceiptParams {
+  declaredLiters: number | string;
+  obdLitersActual: number | null;
+  pricePerLiter?: number | null;
+}
+
+interface ReconcileReceiptResult {
+  obdLitersActual: number | null;
+  differenceLiters: number | null;
+  reconciliationStatus: string;
+  estimatedLossNgn: number;
+}
+
+export function reconcileReceipt({ declaredLiters, obdLitersActual, pricePerLiter }: ReconcileReceiptParams): ReconcileReceiptResult {
   const price = pricePerLiter ?? DEFAULT_FUEL_PRICE_NGN_LITER;
   const declared = Number(declaredLiters);
 
@@ -134,19 +158,21 @@ function reconcileReceipt({ declaredLiters, obdLitersActual, pricePerLiter }) {
   };
 }
 
-function buildReceiptTimeline({
-  purchasedAt,
-  obdRefuelDetectedAt,
-  ignitionOnAt,
-}) {
+interface BuildReceiptTimelineParams {
+  purchasedAt: Date | string | null;
+  obdRefuelDetectedAt: Date | string | null;
+  ignitionOnAt: Date | string | null;
+}
+
+function deltaMinutes(from: Date | null, to: Date | null): number | null {
+  if (!from || !to) return null;
+  return Math.round((to.getTime() - from.getTime()) / 60000);
+}
+
+export function buildReceiptTimeline({ purchasedAt, obdRefuelDetectedAt, ignitionOnAt }: BuildReceiptTimelineParams): Record<string, unknown> {
   const purchase = purchasedAt ? toDate(purchasedAt) : null;
   const obd = obdRefuelDetectedAt ? toDate(obdRefuelDetectedAt) : null;
   const ignition = ignitionOnAt ? toDate(ignitionOnAt) : null;
-
-  const deltaMinutes = (from, to) => {
-    if (!from || !to) return null;
-    return Math.round((to.getTime() - from.getTime()) / 60000);
-  };
 
   return {
     purchased_at: purchase?.toISOString() ?? null,
@@ -158,12 +184,7 @@ function buildReceiptTimeline({
   };
 }
 
-function deltaMinutes(from, to) {
-  if (!from || !to) return null;
-  return Math.round((to.getTime() - from.getTime()) / 60000);
-}
-
-function formatDurationLabel(minutes) {
+function formatDurationLabel(minutes: number | null): string | null {
   if (minutes == null) return null;
   const abs = Math.abs(minutes);
   if (abs < 1) return 'under 1 minute';
@@ -174,10 +195,22 @@ function formatDurationLabel(minutes) {
   return `${hours}h ${mins}m`;
 }
 
+interface AssessReceiptEventParams {
+  purchasedAt: Date | string | null;
+  obdRefuelDetectedAt: Date | string | null;
+  ignitionOnAt: Date | string | null;
+  litersDeclared: number | string;
+  litersActual: number | null;
+  status: string;
+  merchant?: string | null;
+  licensePlate?: string | null;
+  costPerLiter?: number | null;
+}
+
 /**
  * Build chronological narrative + theft probability for a reconciled receipt.
  */
-function assessReceiptEvent({
+export function assessReceiptEvent({
   purchasedAt,
   obdRefuelDetectedAt,
   ignitionOnAt,
@@ -187,7 +220,7 @@ function assessReceiptEvent({
   merchant,
   licensePlate,
   costPerLiter,
-}) {
+}: AssessReceiptEventParams): unknown {
   const purchase = purchasedAt ? toDate(purchasedAt) : null;
   const obd = obdRefuelDetectedAt ? toDate(obdRefuelDetectedAt) : null;
   const ignition = ignitionOnAt ? toDate(ignitionOnAt) : null;
@@ -198,8 +231,10 @@ function assessReceiptEvent({
 
   const timeline = buildReceiptTimeline({ purchasedAt, obdRefuelDetectedAt, ignitionOnAt });
 
-  const rawEvents = [
-    purchase && {
+  const rawEvents: Array<{ key: string; label: string; at: Date; source: string; detail: string }> = [];
+
+  if (purchase) {
+    rawEvents.push({
       key: 'purchase',
       label: 'Pump purchase',
       at: purchase,
@@ -207,8 +242,10 @@ function assessReceiptEvent({
       detail: merchant
         ? `Driver logged ${declared}L at ${merchant}.`
         : `Driver logged ${declared}L at the fuel station.`,
-    },
-    obd && {
+    });
+  }
+  if (obd) {
+    rawEvents.push({
       key: 'obd',
       label: 'OBD fuel rise',
       at: obd,
@@ -217,22 +254,24 @@ function assessReceiptEvent({
         actual != null
           ? `Tank sensor recorded +${actual}L entering the vehicle.`
           : 'Tank sensor recorded a fuel level increase.',
-    },
-    ignition && {
+    });
+  }
+  if (ignition) {
+    rawEvents.push({
       key: 'ignition',
       label: 'Ignition on',
       at: ignition,
       source: 'FMC150 IO 239',
       detail: 'Engine ignition switched on (telemetry edge).',
-    },
-  ].filter(Boolean);
+    });
+  }
 
   rawEvents.sort((a, b) => a.at.getTime() - b.at.getTime());
 
   const chronological = rawEvents.map((event, index) => {
     const prev = index > 0 ? rawEvents[index - 1] : null;
     const minutesAfterPrev = prev ? deltaMinutes(prev.at, event.at) : null;
-    let note = null;
+    let note: string | null = null;
 
     if (event.key === 'ignition' && purchase && event.at.getTime() < purchase.getTime()) {
       note =
@@ -241,7 +280,7 @@ function assessReceiptEvent({
       note =
         'OBD detected fuel rising before the receipt time — the purchase timestamp may be wrong or this is a different event.';
     } else if (minutesAfterPrev != null && index > 0) {
-      note = `${formatDurationLabel(minutesAfterPrev)} after ${prev.label.toLowerCase()}.`;
+      note = `${formatDurationLabel(minutesAfterPrev)} after ${prev!.label.toLowerCase()}.`;
     }
 
     return {
@@ -252,8 +291,8 @@ function assessReceiptEvent({
     };
   });
 
-  const reasons = [];
-  const signals = [];
+  const reasons: string[] = [];
+  const signals: unknown[] = [];
   let probability = 0;
 
   if (difference != null && difference > 0) {
@@ -284,7 +323,7 @@ function assessReceiptEvent({
   }
 
   if (purchase && obd) {
-    const gap = timeline.purchase_to_obd_minutes;
+    const gap = (timeline as { purchase_to_obd_minutes?: number | null }).purchase_to_obd_minutes;
     if (gap != null && gap < 0) {
       const points = 22;
       probability += points;
@@ -351,12 +390,3 @@ function assessReceiptEvent({
     difference_liters: difference,
   };
 }
-
-module.exports = {
-  RECEIPT_FRAUD_THRESHOLD_LITERS,
-  findObdRefuelLiters,
-  findObdRefuelMatch,
-  reconcileReceipt,
-  buildReceiptTimeline,
-  assessReceiptEvent,
-};

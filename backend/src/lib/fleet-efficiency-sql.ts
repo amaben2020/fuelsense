@@ -1,7 +1,13 @@
-const { sql } = require('drizzle-orm');
-const { telemetryDeltasCte } = require('./telemetry-deltas-sql');
+import { sql, SQL } from 'drizzle-orm';
+import { telemetryDeltasCte } from './telemetry-deltas-sql';
 
-function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }) {
+interface FleetEfficiencyParams {
+  customerId: string;
+  days: number;
+  pricePerLiter?: number;
+}
+
+export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: FleetEfficiencyParams): SQL {
   const fuelPrice = pricePerLiter ?? 1340;
 
   return sql`
@@ -109,5 +115,3 @@ function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }) {
     ORDER BY p.license_plate ASC
   `;
 }
-
-module.exports = { fleetEfficiencyAggSql };

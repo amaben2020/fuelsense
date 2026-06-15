@@ -1,7 +1,12 @@
-const { sql } = require('drizzle-orm');
+import { sql, SQL } from 'drizzle-orm';
+
+interface TelemetryDeltasParams {
+  customerId: string;
+  days: number;
+}
 
 /** Shared telemetry delta CTEs — capped distance, consumption-only fuel deltas. */
-function telemetryDeltasCte({ customerId, days }) {
+export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams): SQL {
   return sql`
     readings AS (
       SELECT
@@ -76,5 +81,3 @@ function telemetryDeltasCte({ customerId, days }) {
     )
   `;
 }
-
-module.exports = { telemetryDeltasCte };

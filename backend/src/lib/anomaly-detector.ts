@@ -1,26 +1,32 @@
-const { db, alerts, siphonEvents, vehicles, telemetry, eq, and, desc, sql } = require('./db-helpers');
-const {
+import { db, alerts, siphonEvents, vehicles, telemetry, eq, and, desc, sql } from './db-helpers';
+import {
   REFUEL_THRESHOLD_LITERS,
   idleFuelBurnLiters,
   IDLE_BURN_LITERS_PER_HOUR,
   DEFAULT_FUEL_PRICE_NGN_LITER,
   baselineEfficiencyKmL,
-} = require('./fuel-metrics');
-const { recordSiphonEvent } = require('./siphon-recorder');
+} from './fuel-metrics';
+import { recordSiphonEvent } from './siphon-recorder';
 
-const idleStreakByImei = new Map();
-const idleStartFuelByImei = new Map();
-const idleWasteAccumByImei = new Map();
-const lastFuelByImei = new Map();
-const fraudSimulatedFor = new Set();
-const baselineCache = new Map();
+const idleStreakByImei = new Map<string, number>();
+const idleStartFuelByImei = new Map<string, number>();
+const idleWasteAccumByImei = new Map<string, number>();
+const lastFuelByImei = new Map<string, number>();
+const fraudSimulatedFor = new Set<string>();
+const baselineCache = new Map<string, { baseline: VehicleBaseline; expiresAt: number }>();
 
 const TICK_INTERVAL_SEC = Number(process.env.MOCK_INTERVAL_MS || 4000) / 1000;
 const IDLE_TICKS_FOR_ALERT = 12;
 const DEMO_IDLE_MINUTES_LABEL = 45;
-const BASELINE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const BASELINE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function resetEngineState() {
+interface VehicleBaseline {
+  avgFuelPerKm: number;
+  avgIdleFuelPerHour: number;
+  typicalVariance: number;
+}
+
+export function resetEngineState(): void {
   idleStreakByImei.clear();
   idleStartFuelByImei.clear();
   idleWasteAccumByImei.clear();
@@ -29,7 +35,7 @@ function resetEngineState() {
   baselineCache.clear();
 }
 
-async function hasOpenAlert(customerId, vehicleId, alertType) {
+async function hasOpenAlert(customerId: string, vehicleId: string, alertType: string): Promise<boolean> {
   const [row] = await db
     .select({ id: alerts.id })
     .from(alerts)
@@ -45,12 +51,7 @@ async function hasOpenAlert(customerId, vehicleId, alertType) {
   return !!row;
 }
 
-/**
- * Rule 8: Learn normal behavior per vehicle.
- * Tracks average fuel consumption per km (driving), idle burn per hour (idling),
- * and typical variance of sensor readings.
- */
-async function getOrComputeVehicleBaseline(vehicleId, model, nowTime = new Date()) {
+export async function getOrComputeVehicleBaseline(vehicleId: string, model: string | null, nowTime = new Date()): Promise<VehicleBaseline> {
   const cached = baselineCache.get(vehicleId);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.baseline;
@@ -58,7 +59,7 @@ async function getOrComputeVehicleBaseline(vehicleId, model, nowTime = new Date(
 
   const defaultKmL = baselineEfficiencyKmL(model || 'Hiace');
   const defaultIdlePerHour = IDLE_BURN_LITERS_PER_HOUR;
-  const defaultBaseline = {
+  const defaultBaseline: VehicleBaseline = {
     avgFuelPerKm: 1 / defaultKmL,
     avgIdleFuelPerHour: defaultIdlePerHour,
     typicalVariance: 0.5,
@@ -95,7 +96,7 @@ async function getOrComputeVehicleBaseline(vehicleId, model, nowTime = new Date(
     let totalDrivingDistance = 0;
     let totalIdleFuel = 0;
     let totalIdleTimeHours = 0;
-    let differences = [];
+    const differences: number[] = [];
 
     for (let i = 0; i < rows.length - 1; i++) {
       const curr = rows[i];
@@ -105,11 +106,11 @@ async function getOrComputeVehicleBaseline(vehicleId, model, nowTime = new Date(
       const fCurr = Number(curr.fuelLevelLiters);
       const fNext = Number(next.fuelLevelLiters);
       const deltaF = fCurr - fNext;
-      const deltaT = (new Date(next.recordedAt) - new Date(curr.recordedAt)) / 3600000;
+      const deltaT = (new Date(next.recordedAt).getTime() - new Date(curr.recordedAt).getTime()) / 3600000;
 
       if (deltaF < -REFUEL_THRESHOLD_LITERS || deltaF > 15) continue;
 
-      if (curr.ignitionOn && curr.speedKph > 2) {
+      if (curr.ignitionOn && (curr.speedKph ?? 0) > 2) {
         const oCurr = curr.odometerKm;
         const oNext = next.odometerKm;
         if (oCurr != null && oNext != null) {
@@ -119,7 +120,7 @@ async function getOrComputeVehicleBaseline(vehicleId, model, nowTime = new Date(
             totalDrivingDistance += deltaO;
           }
         }
-      } else if (curr.ignitionOn && curr.speedKph <= 2) {
+      } else if (curr.ignitionOn && (curr.speedKph ?? 0) <= 2) {
         if (deltaT > 0 && deltaF > 0) {
           totalIdleFuel += deltaF;
           totalIdleTimeHours += deltaT;
@@ -138,7 +139,7 @@ async function getOrComputeVehicleBaseline(vehicleId, model, nowTime = new Date(
       typicalVariance = Math.max(0.1, sum / differences.length);
     }
 
-    const baseline = {
+    const baseline: VehicleBaseline = {
       avgFuelPerKm: 1 / learnedKmL,
       avgIdleFuelPerHour: learnedIdlePerHour,
       typicalVariance,
@@ -155,7 +156,22 @@ async function getOrComputeVehicleBaseline(vehicleId, model, nowTime = new Date(
   }
 }
 
-async function detectAnomalies(device, row, { licensePlate } = {}) {
+interface DeviceInfo {
+  imei: string;
+  customerId: string;
+  vehicleId: string;
+}
+
+interface TelemetryRow {
+  fuelLevelLiters?: string | number | null;
+  ignitionOn?: boolean | null;
+  speedKph?: number | null;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
+  recordedAt: Date | string;
+}
+
+export async function detectAnomalies(device: DeviceInfo, row: TelemetryRow, { licensePlate }: { licensePlate?: string } = {}): Promise<void> {
   if (!device.customerId || !device.vehicleId) return;
 
   const imei = device.imei;
@@ -193,8 +209,8 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
           fuelLevelLiters: fuel.toString(),
           fuelDropLiters: difference.toFixed(2),
           estimatedLossNgn: loss,
-          latitude: lat,
-          longitude: lng,
+          latitude: lat?.toString() ?? null,
+          longitude: lng?.toString() ?? null,
         });
       }
     }
@@ -241,8 +257,8 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
         message: `Excessive idling on ${licensePlate ?? 'vehicle'}: engine ON with zero speed for ~${DEMO_IDLE_MINUTES_LABEL} minutes (~${wastedLiters.toFixed(1)}L wasted at ${IDLE_BURN_LITERS_PER_HOUR} L/h).`,
         fuelLevelLiters: fuel?.toString() ?? null,
         fuelDropLiters: wastedLiters.toFixed(2),
-        latitude: lat,
-        longitude: lng,
+        latitude: lat?.toString() ?? null,
+        longitude: lng?.toString() ?? null,
       });
     }
   } else {
@@ -253,11 +269,9 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
 
   // 3. Noise-Proof Fuel Theft Detection Engine (Rules 1-10)
   try {
-    // Reference base time is the recorded timestamp of the current telemetry row
     const nowTime = row.recordedAt instanceof Date ? row.recordedAt : new Date(row.recordedAt);
     const sixtyMinAgo = new Date(nowTime.getTime() - 60 * 60 * 1000);
 
-    // Fetch telemetry history of last 60 minutes relative to the telemetry timestamp
     const history = await db
       .select({
         id: telemetry.id,
@@ -280,7 +294,6 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
 
     if (history.length < 2) return;
 
-    // Fetch vehicle configurations for thresholds
     const [vehicle] = await db
       .select({
         tankCapacityLiters: vehicles.tankCapacityLiters,
@@ -291,11 +304,9 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
       .limit(1);
 
     const tankCapacity = vehicle?.tankCapacityLiters || 60;
-    // Rule 2: Minimum drop threshold of 5L or 5% of tank capacity
     const dropThreshold = Math.max(5, tankCapacity * 0.05);
 
-    // Scan history for the best drop candidate (maximized drop within 30 min window)
-    let bestDrop = null;
+    let bestDrop: { startPoint: typeof history[0]; lowPoint: typeof history[0]; dropLiters: number } | null = null;
     let maxDropLiters = 0;
 
     for (let i = 0; i < history.length; i++) {
@@ -308,8 +319,8 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
         if (lowPoint.fuelLevelLiters == null) continue;
         const fLow = Number(lowPoint.fuelLevelLiters);
 
-        const timeDiffMin = (new Date(lowPoint.recordedAt) - new Date(startPoint.recordedAt)) / 60000;
-        if (timeDiffMin > 30) break; // Rule 6/History search: group drops within 30 min window
+        const timeDiffMin = (new Date(lowPoint.recordedAt).getTime() - new Date(startPoint.recordedAt).getTime()) / 60000;
+        if (timeDiffMin > 30) break;
 
         const drop = fStart - fLow;
         if (drop > maxDropLiters) {
@@ -319,23 +330,15 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
       }
     }
 
-    if (!bestDrop || bestDrop.dropLiters < dropThreshold) {
-      // Discard below threshold drops (Rule 2)
-      return;
-    }
+    if (!bestDrop || bestDrop.dropLiters < dropThreshold) return;
 
-    // Rule 3: Time validation window (Wait 3–10 minutes before confirming any drop)
     const tLast = new Date(history[history.length - 1].recordedAt);
     const tLow = new Date(bestDrop.lowPoint.recordedAt);
-    const timeSinceLowMin = (tLast - tLow) / 60000;
+    const timeSinceLowMin = (tLast.getTime() - tLow.getTime()) / 60000;
 
-    if (timeSinceLowMin < 3) {
-      // Still in validation window, wait for more telemetry packets
-      return;
-    }
+    if (timeSinceLowMin < 3) return;
 
-    // Rule 3: Rebound check (ignore if fuel level rebounds due to sensor slosh/noise)
-    const lowIndex = history.findIndex(p => p.id === bestDrop.lowPoint.id);
+    const lowIndex = history.findIndex(p => p.id === bestDrop!.lowPoint.id);
     let rebounded = false;
     for (let k = lowIndex + 1; k < history.length; k++) {
       const p = history[k];
@@ -349,14 +352,9 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
         break;
       }
     }
-    if (rebounded) {
-      // Fuel rebounded, ignore noise (Rule 3)
-      return;
-    }
+    if (rebounded) return;
 
-    // Rule 5: Physical impossibility rules (Reject unrealistic patterns)
-    // - Drop while driving at speed
-    const startIndex = history.findIndex(p => p.id === bestDrop.startPoint.id);
+    const startIndex = history.findIndex(p => p.id === bestDrop!.startPoint.id);
     let speedSum = 0;
     let speedPointsCount = 0;
     for (let k = startIndex; k <= lowIndex; k++) {
@@ -367,18 +365,14 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
       }
     }
     const avgSpeed = speedPointsCount > 0 ? speedSum / speedPointsCount : 0;
-    if (avgSpeed > 15) {
-      // Large drop while driving at speed is invalid siphoning behavior
-      return;
-    }
+    if (avgSpeed > 15) return;
 
-    // - Repeated rapid toggling in the last 30 minutes
     const thirtyMinAgo = new Date(nowTime.getTime() - 30 * 60 * 1000);
     const recentHistory = history.filter(p => new Date(p.recordedAt) >= thirtyMinAgo && p.fuelLevelLiters != null);
     let directionChanges = 0;
     let lastDirection = 0;
     for (let k = 0; k < recentHistory.length - 1; k++) {
-      const diff = Number(recentHistory[k+1].fuelLevelLiters) - Number(recentHistory[k].fuelLevelLiters);
+      const diff = Number(recentHistory[k + 1].fuelLevelLiters) - Number(recentHistory[k].fuelLevelLiters);
       if (Math.abs(diff) > 0.3) {
         const dir = diff > 0 ? 1 : -1;
         if (lastDirection !== 0 && dir !== lastDirection) {
@@ -387,28 +381,21 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
         lastDirection = dir;
       }
     }
-    if (directionChanges > 4) {
-      // Repeated rapid toggling -> ignore as sensor noise/slosh
-      return;
-    }
+    if (directionChanges > 4) return;
 
-    // Rule 7: Confidence score calculation (Assign weights)
-    let score = 40; // Fuel drop detected
+    let score = 40;
 
-    // Check ignition state at the stabilized low point
     const isIgnitionOff = !bestDrop.lowPoint.ignitionOn;
     if (isIgnitionOff) {
-      score += 20; // Ignition OFF
-      score += 15; // No engine activity
+      score += 20;
+      score += 15;
     }
 
-    // Check vehicle stationary (speed < 2 kph) at the stabilized low point
     const isStationary = bestDrop.lowPoint.speedKph === null || Number(bestDrop.lowPoint.speedKph) < 2;
     if (isStationary) {
-      score += 15; // Vehicle stationary
+      score += 15;
     }
 
-    // Check repeated pattern history (Rule 8: Statistical deviations / past records)
     const sevenDaysAgo = new Date(nowTime.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const pastAlerts = await db
       .select({ id: alerts.id })
@@ -422,17 +409,11 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
       )
       .limit(1);
     if (pastAlerts.length > 0) {
-      score += 10; // Repeated pattern history
+      score += 10;
     }
 
-    // Decision Logic
-    if (score < 50) {
-      // Score < 50: ignore/noise (Rule 7)
-      return;
-    }
+    if (score < 50) return;
 
-    // Rule 6: Group events into clusters (Merge related fuel changes within 30-60 min)
-    // Rule 10: Suppress alerts for same vehicle for 2-4 hours (Alert Cooldown)
     const fourHoursAgo = new Date(nowTime.getTime() - 4 * 60 * 60 * 1000).toISOString();
     const [latestSiphon] = await db
       .select()
@@ -449,7 +430,6 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
     if (latestSiphon) {
       const minutesAgo = (nowTime.getTime() - new Date(latestSiphon.occurredAt).getTime()) / 60000;
       if (minutesAgo <= 60) {
-        // Merge into existing cluster event
         const originalFuelBefore = Number(latestSiphon.fuelLevelBefore);
         const newFuelAfter = Number(bestDrop.lowPoint.fuelLevelLiters);
         const cumulativeDrop = originalFuelBefore - newFuelAfter;
@@ -457,7 +437,6 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
         if (cumulativeDrop > 0) {
           const estimatedLossNgn = Math.round(cumulativeDrop * pricePerLiter);
 
-          // Update siphon event fields
           await db
             .update(siphonEvents)
             .set({
@@ -468,7 +447,6 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
             })
             .where(eq(siphonEvents.id, latestSiphon.id));
 
-          // Update related alert fields
           if (latestSiphon.alertId) {
             const tempLat = bestDrop.lowPoint.latitude;
             const tempLng = bestDrop.lowPoint.longitude;
@@ -490,18 +468,16 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
         }
         return;
       } else {
-        // Cooldown period: Suppress new alerts for 2-4 hours
         console.log(`[Theft Engine] Suppressed new alert for vehicle ${device.vehicleId} due to cooldown`);
         return;
       }
     }
 
-    // Raise new Alert & Siphon Event
     const drop = bestDrop.dropLiters;
     const estimatedLossNgn = Math.round(drop * pricePerLiter);
     const locationHint = lat && lng ? ` near ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}` : '';
 
-    let alertId = null;
+    let alertId: number | null = null;
     const status = score >= 80 ? 'active' : 'review';
 
     if (score >= 80) {
@@ -513,17 +489,17 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
           vehicleId: device.vehicleId,
           alertType: 'fuel_theft',
           message: `Fuel theft detected${locationHint}! Level dropped ${drop.toFixed(1)}L while parked (${Number(bestDrop.startPoint.fuelLevelLiters).toFixed(1)}L → ${Number(bestDrop.lowPoint.fuelLevelLiters).toFixed(1)}L). Estimated loss ${estimatedLossNgn.toLocaleString('en-NG')} NGN.`,
-          fuelLevelLiters: bestDrop.lowPoint.fuelLevelLiters.toString(),
+          fuelLevelLiters: bestDrop.lowPoint.fuelLevelLiters!.toString(),
           fuelDropLiters: drop.toFixed(2),
           estimatedLossNgn,
-          latitude: lat,
-          longitude: lng,
+          latitude: lat?.toString() ?? null,
+          longitude: lng?.toString() ?? null,
         })
         .returning({ id: alerts.id });
       alertId = alertRow.id;
-      console.log(`⚠️ [Theft Engine] Generated new fuel theft alert for ${device.imei}: -${drop.toFixed(1)}L`);
+      console.log(`[Theft Engine] Generated new fuel theft alert for ${device.imei}: -${drop.toFixed(1)}L`);
     } else {
-      console.log(`🔍 [Theft Engine] Generated review-only siphon event for ${device.imei}: -${drop.toFixed(1)}L (Confidence score: ${score})`);
+      console.log(`[Theft Engine] Generated review-only siphon event for ${device.imei}: -${drop.toFixed(1)}L (Confidence score: ${score})`);
     }
 
     await recordSiphonEvent({
@@ -537,8 +513,8 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
       fuelLevelAfter: bestDrop.lowPoint.fuelLevelLiters,
       engineStateBefore: bestDrop.startPoint.ignitionOn,
       engineStateAfter: bestDrop.lowPoint.ignitionOn,
-      latitude: lat,
-      longitude: lng,
+      latitude: lat?.toString() ?? null,
+      longitude: lng?.toString() ?? null,
       locationName: lat && lng ? `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}` : null,
       status,
     });
@@ -547,5 +523,3 @@ async function detectAnomalies(device, row, { licensePlate } = {}) {
     console.error('[Theft Engine] Error processing fuel theft detection rules:', error);
   }
 }
-
-module.exports = { detectAnomalies, getOrComputeVehicleBaseline, resetEngineState };

@@ -1,7 +1,12 @@
-const { sql } = require('drizzle-orm');
-const { telemetryDeltasCte } = require('./telemetry-deltas-sql');
+import { sql, SQL } from 'drizzle-orm';
+import { telemetryDeltasCte } from './telemetry-deltas-sql';
 
-function dailyActivitySql({ customerId, days }) {
+interface DailyActivityParams {
+  customerId: string;
+  days: number;
+}
+
+export function dailyActivitySql({ customerId, days }: DailyActivityParams): SQL {
   return sql`
     WITH ${telemetryDeltasCte({ customerId, days })},
     ordered_readings AS (
@@ -87,5 +92,3 @@ function dailyActivitySql({ customerId, days }) {
     ORDER BY d.activity_date DESC, d.license_plate ASC
   `;
 }
-
-module.exports = { dailyActivitySql };

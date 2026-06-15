@@ -1,5 +1,5 @@
 /** Lagos corridor waypoints for Uber-style continuous fleet simulation */
-const LAGOS_LOOPS = {
+export const LAGOS_LOOPS: Record<string, Array<{ lat: number; lng: number }>> = {
   island: [
     { lat: 6.5244, lng: 3.3792 },
     { lat: 6.5355, lng: 3.3621 },
@@ -36,9 +36,11 @@ const LAGOS_LOOPS = {
   ],
 };
 
-function loopForProfile(profile) {
-  if (profile.routeLoop) return LAGOS_LOOPS[profile.routeLoop];
-  return LAGOS_LOOPS.island;
+interface Profile {
+  routeLoop?: string;
 }
 
-module.exports = { LAGOS_LOOPS, loopForProfile };
+export function loopForProfile(profile: Profile): Array<{ lat: number; lng: number }> {
+  if (profile.routeLoop) return LAGOS_LOOPS[profile.routeLoop] ?? LAGOS_LOOPS.island;
+  return LAGOS_LOOPS.island;
+}

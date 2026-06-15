@@ -1,6 +1,25 @@
-const { db, siphonEvents, vehicles, eq, and } = require('./db-helpers');
+import { db, siphonEvents, vehicles, eq } from './db-helpers';
 
-async function recordSiphonEvent({
+interface RecordSiphonEventParams {
+  customerId: string;
+  vehicleId: string;
+  driverId?: string | null;
+  alertId?: number | null;
+  occurredAt?: Date;
+  litersStolen: number | string;
+  estimatedLossNgn?: number | null;
+  fuelLevelBefore?: number | string | null;
+  fuelLevelAfter?: number | string | null;
+  engineStateBefore?: boolean | null;
+  engineStateAfter?: boolean | null;
+  parkedDurationMinutes?: number | null;
+  latitude?: string | number | null;
+  longitude?: string | number | null;
+  locationName?: string | null;
+  status?: string;
+}
+
+export async function recordSiphonEvent({
   customerId,
   vehicleId,
   driverId,
@@ -17,7 +36,7 @@ async function recordSiphonEvent({
   longitude,
   locationName,
   status,
-}) {
+}: RecordSiphonEventParams): Promise<string> {
   if (alertId != null) {
     const [existing] = await db
       .select({ id: siphonEvents.id })
@@ -63,5 +82,3 @@ async function recordSiphonEvent({
 
   return row.id;
 }
-
-module.exports = { recordSiphonEvent };

@@ -1,5 +1,5 @@
-const { db } = require('../db');
-const {
+import { db } from '../db';
+import {
   customers,
   drivers,
   vehicles,
@@ -11,18 +11,27 @@ const {
   siphonEvents,
   payments,
   deviceOrders,
-} = require('../db/schema');
-const { eq, and, desc, sql } = require('drizzle-orm');
-const { serializeForApi } = require('./serialize');
+} from '../db/schema';
+import { eq, and, desc, sql } from 'drizzle-orm';
+import { serializeForApi } from './serialize';
 
-const IMEI_PATTERN = /^\d{15}$/;
+export const IMEI_PATTERN = /^\d{15}$/;
 
-const linkDevice = async (tx, { imei, vehicleId, customerId, deviceModel = 'FMC150' }) => {
+interface LinkDeviceParams {
+  imei: string;
+  vehicleId: string;
+  customerId: string;
+  deviceModel?: string;
+}
+
+type AnyTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export const linkDevice = async (tx: AnyTx, { imei, vehicleId, customerId, deviceModel = 'FMC150' }: LinkDeviceParams): Promise<void> => {
   if (!IMEI_PATTERN.test(imei || '')) {
     throw Object.assign(new Error('IMEI must be exactly 15 digits'), { status: 400 });
   }
 
-  const [existingDevice] = await tx
+  const [existingDevice] = await (tx as typeof db)
     .select({ customerId: devices.customerId })
     .from(devices)
     .where(eq(devices.imei, imei))
@@ -33,7 +42,7 @@ const linkDevice = async (tx, { imei, vehicleId, customerId, deviceModel = 'FMC1
       throw Object.assign(new Error('Device is registered to another account'), { status: 409 });
     }
 
-    await tx
+    await (tx as typeof db)
       .update(devices)
       .set({
         vehicleId,
@@ -46,7 +55,7 @@ const linkDevice = async (tx, { imei, vehicleId, customerId, deviceModel = 'FMC1
     return;
   }
 
-  await tx.insert(devices).values({
+  await (tx as typeof db).insert(devices).values({
     imei,
     vehicleId,
     customerId,
@@ -54,16 +63,31 @@ const linkDevice = async (tx, { imei, vehicleId, customerId, deviceModel = 'FMC1
   });
 };
 
-const createVehicle = async (
-  tx,
-  customerId,
-  { licensePlate, make, model, year, tankCapacityLiters }
-) => {
+interface CreateVehicleParams {
+  licensePlate: string;
+  make?: string;
+  model?: string;
+  year?: number;
+  tankCapacityLiters?: number;
+}
+
+export const createVehicle = async (
+  tx: AnyTx,
+  customerId: string,
+  { licensePlate, make, model, year, tankCapacityLiters }: CreateVehicleParams
+): Promise<{
+  id: string;
+  license_plate: string | null;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  tank_capacity_liters: number | null;
+}> => {
   if (!licensePlate?.trim()) {
     throw Object.assign(new Error('License plate is required'), { status: 400 });
   }
 
-  const [vehicle] = await tx
+  const [vehicle] = await (tx as typeof db)
     .insert(vehicles)
     .values({
       customerId,
@@ -85,7 +109,7 @@ const createVehicle = async (
   return vehicle;
 };
 
-const customerPublicSelect = {
+export const customerPublicSelect = {
   id: customers.id,
   name: customers.name,
   email: customers.email,
@@ -95,11 +119,8 @@ const customerPublicSelect = {
   created_at: customers.createdAt,
 };
 
-module.exports = {
-  IMEI_PATTERN,
-  linkDevice,
-  createVehicle,
-  customerPublicSelect,
+export {
+  IMEI_PATTERN as default,
   serializeForApi,
   db,
   customers,

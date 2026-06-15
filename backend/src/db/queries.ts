@@ -1,7 +1,10 @@
-const { sql } = require('drizzle-orm');
+import { sql } from 'drizzle-orm';
+import type { db as DbType } from './index';
 
-const getFleetByCustomerId = async (dbOrTx, customerId) => {
-  const result = await dbOrTx.execute(sql`
+type DbOrTx = typeof DbType | Parameters<Parameters<typeof DbType.transaction>[0]>[0];
+
+export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): Promise<unknown[]> => {
+  const result = await (dbOrTx as typeof DbType).execute(sql`
     SELECT
       v.id,
       v.license_plate,
@@ -42,5 +45,3 @@ const getFleetByCustomerId = async (dbOrTx, customerId) => {
   `);
   return result.rows;
 };
-
-module.exports = { getFleetByCustomerId };

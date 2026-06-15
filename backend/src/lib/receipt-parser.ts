@@ -19,7 +19,7 @@ const KNOWN_MERCHANTS = [
   'Forte Oil',
 ];
 
-function parseNumericToken(raw) {
+function parseNumericToken(raw: unknown): number | null {
   if (raw == null) return null;
   let token = String(raw).trim().replace(/\s/g, '');
   if (!token) return null;
@@ -38,7 +38,7 @@ function parseNumericToken(raw) {
   return Number.isFinite(value) ? value : null;
 }
 
-function pickMerchant(text) {
+function pickMerchant(text: string): string | null {
   for (const pattern of MERCHANT_PATTERNS) {
     const match = text.match(pattern);
     if (match) {
@@ -56,7 +56,7 @@ function pickMerchant(text) {
   return null;
 }
 
-function valueOnNextLines(lines, startIndex, matcher, maxLookahead = 6) {
+function valueOnNextLines(lines: string[], startIndex: number, matcher: RegExp, maxLookahead = 6): number | null {
   for (let i = startIndex + 1; i < Math.min(startIndex + maxLookahead, lines.length); i++) {
     const line = lines[i];
     if (!line || /^(payment|method|change|thank|customer)/i.test(line)) continue;
@@ -66,7 +66,7 @@ function valueOnNextLines(lines, startIndex, matcher, maxLookahead = 6) {
   return null;
 }
 
-function parseLiters(text) {
+function parseLiters(text: string): number | null {
   const normalized = text.replace(/(\d)\s+\.\s+(\d)/g, '$1.$2');
   const lines = normalized.split('\n').map((line) => line.trim());
 
@@ -91,7 +91,7 @@ function parseLiters(text) {
   return null;
 }
 
-function parseAmount(text) {
+function parseAmount(text: string): number | null {
   const lines = text.split('\n').map((line) => line.trim());
 
   for (let i = 0; i < lines.length; i++) {
@@ -115,7 +115,7 @@ function parseAmount(text) {
   if (currencyMatches.length > 0) {
     const values = currencyMatches
       .map((m) => parseNumericToken(m[1]))
-      .filter((v) => v != null && v > 0);
+      .filter((v): v is number => v != null && v > 0);
     if (values.length > 0) {
       const sorted = [...values].sort((a, b) => a - b);
       return sorted[Math.floor(sorted.length / 2)];
@@ -125,7 +125,7 @@ function parseAmount(text) {
   return null;
 }
 
-function parsePricePerLiter(text, liters, total) {
+function parsePricePerLiter(text: string, liters: number | null, total: number | null): number | null {
   const normalized = text.replace(/(\d)\s+\.\s+(\d)/g, '$1.$2');
 
   const slashPatterns = [
@@ -162,20 +162,20 @@ function parsePricePerLiter(text, liters, total) {
   return null;
 }
 
-function normalizeTotal(parsedTotal, liters, pricePerLiter) {
+function normalizeTotal(parsedTotal: number | null, liters: number | null, pricePerLiter: number | null): number | null {
   if (!liters || !pricePerLiter) return parsedTotal;
   const derived = Math.round(liters * pricePerLiter);
   if (parsedTotal == null) return derived;
-  const within = (a, b) => Math.abs(a - b) / Math.max(b, 1) < 0.08;
+  const within = (a: number, b: number) => Math.abs(a - b) / Math.max(b, 1) < 0.08;
   if (within(parsedTotal, derived)) return derived;
   if (!within(parsedTotal, derived)) return derived;
   return parsedTotal;
 }
 
-function normalizeLiters(parsedLiters, total, pricePerLiter) {
+export function normalizeLiters(parsedLiters: number | null, total: number | null, pricePerLiter: number | null): number | null {
   if (pricePerLiter && pricePerLiter > 0 && total && total > 0) {
     const derived = Math.round((total / pricePerLiter) * 100) / 100;
-    const within = (a, b) => Math.abs(a - b) / Math.max(b, 0.01) < 0.12;
+    const within = (a: number, b: number) => Math.abs(a - b) / Math.max(b, 0.01) < 0.12;
 
     if (parsedLiters == null) return derived;
 
@@ -195,7 +195,7 @@ function normalizeLiters(parsedLiters, total, pricePerLiter) {
   return parsedLiters;
 }
 
-function parseTimestamp(text) {
+function parseTimestamp(text: string): Date | null {
   const iso = text.match(/\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}/);
   if (iso) return new Date(iso[0].replace(' ', 'T'));
 
@@ -214,7 +214,7 @@ function parseTimestamp(text) {
   return null;
 }
 
-function parseAddress(text) {
+function parseAddress(text: string): string | null {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const addressLine = lines.find(
     (line) =>
@@ -224,9 +224,29 @@ function parseAddress(text) {
   return addressLine ?? null;
 }
 
-function parseReceiptText(ocrText, hints = {}) {
+interface ParseHints {
+  merchant_hint?: string;
+}
+
+interface ParsedReceiptFields {
+  merchant_name: string | null;
+  merchant_address: string | null;
+  declared_liters: number | null;
+  total_amount: number | null;
+  price_per_liter: number | null;
+  transaction_date: string;
+}
+
+interface ParseReceiptResult {
+  fields: ParsedReceiptFields;
+  confidence: Record<string, number>;
+  parse_confidence: number;
+  raw_text_preview: string;
+}
+
+export function parseReceiptText(ocrText: string, hints: ParseHints = {}): ParseReceiptResult {
   const text = String(ocrText || '').trim();
-  const confidence = { merchant: 0, liters: 0, total: 0, timestamp: 0, address: 0 };
+  const confidence: Record<string, number> = { merchant: 0, liters: 0, total: 0, timestamp: 0, address: 0 };
 
   let merchant = hints.merchant_hint ?? pickMerchant(text);
   if (merchant) confidence.merchant = hints.merchant_hint ? 0.9 : 0.75;
@@ -275,7 +295,7 @@ function parseReceiptText(ocrText, hints = {}) {
     confidence.merchant = 0.2;
   }
 
-  const fields = {
+  const fields: ParsedReceiptFields = {
     merchant_name: merchant,
     merchant_address: merchantAddress,
     declared_liters: liters,
@@ -295,4 +315,4 @@ function parseReceiptText(ocrText, hints = {}) {
   };
 }
 
-module.exports = { parseReceiptText, normalizeLiters, parseNumericToken };
+export { parseNumericToken };

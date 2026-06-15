@@ -32,7 +32,7 @@ import {
   getToken,
   TrackPoint,
 } from '@/lib/api';
-import { buildVehicleTracks, buildDemoTracksFromFleet } from '@/lib/map-utils';
+import { buildVehicleTracks } from '@/lib/map-utils';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
 import { FleetOperationsOverview } from '@/components/dashboard/FleetOperationsOverview';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
@@ -128,15 +128,12 @@ export default function DashboardPage() {
     }
   };
 
-  const loadLiveTracks = async (fleetRows: FleetVehicle[]) => {
+  const loadLiveTracks = async () => {
     try {
       const trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=30');
-      const builtTracks = buildVehicleTracks(trackPoints);
-      setLiveTracks(
-        builtTracks.length > 0 ? builtTracks : buildDemoTracksFromFleet(fleetRows)
-      );
+      setLiveTracks(buildVehicleTracks(trackPoints));
     } catch {
-      setLiveTracks(buildDemoTracksFromFleet(fleetRows));
+      // no-op — keep existing tracks on error
     }
   };
 
@@ -217,10 +214,7 @@ export default function DashboardPage() {
       setSummary(summaryRow);
       setTodaySummary(todayRow);
       setDrivers(driverRows);
-      const builtTracks = buildVehicleTracks(trackPoints);
-      setLiveTracks(
-        builtTracks.length > 0 ? builtTracks : buildDemoTracksFromFleet(fleetRows)
-      );
+      setLiveTracks(buildVehicleTracks(trackPoints));
       setLastUpdated(new Date());
       setTick((t) => t + 1);
       setError(null);
@@ -255,7 +249,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeView !== 'live' || !getToken()) return;
 
-    const poll = () => loadLiveTracks(fleetRef.current);
+    const poll = () => loadLiveTracks();
     poll();
     const interval = setInterval(poll, LIVE_REFRESH_MS);
     return () => clearInterval(interval);

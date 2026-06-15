@@ -1,16 +1,16 @@
-const { Pool } = require('pg');
-const { drizzle } = require('drizzle-orm/node-postgres');
-const { sql } = require('drizzle-orm');
-const schema = require('./schema');
+import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import * as schema from './schema';
 
-const pool = new Pool({
+export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false },
 });
 
-const db = drizzle(pool, { schema });
+export const db = drizzle(pool, { schema });
 
-const ensureColumn = async (table, column, definition) => {
+const ensureColumn = async (table: string, column: string, definition: string): Promise<void> => {
   const result = await db.execute(sql`
     SELECT 1 FROM information_schema.columns
     WHERE table_name = ${table} AND column_name = ${column}
@@ -20,7 +20,7 @@ const ensureColumn = async (table, column, definition) => {
   }
 };
 
-const initDatabase = async () => {
+export const initDatabase = async (): Promise<void> => {
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
 
   await db.execute(sql`
@@ -334,15 +334,15 @@ const initDatabase = async () => {
       ON device_orders (customer_id, created_at DESC)
   `);
 
-  const { backfillDriverReceiptPurchases } = require('../lib/driver-receipt-sync');
+  const { backfillDriverReceiptPurchases } = await import('../lib/driver-receipt-sync');
   await backfillDriverReceiptPurchases(db);
 
-  const { syncDemoVehicleDrivers } = require('../lib/sync-vehicle-drivers');
+  const { syncDemoVehicleDrivers } = await import('../lib/sync-vehicle-drivers');
   await syncDemoVehicleDrivers(db);
 };
 
-const closePool = async () => {
+export const closePool = async (): Promise<void> => {
   await pool.end();
 };
 
-module.exports = { db, pool, initDatabase, closePool, schema };
+export { schema };

@@ -1,12 +1,36 @@
-const {
+import {
   TeltonikaTCPServer,
   TeltonikaDataCodec,
   TeltonikaGPRSCodec,
-} = require('@groupe-savoy/teltonika-sdk');
-const { db, devices, telemetry, vehicles, eq, and } = require('./lib/db-helpers');
-const { detectAnomalies } = require('./lib/anomaly-detector');
+} from '@groupe-savoy/teltonika-sdk';
+import { db, devices, telemetry, vehicles, eq, and } from './lib/db-helpers';
+import { detectAnomalies } from './lib/anomaly-detector';
 
 const REAL_DEVICE_IMEI = process.env.REAL_DEVICE_IMEI || '862129084847783';
+
+interface TeltonikaDevice {
+  imei: string;
+  customerId?: string;
+  vehicleId?: string;
+  close(): void;
+}
+
+interface TeltonikaGps {
+  latitude?: number | null;
+  longitude?: number | null;
+  speed?: number | null;
+}
+
+interface TeltonikaRecord {
+  timestamp?: number | Date;
+  event?: number;
+  gps?: TeltonikaGps;
+  io?: Record<string | number, unknown>;
+}
+
+interface TeltonikaPacket {
+  records: TeltonikaRecord[];
+}
 
 const tcpServer = new TeltonikaTCPServer({
   codecs: {
@@ -15,7 +39,7 @@ const tcpServer = new TeltonikaTCPServer({
   },
 });
 
-const readIoNumber = (buffer) => {
+const readIoNumber = (buffer: Buffer | null | undefined): number | null => {
   if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return null;
   if (buffer.length === 1) return buffer.readUInt8(0);
   if (buffer.length === 2) return buffer.readUInt16BE(0);
@@ -24,22 +48,24 @@ const readIoNumber = (buffer) => {
   return null;
 };
 
-const getIoValue = (io, avlId) => {
+const getIoValue = (io: Record<string | number, unknown> | undefined | null, avlId: number | string): number | null => {
   if (!io) return null;
   const value = io[avlId];
   if (value == null) return null;
   if (Buffer.isBuffer(value)) return readIoNumber(value);
-  if (typeof value === 'object' && value.value != null) return value.value;
-  return value;
+  if (typeof value === 'object' && (value as Record<string, unknown>).value != null) {
+    return Number((value as Record<string, unknown>).value);
+  }
+  return Number(value);
 };
 
-const isRealDevice = (imei) => imei === REAL_DEVICE_IMEI;
+const isRealDevice = (imei: string): boolean => imei === REAL_DEVICE_IMEI;
 
-const logReal = (imei, ...args) => {
+const logReal = (imei: string, ...args: unknown[]): void => {
   if (isRealDevice(imei)) console.log('[REAL DEVICE]', ...args);
 };
 
-const lookupDevice = async (imei) => {
+const lookupDevice = async (imei: string): Promise<{ customer_id: string; vehicle_id: string } | null> => {
   const [record] = await db
     .select({
       customer_id: devices.customerId,
@@ -48,10 +74,10 @@ const lookupDevice = async (imei) => {
     .from(devices)
     .where(and(eq(devices.imei, imei), eq(devices.isActive, true)));
 
-  return record || null;
+  return (record as { customer_id: string; vehicle_id: string } | undefined) ?? null;
 };
 
-tcpServer.on('init', async (device) => {
+tcpServer.on('init', async (device: TeltonikaDevice) => {
   try {
     console.log(`Device ${device.imei} handshake received`);
     logReal(device.imei, `handshake IMEI=${device.imei}`);
@@ -86,10 +112,10 @@ tcpServer.on('init', async (device) => {
   }
 });
 
-const saveTelemetry = async (device, record) => {
+const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): Promise<void> => {
   try {
     if (!device?.customerId) {
-      let recordLookup = null;
+      let recordLookup: Awaited<ReturnType<typeof lookupDevice>> = null;
       for (let i = 0; i < 3; i++) {
         recordLookup = await lookupDevice(device.imei);
         if (recordLookup) break;
@@ -121,12 +147,12 @@ const saveTelemetry = async (device, record) => {
     const fuelSource = fuelCanRaw != null ? 'CAN' : fuelObdPct != null ? 'OBD' : 'none';
     const odometerMeters = getIoValue(record.io, 112);
     const ignitionOn = getIoValue(record.io, 239) === 1;
-    const recordedAt = record.timestamp ? new Date(record.timestamp) : new Date();
+    const recordedAt = record.timestamp ? new Date(record.timestamp as number) : new Date();
 
     const telemetryRow = {
       imei: device.imei,
-      customerId: device.customerId,
-      vehicleId: device.vehicleId,
+      customerId: device.customerId!,
+      vehicleId: device.vehicleId!,
       fuelLevelLiters: fuelLevelLiters?.toString() ?? null,
       odometerKm: odometerMeters != null ? Math.round(odometerMeters / 1000) : null,
       latitude: record.gps?.latitude?.toString() ?? null,
@@ -153,7 +179,7 @@ const saveTelemetry = async (device, record) => {
     await db.insert(telemetry).values(telemetryRow);
 
     if (isRealDevice(device.imei)) {
-      console.log('[REAL DEVICE] ✅ telemetry row saved', {
+      console.log('[REAL DEVICE] telemetry row saved', {
         imei: device.imei,
         fuel: fuelLevelLiters,
         lat: telemetryRow.latitude,
@@ -176,21 +202,23 @@ const saveTelemetry = async (device, record) => {
     const [vehicleRow] = await db
       .select({ license_plate: vehicles.licensePlate })
       .from(vehicles)
-      .where(eq(vehicles.id, device.vehicleId))
+      .where(eq(vehicles.id, device.vehicleId!))
       .limit(1);
 
-    await detectAnomalies(device, telemetryRow, {
-      licensePlate: vehicleRow?.license_plate,
-    });
+    await detectAnomalies(
+      { imei: device.imei, customerId: device.customerId!, vehicleId: device.vehicleId! },
+      { ...telemetryRow, fuelLevelLiters },
+      { licensePlate: vehicleRow?.license_plate ?? undefined }
+    );
   } catch (error) {
-    console.error(`❌ TELEMETRY SAVE FAILED for ${device.imei}:`, error);
+    console.error(`TELEMETRY SAVE FAILED for ${device.imei}:`, error);
     if (isRealDevice(device.imei)) {
       console.error('[REAL DEVICE] insert error — check DATABASE_URL and devices/vehicles FK');
     }
   }
 };
 
-tcpServer.on('data', async (device, packet) => {
+tcpServer.on('data', async (device: TeltonikaDevice, packet: TeltonikaPacket) => {
   try {
     for (const record of packet.records) {
       await saveTelemetry(device, record);
@@ -200,19 +228,19 @@ tcpServer.on('data', async (device, packet) => {
   }
 });
 
-tcpServer.on('timeout', (device) => {
+tcpServer.on('timeout', (device: TeltonikaDevice) => {
   console.log(`Device ${device.imei} timed out`);
 });
 
-tcpServer.on('error', (device, error) => {
+tcpServer.on('error', (device: TeltonikaDevice | null, error: Error) => {
   console.error(`Error from device ${device?.imei || 'unknown'}:`, error);
 });
 
-const startTcpServer = async () => {
+export const startTcpServer = async (): Promise<void> => {
   const port = Number(process.env.TCP_PORT || 5027);
   await tcpServer.listen(port, '0.0.0.0');
   console.log(`Teltonika TCP Server listening on port ${port}`);
   console.log(`Tracking real device IMEI: ${REAL_DEVICE_IMEI}`);
 };
 
-module.exports = { startTcpServer, tcpServer };
+export { tcpServer };

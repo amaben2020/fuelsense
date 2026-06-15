@@ -15,11 +15,11 @@ const HISTORY_DAYS = 7;
 const RESERVE_LITERS = 12;
 
 const LAGOS_ROUTES = [
-  { lat: 6.5244, lng: 3.3792 },
-  { lat: 6.6018, lng: 3.3515 },
-  { lat: 6.4474, lng: 3.4738 },
-  { lat: 6.5789, lng: 3.2802 },
-  { lat: 6.4969, lng: 3.3346 },
+  { lat: 6.5244, lng: 3.3792 }, // Victoria Island
+  { lat: 6.6018, lng: 3.3515 }, // Ikeja
+  { lat: 6.4474, lng: 3.4738 }, // Lekki
+  { lat: 6.5789, lng: 3.2802 }, // Agege
+  { lat: 6.4969, lng: 3.3346 }, // Surulere
 ];
 
 function dailyTargetDistanceKm(model) {
@@ -43,8 +43,7 @@ async function generateVehicleHistory(vehicle, device, routeIndex) {
   const efficiencyKmL = sampleEfficiencyKmL(vehicle.model);
   const tankCapacity = Number(vehicle.tankCapacityLiters) || 60;
   let fuelLevel = tankCapacity * (0.65 + Math.random() * 0.25);
-  let odometerKm =
-    8000 + routeIndex * 12000 + Math.floor(Math.random() * 5000);
+  let odometerKm = 8000 + routeIndex * 12000 + Math.floor(Math.random() * 5000);
   let lat = LAGOS_ROUTES[routeIndex % LAGOS_ROUTES.length].lat;
   let lng = LAGOS_ROUTES[routeIndex % LAGOS_ROUTES.length].lng;
 
@@ -107,19 +106,12 @@ async function generateVehicleHistory(vehicle, device, routeIndex) {
   return rows;
 }
 
-const seedTelemetry = async () => {
-  await initDatabase();
-
-  const [customer] = await db
-    .select({ id: customers.id })
-    .from(customers)
-    .where(eq(customers.email, DEMO_EMAIL));
-
-  if (!customer) {
-    throw new Error('Demo customer not found. Run npm run seed first.');
-  }
-
-  const fleet = await db
+/**
+ * Seeds 7-day telemetry history for all vehicles belonging to the demo customer.
+ * Can be called as a module (pass an open db connection) or as a standalone script.
+ */
+async function seedTelemetryForCustomer(dbConn, customerId) {
+  const fleet = await dbConn
     .select({
       id: vehicles.id,
       customerId: vehicles.customerId,
@@ -128,15 +120,15 @@ const seedTelemetry = async () => {
       tankCapacityLiters: vehicles.tankCapacityLiters,
     })
     .from(vehicles)
-    .where(eq(vehicles.customerId, customer.id));
+    .where(eq(vehicles.customerId, customerId));
 
-  await db.delete(telemetry).where(eq(telemetry.customerId, customer.id));
+  await dbConn.delete(telemetry).where(eq(telemetry.customerId, customerId));
 
   let totalRows = 0;
 
   for (let i = 0; i < fleet.length; i += 1) {
     const vehicle = fleet[i];
-    const [device] = await db
+    const [device] = await dbConn
       .select({ imei: devices.imei })
       .from(devices)
       .where(eq(devices.vehicleId, vehicle.id));
@@ -146,17 +138,36 @@ const seedTelemetry = async () => {
     const rows = await generateVehicleHistory(vehicle, device, i);
     const batchSize = 500;
     for (let offset = 0; offset < rows.length; offset += batchSize) {
-      await db.insert(telemetry).values(rows.slice(offset, offset + batchSize));
+      await dbConn.insert(telemetry).values(rows.slice(offset, offset + batchSize));
     }
     totalRows += rows.length;
-    console.log(`  ${vehicle.licensePlate} (${vehicle.model}): ${rows.length} readings`);
+    console.log(`  ${vehicle.licensePlate} (${vehicle.model || 'RAV4'}): ${rows.length} readings`);
   }
 
   console.log(`\nTelemetry seed complete: ${totalRows} rows over ${HISTORY_DAYS} days`);
-  await closePool();
-};
+  return totalRows;
+}
 
-seedTelemetry().catch((error) => {
-  console.error('Telemetry seed failed:', error);
-  process.exit(1);
-});
+module.exports = { seedTelemetryForCustomer };
+
+// Run standalone when invoked directly
+if (require.main === module) {
+  (async () => {
+    await initDatabase();
+
+    const [customer] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.email, DEMO_EMAIL));
+
+    if (!customer) {
+      throw new Error('Demo customer not found. Run npm run seed first.');
+    }
+
+    await seedTelemetryForCustomer(db, customer.id);
+    await closePool();
+  })().catch((error) => {
+    console.error('Telemetry seed failed:', error);
+    process.exit(1);
+  });
+}

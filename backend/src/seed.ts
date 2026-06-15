@@ -1,18 +1,17 @@
-require('dotenv').config();
+import 'dotenv/config';
 
-const bcrypt = require('bcryptjs');
-const { db, initDatabase, closePool } = require('./db');
-const { customers, drivers, vehicles, devices } = require('./db/schema');
-const { eq, and } = require('drizzle-orm');
+import bcrypt from 'bcryptjs';
+import { db, initDatabase, closePool } from './db';
+import { customers, drivers, vehicles, devices } from './db/schema';
+import { eq, and } from 'drizzle-orm';
 
 const DEMO_EMAIL = 'demo@fuelsense.local';
 const DEMO_PASSWORD = 'demo1234';
 const DRIVER_PIN = '1234';
 
-const seed = async () => {
+const seed = async (): Promise<void> => {
   await initDatabase();
 
-  // ── Demo customer ──────────────────────────────────────────────────────────
   let [customer] = await db
     .select({ id: customers.id })
     .from(customers)
@@ -39,7 +38,6 @@ const seed = async () => {
     console.log('Demo customer exists');
   }
 
-  // ── Vehicle ────────────────────────────────────────────────────────────────
   const vehiclePlate = process.env.REAL_DEVICE_PLATE || 'LAG-001-FS';
   const deviceImei = process.env.REAL_DEVICE_IMEI || '862129084847783';
 
@@ -65,7 +63,6 @@ const seed = async () => {
     console.log(`Vehicle ${vehiclePlate} exists`);
   }
 
-  // ── Driver: Benneth Uzochukwu ──────────────────────────────────────────────
   const pinHash = await bcrypt.hash(DRIVER_PIN, 12);
 
   let [driver] = await db
@@ -91,19 +88,23 @@ const seed = async () => {
     console.log('Driver Benneth Uzochukwu exists');
   }
 
-  // Link driver to vehicle
   await db
     .update(vehicles)
     .set({ driverId: driver.id, driverName: 'Benneth Uzochukwu' })
     .where(eq(vehicles.id, vehicle.id));
 
-  // ── Device ─────────────────────────────────────────────────────────────────
   const [existingDevice] = await db
     .select({ imei: devices.imei })
     .from(devices)
     .where(eq(devices.imei, deviceImei));
 
-  const devicePatch = {
+  const devicePatch: {
+    vehicleId: string;
+    customerId: string;
+    isActive: boolean;
+    deviceModel: string;
+    firmwareVersion?: string;
+  } = {
     vehicleId: vehicle.id,
     customerId: customer.id,
     isActive: true,

@@ -1,4 +1,4 @@
-const { sampleEfficiencyKmL, fuelUsedForDistanceKm, DEFAULT_FUEL_PRICE_NGN_LITER } = require('./fuel-metrics');
+import { sampleEfficiencyKmL, fuelUsedForDistanceKm, DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics';
 
 const LAGOS_ROUTES = [
   { lat: 6.5244, lng: 3.3792, heading: 0.6 },
@@ -18,18 +18,34 @@ const MERCHANTS = [
   'Oando VI',
 ];
 
+interface FleetRow {
+  id: string;
+  model: string | null;
+  imei?: string | null;
+  license_plate: string;
+  make?: string | null;
+  driver_name?: string | null;
+  fuel_level_liters?: number | string | null;
+  tank_capacity_liters?: number | string | null;
+}
+
+interface DemoTrackOptions {
+  intervalMinutes?: number;
+  minutes?: number;
+}
+
 /**
  * Physics-based demo GPS path for live map when no telemetry exists yet.
  * Uses the same distance/fuel relationship as the fleet simulator.
  */
-function generateDemoTracksForFleet(fleetRows, options = {}) {
+export function generateDemoTracksForFleet(fleetRows: FleetRow[], options: DemoTrackOptions = {}): unknown[] {
   const intervalMinutes = options.intervalMinutes ?? 4;
   const durationMinutes = options.minutes ?? 90;
   const stepCount = Math.max(8, Math.floor(durationMinutes / intervalMinutes));
   const intervalHours = intervalMinutes / 60;
   const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
-  const allPoints = [];
+  const allPoints: unknown[] = [];
 
   fleetRows.forEach((vehicle, index) => {
     const route = LAGOS_ROUTES[index % LAGOS_ROUTES.length];
@@ -76,19 +92,25 @@ function generateDemoTracksForFleet(fleetRows, options = {}) {
         recorded_at: recordedAt.toISOString(),
       });
     }
+    // suppress unused variable warning
+    void pricePerLiter;
   });
 
-  return allPoints.sort(
+  return (allPoints as Array<{ vehicle_id: string; recorded_at: string }>).sort(
     (a, b) =>
       a.vehicle_id.localeCompare(b.vehicle_id) ||
       new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime()
   );
 }
 
-function demoFuelPurchases(fleetRows, options = {}) {
+interface DemoFuelPurchaseOptions {
+  days?: number;
+}
+
+export function demoFuelPurchases(fleetRows: FleetRow[], options: DemoFuelPurchaseOptions = {}): unknown[] {
   const days = options.days ?? 14;
   const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
-  const purchases = [];
+  const purchases: unknown[] = [];
   let seq = 0;
 
   for (const vehicle of fleetRows) {
@@ -120,9 +142,9 @@ function demoFuelPurchases(fleetRows, options = {}) {
     }
   }
 
-  return purchases.sort(
+  return (purchases as Array<{ timestamp: string }>).sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   );
 }
 
-module.exports = { generateDemoTracksForFleet, demoFuelPurchases, LAGOS_ROUTES };
+export { LAGOS_ROUTES };

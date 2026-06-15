@@ -1,15 +1,15 @@
 /** Daily distance bands for Lagos commercial fleet (km/day). */
-const DAILY_DISTANCE_BY_MODEL = {
+export const DAILY_DISTANCE_BY_MODEL: Record<string, { min: number; max: number; expected: number }> = {
   Hiace: { min: 80, max: 480, expected: 320 },
   Hilux: { min: 70, max: 450, expected: 300 },
   RAV4: { min: 60, max: 520, expected: 280 },
   Camry: { min: 50, max: 380, expected: 220 },
 };
 
-const DEFAULT_DAILY_DISTANCE = { min: 60, max: 420, expected: 260 };
+export const DEFAULT_DAILY_DISTANCE = { min: 60, max: 420, expected: 260 };
 
 /** L/100km deviation tiers — positive % = worse than baseline. */
-const EFFICIENCY_TIERS = [
+export const EFFICIENCY_TIERS = [
   { maxDeviation: 10, status: 'normal', label: 'NORMAL', severity: 'none' },
   { maxDeviation: 25, status: 'low_efficiency', label: 'LOW EFFICIENCY', severity: 'medium' },
   { maxDeviation: 50, status: 'low_efficiency', label: 'LOW EFFICIENCY', severity: 'high' },
@@ -17,11 +17,11 @@ const EFFICIENCY_TIERS = [
 ];
 
 /** Flag when L/100km exceeds baseline by this % (fleet-efficiency compat). */
-const EFFICIENCY_VARIANCE_THRESHOLD_PERCENT = 10;
+export const EFFICIENCY_VARIANCE_THRESHOLD_PERCENT = 10;
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function formatActivityDateDisplay(activityDate) {
+export function formatActivityDateDisplay(activityDate: string): string {
   const iso = String(activityDate).slice(0, 10);
   const d = new Date(`${iso}T12:00:00Z`);
   const weekday = WEEKDAYS[d.getUTCDay()] ?? '';
@@ -34,7 +34,14 @@ function formatActivityDateDisplay(activityDate) {
   return `${weekday}, ${Number(day)} ${monthLabel}`;
 }
 
-function detectDataAnomaly({ distanceKm, fuelUsed, efficiencyL100km, idleHours }) {
+interface DataAnomalyParams {
+  distanceKm: number;
+  fuelUsed: number;
+  efficiencyL100km: number | null;
+  idleHours: number;
+}
+
+export function detectDataAnomaly({ distanceKm, fuelUsed, efficiencyL100km, idleHours }: DataAnomalyParams): boolean {
   if (distanceKm < 15 && fuelUsed >= 5) return true;
   if (distanceKm > 0 && fuelUsed / distanceKm > 2) return true;
   if (efficiencyL100km != null && efficiencyL100km > 200 && distanceKm >= 1) return true;
@@ -42,7 +49,27 @@ function detectDataAnomaly({ distanceKm, fuelUsed, efficiencyL100km, idleHours }
   return false;
 }
 
-function classifyDailyRow({
+interface ClassifyDailyRowParams {
+  model: string | null;
+  distanceKm: number;
+  fuelUsed: number;
+  efficiencyL100km: number | null;
+  expectedEfficiencyL100km: number | null;
+  deviationPercent?: number | null;
+  idleHours: number;
+  tripCount: number;
+}
+
+interface DailyRowClassification {
+  status: string;
+  status_label: string;
+  status_severity: string;
+  data_anomaly: boolean;
+  display_efficiency_l_100km: number | null;
+  insight: string;
+}
+
+export function classifyDailyRow({
   model,
   distanceKm,
   fuelUsed,
@@ -51,8 +78,8 @@ function classifyDailyRow({
   deviationPercent,
   idleHours,
   tripCount,
-}) {
-  const band = dailyDistanceThreshold(model);
+}: ClassifyDailyRowParams): DailyRowClassification {
+  const band = dailyDistanceThreshold(model ?? '');
   const dev =
     deviationPercent ??
     efficiencyDeviationPercent(efficiencyL100km, expectedEfficiencyL100km);
@@ -154,7 +181,21 @@ function classifyDailyRow({
   };
 }
 
-function buildDailyInsight({
+interface BuildDailyInsightParams {
+  dataAnomaly: boolean;
+  distanceKm: number;
+  fuelUsed: number;
+  idleHours: number;
+  tripCount: number;
+  model: string | null | undefined;
+  band: { min: number; max: number; expected: number };
+  deviationPercent?: number | null;
+  displayStatus?: string;
+  efficiencyL100km: number | null;
+  expectedEfficiencyL100km: number | null;
+}
+
+export function buildDailyInsight({
   dataAnomaly,
   distanceKm,
   fuelUsed,
@@ -166,7 +207,7 @@ function buildDailyInsight({
   displayStatus,
   efficiencyL100km,
   expectedEfficiencyL100km,
-}) {
+}: BuildDailyInsightParams): string {
   const vehicleType = model ?? 'fleet vehicle';
 
   if (dataAnomaly) {
@@ -203,17 +244,20 @@ function buildDailyInsight({
   return `Operating within normal pattern for ${vehicleType}`;
 }
 
-function dailyDistanceThreshold(model) {
+export function dailyDistanceThreshold(model: string): { min: number; max: number; expected: number } {
   return DAILY_DISTANCE_BY_MODEL[model] || DEFAULT_DAILY_DISTANCE;
 }
 
 /** Positive % = worse (more L/100km than baseline). */
-function efficiencyDeviationPercent(actualL100km, baselineL100km) {
+export function efficiencyDeviationPercent(
+  actualL100km: number | null,
+  baselineL100km: number | null
+): number | null {
   if (actualL100km == null || baselineL100km == null || baselineL100km <= 0) return null;
   return Math.round(((actualL100km - baselineL100km) / baselineL100km) * 1000) / 10;
 }
 
-function getEfficiencyStatus(deviationPercent) {
+export function getEfficiencyStatus(deviationPercent: number | null): { status: string; label: string; severity: string } {
   if (deviationPercent == null) {
     return { status: 'unknown', label: '—', severity: 'none' };
   }
@@ -223,7 +267,7 @@ function getEfficiencyStatus(deviationPercent) {
   return EFFICIENCY_TIERS[3];
 }
 
-const FLAG_META = {
+export const FLAG_META: Record<string, { label: string; suggestion: string }> = {
   low_efficiency: {
     label: 'Low Efficiency',
     suggestion: 'Investigate idle time or route inefficiency',
@@ -242,7 +286,21 @@ const FLAG_META = {
   },
 };
 
-function buildDailyFlags({
+interface BuildDailyFlagsParams {
+  vehicleId: string;
+  licensePlate: string;
+  driverName: string | null;
+  activityDate: string;
+  model: string | null;
+  distanceKm: number;
+  fuelUsed: number;
+  idleHours?: number;
+  efficiencyL100km: number | null;
+  expectedEfficiencyL100km: number | null;
+  deviationPercent?: number | null;
+}
+
+export function buildDailyFlags({
   vehicleId,
   licensePlate,
   driverName,
@@ -254,12 +312,12 @@ function buildDailyFlags({
   efficiencyL100km,
   expectedEfficiencyL100km,
   deviationPercent,
-}) {
-  const band = dailyDistanceThreshold(model);
+}: BuildDailyFlagsParams): unknown[] {
+  const band = dailyDistanceThreshold(model ?? '');
   const dev =
     deviationPercent ??
     efficiencyDeviationPercent(efficiencyL100km, expectedEfficiencyL100km);
-  const flags = [];
+  const flags: unknown[] = [];
 
   if (dev != null && dev > 10) {
     const tier = getEfficiencyStatus(dev);
@@ -358,24 +416,6 @@ function buildDailyFlags({
 }
 
 /** @deprecated use buildDailyFlags */
-function evaluateDailyFlags(args) {
-  return buildDailyFlags(args).map((f) => f.flag_type);
+export function evaluateDailyFlags(args: BuildDailyFlagsParams): string[] {
+  return (buildDailyFlags(args) as Array<{ flag_type: string }>).map((f) => f.flag_type);
 }
-
-module.exports = {
-  DAILY_DISTANCE_BY_MODEL,
-  DEFAULT_DAILY_DISTANCE,
-  EFFICIENCY_TIERS,
-  EFFICIENCY_VARIANCE_THRESHOLD_PERCENT,
-  FLAG_META,
-  WEEKDAYS,
-  formatActivityDateDisplay,
-  dailyDistanceThreshold,
-  efficiencyDeviationPercent,
-  getEfficiencyStatus,
-  detectDataAnomaly,
-  classifyDailyRow,
-  buildDailyInsight,
-  buildDailyFlags,
-  evaluateDailyFlags,
-};
