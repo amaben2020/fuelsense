@@ -31,6 +31,7 @@ class VehicleSimulator {
     this.tickIntervalMs = profile.tickIntervalMs ?? 4000;
     this.efficiencyKmL =
       profile.efficiencyKmL ?? sampleEfficiencyKmL(profile.model ?? 'Hiace');
+    this.imei = profile.imei;
   }
 
   _moveTowardWaypoint(distanceKm) {
@@ -192,7 +193,7 @@ const buildCodecRecord = ({
 const DEFAULT_FLEET_PROFILES = [
   {
     imei: '356307042441013',
-    label: 'ABC-123',
+    label: 'LND-772-AA',
     model: 'Hilux',
     routeLoop: 'island',
     startLat: 6.5244,
@@ -206,7 +207,7 @@ const DEFAULT_FLEET_PROFILES = [
   },
   {
     imei: '356307042441014',
-    label: 'LAG-456-CD',
+    label: 'IKD-109-BY',
     model: 'Hiace',
     routeLoop: 'mainland',
     startLat: 6.6018,
@@ -222,7 +223,7 @@ const DEFAULT_FLEET_PROFILES = [
   },
   {
     imei: '356307042441015',
-    label: 'LAG-789-EF',
+    label: 'GGE-442-XM',
     model: 'Hilux',
     routeLoop: 'lekki',
     startLat: 6.4474,
@@ -234,7 +235,7 @@ const DEFAULT_FLEET_PROFILES = [
   },
   {
     imei: '356307042441016',
-    label: 'ABJ-101-GH',
+    label: 'KJA-901-CS',
     model: 'Camry',
     routeLoop: 'ikeja',
     startLat: 6.5789,
@@ -246,7 +247,7 @@ const DEFAULT_FLEET_PROFILES = [
   },
   {
     imei: '356307042441017',
-    label: 'RIV-202-IJ',
+    label: 'PHC-302-RY',
     model: 'RAV4',
     routeLoop: 'yaba',
     startLat: 6.4969,

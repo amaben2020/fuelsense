@@ -16,6 +16,7 @@ async function recordSiphonEvent({
   latitude,
   longitude,
   locationName,
+  status,
 }) {
   if (alertId != null) {
     const [existing] = await db
@@ -56,7 +57,7 @@ async function recordSiphonEvent({
       latitude: latitude?.toString() ?? null,
       longitude: longitude?.toString() ?? null,
       locationName: locationName ?? null,
-      status: 'active',
+      status: status ?? 'active',
     })
     .returning({ id: siphonEvents.id });
 

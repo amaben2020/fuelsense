@@ -47,6 +47,7 @@ const lookupDevice = async (imei) => {
 };
 
 tcpServer.on('init', async (device) => {
+  console.log('device 🚀🚀🚀', device);
   const record = await lookupDevice(device.imei);
 
   if (!record) {
@@ -120,88 +121,6 @@ const saveTelemetry = async (device, record) => {
   await detectAnomalies(device, telemetryRow, {
     licensePlate: vehicleRow?.license_plate,
   });
-
-  if (!ignitionOn && fuelLevelLiters != null) {
-    const [lastIgnitionOn] = await db
-      .select({ fuel_level_liters: telemetry.fuelLevelLiters })
-      .from(telemetry)
-      .where(
-        and(
-          eq(telemetry.imei, device.imei),
-          eq(telemetry.customerId, device.customerId),
-          eq(telemetry.ignitionOn, true)
-        )
-      )
-      .orderBy(desc(telemetry.recordedAt))
-      .limit(1);
-
-    const previousFuel = lastIgnitionOn?.fuel_level_liters
-      ? Number(lastIgnitionOn.fuel_level_liters)
-      : null;
-
-    if (previousFuel != null && previousFuel - fuelLevelLiters > 5) {
-      const drop = previousFuel - fuelLevelLiters;
-      const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
-      const estimatedLossNgn = Math.round(drop * pricePerLiter);
-      const lat = telemetryRow.latitude;
-      const lng = telemetryRow.longitude;
-      const locationHint =
-        lat && lng
-          ? ` near ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
-          : '';
-
-      const [existingAlert] = await db
-        .select({ id: alerts.id })
-        .from(alerts)
-        .where(
-          and(
-            eq(alerts.vehicleId, device.vehicleId),
-            eq(alerts.customerId, device.customerId),
-            eq(alerts.alertType, 'fuel_theft'),
-            eq(alerts.isResolved, false)
-          )
-        )
-        .limit(1);
-
-      if (!existingAlert) {
-        const [alertRow] = await db
-          .insert(alerts)
-          .values({
-            imei: device.imei,
-            customerId: device.customerId,
-            vehicleId: device.vehicleId,
-            alertType: 'fuel_theft',
-            message: `Fuel theft detected${locationHint}! Level dropped ${drop.toFixed(1)}L while parked (${previousFuel.toFixed(1)}L → ${fuelLevelLiters.toFixed(1)}L). Estimated loss ${estimatedLossNgn.toLocaleString('en-NG')} NGN.`,
-            fuelLevelLiters: fuelLevelLiters.toString(),
-            fuelDropLiters: drop.toFixed(2),
-            estimatedLossNgn,
-            latitude: lat,
-            longitude: lng,
-          })
-          .returning({ id: alerts.id });
-
-        await recordSiphonEvent({
-          customerId: device.customerId,
-          vehicleId: device.vehicleId,
-          alertId: alertRow.id,
-          occurredAt: recordedAt,
-          litersStolen: drop,
-          estimatedLossNgn,
-          fuelLevelBefore: previousFuel,
-          fuelLevelAfter: fuelLevelLiters,
-          engineStateBefore: true,
-          engineStateAfter: false,
-          latitude: lat,
-          longitude: lng,
-          locationName: lat && lng ? `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}` : null,
-        });
-
-        console.log(
-          `⚠️  FUEL THEFT ALERT for ${device.imei}: -${drop.toFixed(1)}L${locationHint}`
-        );
-      }
-    }
-  }
 };
 
 tcpServer.on('data', async (device, packet) => {

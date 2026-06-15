@@ -13,36 +13,36 @@ const DEMO_DRIVERS = [
     fullName: 'Chidi Okonkwo',
     phone: '+234 803 111 2233',
     licenseNumber: 'LAG/2019/88421',
-    vehiclePlate: 'ABC-123',
-    driverCode: 'CHIDI-ABC',
+    vehiclePlate: 'LND-772-AA',
+    driverCode: 'CHIDI-LND',
   },
   {
     fullName: 'Amara Eze',
     phone: '+234 802 445 6677',
     licenseNumber: 'LAG/2020/55210',
-    vehiclePlate: 'LAG-456-CD',
-    driverCode: 'AMARA-456',
+    vehiclePlate: 'IKD-109-BY',
+    driverCode: 'AMARA-IKD',
   },
   {
     fullName: 'Ngozi Obi',
     phone: '+234 805 778 9900',
     licenseNumber: 'LAG/2018/33102',
-    vehiclePlate: 'LAG-789-EF',
-    driverCode: 'NGOZI-789',
+    vehiclePlate: 'GGE-442-XM',
+    driverCode: 'NGOZI-GGE',
   },
   {
     fullName: 'Emeka Nwosu',
     phone: '+234 809 123 4567',
     licenseNumber: 'FCT/2021/10293',
-    vehiclePlate: 'ABJ-101-GH',
-    driverCode: 'EMEKA-101',
+    vehiclePlate: 'KJA-901-CS',
+    driverCode: 'EMEKA-KJA',
   },
   {
     fullName: 'Ibrahim Musa',
     phone: '+234 701 555 8899',
     licenseNumber: 'RIV/2022/77104',
-    vehiclePlate: 'RIV-202-IJ',
-    driverCode: 'IBRAHIM-202',
+    vehiclePlate: 'PHC-302-RY',
+    driverCode: 'IBRAHIM-PHC',
   },
 ];
 
@@ -51,7 +51,7 @@ const DEMO_DRIVER_PIN = '1234';
 const DEMO_FLEET = [
   {
     imei: '356307042441013',
-    licensePlate: 'ABC-123',
+    licensePlate: 'LND-772-AA',
     make: 'Toyota',
     model: 'Hilux',
     year: 2022,
@@ -59,7 +59,7 @@ const DEMO_FLEET = [
   },
   {
     imei: '356307042441014',
-    licensePlate: 'LAG-456-CD',
+    licensePlate: 'IKD-109-BY',
     make: 'Toyota',
     model: 'Hiace',
     year: 2020,
@@ -67,7 +67,7 @@ const DEMO_FLEET = [
   },
   {
     imei: '356307042441015',
-    licensePlate: 'LAG-789-EF',
+    licensePlate: 'GGE-442-XM',
     make: 'Toyota',
     model: 'Hilux',
     year: 2018,
@@ -75,7 +75,7 @@ const DEMO_FLEET = [
   },
   {
     imei: '356307042441016',
-    licensePlate: 'ABJ-101-GH',
+    licensePlate: 'KJA-901-CS',
     make: 'Toyota',
     model: 'Camry',
     year: 2021,
@@ -83,7 +83,7 @@ const DEMO_FLEET = [
   },
   {
     imei: '356307042441017',
-    licensePlate: 'RIV-202-IJ',
+    licensePlate: 'PHC-302-RY',
     make: 'Toyota',
     model: 'RAV4',
     year: 2022,

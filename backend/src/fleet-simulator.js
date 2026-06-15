@@ -21,11 +21,16 @@ const startVirtualDevice = (profile) => {
     client = new net.Socket();
 
     client.connect(TCP_SERVER_PORT, TCP_SERVER_HOST, () => {
-      console.log(`[${profile.label}] connected (${profile.imei})`);
+
+      if (profile.imei === '862129084847783' || profile.imei === 862129084847783) {
+
+         console.log(`[${profile.label}] connected (${profile.imei})`);
       const imeiBuffer = Buffer.alloc(2 + profile.imei.length);
       imeiBuffer.writeUInt16BE(profile.imei.length, 0);
       imeiBuffer.write(profile.imei, 2);
       client.write(imeiBuffer);
+       }
+     
     });
 
     client.on('data', (data) => {
