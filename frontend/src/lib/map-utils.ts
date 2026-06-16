@@ -26,6 +26,15 @@ export function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
+export function timeAgo(isoTimestamp: string): string {
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(isoTimestamp).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  return `${hours}h ago`;
+}
+
 export const ROUTE_COLORS = [
   '#2e5bff',
   '#4edea3',
@@ -91,6 +100,8 @@ export function buildVehicleTracks(points: TrackPoint[], colorOffset = 0): Vehic
           lastPoint.fuel_level_liters != null
             ? Number(lastPoint.fuel_level_liters)
             : null,
+        ignitionOn: lastPoint.ignition_on,
+        recordedAt: lastPoint.recorded_at,
       },
     });
   }

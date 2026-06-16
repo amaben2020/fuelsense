@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
-import { lerp } from '@/lib/map-utils';
+import { lerp, timeAgo } from '@/lib/map-utils';
 import { FleetVehicle, VehicleTrack } from '@/lib/api';
 import {
   FLEET_MAPS_KEY,
@@ -44,7 +44,11 @@ function MapCameraFollow({
   return null;
 }
 
-function MapInteractionGuard({ onUserInteract }: { onUserInteract: () => void }) {
+function MapInteractionGuard({
+  onUserInteract,
+}: {
+  onUserInteract: () => void;
+}) {
   const map = useMap();
 
   useEffect(() => {
@@ -77,7 +81,7 @@ export function LiveMonitoringMap({
 }) {
   const [animated, setAnimated] = useState<AnimatedTrack[]>([]);
   const prevRef = useRef(
-    new globalThis.Map<string, { lat: number; lng: number; heading: number }>()
+    new globalThis.Map<string, { lat: number; lng: number; heading: number }>(),
   );
   const frameRef = useRef<number | null>(null);
   const initializedRef = useRef(false);
@@ -115,8 +119,12 @@ export function LiveMonitoringMap({
 
       const next: AnimatedTrack[] = targets.map(({ track, prev, snap }) => ({
         ...track,
-        displayLat: snap ? track.current.lat : lerp(prev.lat, track.current.lat, eased),
-        displayLng: snap ? track.current.lng : lerp(prev.lng, track.current.lng, eased),
+        displayLat: snap
+          ? track.current.lat
+          : lerp(prev.lat, track.current.lat, eased),
+        displayLng: snap
+          ? track.current.lng
+          : lerp(prev.lng, track.current.lng, eased),
         displayHeading: snap
           ? track.heading
           : lerp(prev.heading, track.heading, eased),
@@ -149,7 +157,9 @@ export function LiveMonitoringMap({
   }, [tracks]);
 
   const selectedTrack =
-    animated.find((t) => t.vehicleId === selectedVehicleId) ?? animated[0] ?? null;
+    animated.find((t) => t.vehicleId === selectedVehicleId) ??
+    animated[0] ??
+    null;
 
   const fleetStatus = useMemo(() => {
     return new globalThis.Map(fleet.map((v) => [v.id, v.connection_status]));
@@ -164,7 +174,7 @@ export function LiveMonitoringMap({
           driver: v.driver_name,
           fuel: v.fuel_level_liters,
         },
-      ])
+      ]),
     );
   }, [fleet]);
 
@@ -175,7 +185,9 @@ export function LiveMonitoringMap({
   if (!FLEET_MAPS_KEY) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center bg-[#0b1326] p-8 text-center">
-        <p className="text-[#8e90a2]">Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to enable live map</p>
+        <p className="text-[#8e90a2]">
+          Add GOOGLE_MAPS_API_KEY to enable live map
+        </p>
       </div>
     );
   }
@@ -203,7 +215,10 @@ export function LiveMonitoringMap({
           >
             <MapResizeFix />
             <MapInteractionGuard onUserInteract={handleUserInteract} />
-            <MapCameraFollow track={selectedTrack} enabled={followSelected && !!selectedTrack} />
+            <MapCameraFollow
+              track={selectedTrack}
+              enabled={followSelected && !!selectedTrack}
+            />
 
             {animated.map((track) => (
               <EmphasizedRoute
@@ -234,7 +249,8 @@ export function LiveMonitoringMap({
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-[#0b1326]/90 to-transparent p-4">
         <p className="text-sm font-medium text-[#dae2fd]">Live monitoring</p>
         <p className="text-xs text-[#8e90a2]">
-          {animated.length} vehicles · GPS updates every 2s · pinch or scroll to zoom
+          {animated.length} vehicles · GPS updates every 2s · pinch or scroll to
+          zoom
         </p>
       </div>
 
@@ -258,7 +274,9 @@ export function LiveMonitoringMap({
                   className="h-2.5 w-2.5 rounded-full"
                   style={{ backgroundColor: track.color }}
                 />
-                <span className="text-sm font-medium text-[#dae2fd]">{track.licensePlate}</span>
+                <span className="text-sm font-medium text-[#dae2fd]">
+                  {track.licensePlate}
+                </span>
                 <span
                   className={`text-[10px] capitalize ${
                     status === 'online' ? 'text-[#4edea3]' : 'text-[#ffb4ab]'
@@ -281,10 +299,33 @@ export function LiveMonitoringMap({
 
       {selectedTrack && (
         <div className="pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl border border-[#434656] bg-[#171f33]/95 p-4 backdrop-blur-md">
-          <p className="font-semibold text-[#dae2fd]">{selectedTrack.licensePlate}</p>
+          <div className="flex items-center justify-between">
+            <p className="font-semibold text-[#dae2fd]">
+              {selectedTrack.licensePlate}
+            </p>
+            <span
+              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                selectedTrack.current.ignitionOn
+                  ? 'bg-[#4edea3]/10 text-[#4edea3]'
+                  : 'bg-[#434656]/40 text-[#8e90a2]'
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  selectedTrack.current.ignitionOn ? 'bg-[#4edea3]' : 'bg-[#8e90a2]'
+                }`}
+              />
+              {selectedTrack.current.ignitionOn ? 'Ignition on' : 'Ignition off'}
+            </span>
+          </div>
           <p className="text-xs text-[#8e90a2]">
-            {[selectedTrack.make, selectedTrack.model].filter(Boolean).join(' ')}
+            {[selectedTrack.make, selectedTrack.model]
+              .filter(Boolean)
+              .join(' ')}
             {selectedTrack.driverName ? ` · ${selectedTrack.driverName}` : ''}
+          </p>
+          <p className="mt-1 text-[10px] text-[#8e90a2]">
+            Updated {timeAgo(selectedTrack.current.recordedAt)}
           </p>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
             <div className="rounded-lg bg-[#0b1326] p-2">

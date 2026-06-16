@@ -170,7 +170,7 @@ router.get('/tracks', async (req: Request, res: Response) => {
           ignition_on,
           recorded_at
         FROM ranked
-        WHERE rn <= 120
+        WHERE rn <= ${limit}
         ORDER BY vehicle_id ASC, recorded_at ASC
       `);
       rows = historical.rows;

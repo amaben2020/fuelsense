@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 
-export const FLEET_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+export const FLEET_MAPS_KEY = process.env.GOOGLE_MAPS_API_KEY ?? '';
 export const FLEET_MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID;
 
 export const LAGOS_CENTER = { lat: 6.5244, lng: 3.3792 };
@@ -81,14 +81,14 @@ export function fleetMapDefaults(overrides: Record<string, unknown> = {}) {
     disableDefaultUI: false,
     zoomControl: true,
     scrollwheel: true,
-    tilt: 45,
-    heading: 0,
     ...fleetMapLayerProps(),
     ...overrides,
   };
 }
 
-export function fleetMapContainerStyle(minHeight: number | string): CSSProperties {
+export function fleetMapContainerStyle(
+  minHeight: number | string,
+): CSSProperties {
   return {
     width: '100%',
     height: '100%',
@@ -97,7 +97,11 @@ export function fleetMapContainerStyle(minHeight: number | string): CSSPropertie
 }
 
 /** Top-down 3D car marker — Uber-style white vehicle with heading rotation */
-export function car3dSvgDataUrl(heading: number, selected = false, accent = ROUTE_PRIMARY) {
+export function car3dSvgDataUrl(
+  heading: number,
+  selected = false,
+  accent = ROUTE_PRIMARY,
+) {
   const size = selected ? 56 : 48;
   const body = selected ? '#f4f6fb' : '#e6eaf2';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 56 56">

@@ -10,7 +10,10 @@ import {
   fleetMapContainerStyle,
   fleetMapDefaults,
 } from '@/lib/fleet-map-theme';
-import { MapResizeFix, VehicleCarMarker } from '@/components/maps/SharedMapLayers';
+import {
+  MapResizeFix,
+  VehicleCarMarker,
+} from '@/components/maps/SharedMapLayers';
 
 export function FleetMap({
   fleet,
@@ -35,7 +38,7 @@ export function FleetMap({
           return { ...v, lat, lng };
         })
         .filter(Boolean) as (FleetVehicle & { lat: number; lng: number })[],
-    [fleet]
+    [fleet],
   );
 
   const center = useMemo(() => {
@@ -53,7 +56,9 @@ export function FleetMap({
     ? 'overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]'
     : 'overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60';
   const headerBorder = isDark ? 'border-[#434656]' : 'border-slate-100';
-  const titleClass = isDark ? 'font-semibold text-[#dae2fd]' : 'font-semibold text-slate-900';
+  const titleClass = isDark
+    ? 'font-semibold text-[#dae2fd]'
+    : 'font-semibold text-slate-900';
   const subClass = isDark ? 'text-xs text-[#8e90a2]' : 'text-xs text-slate-500';
 
   if (!FLEET_MAPS_KEY) {
@@ -66,11 +71,19 @@ export function FleetMap({
         }`}
       >
         <div>
-          <p className={isDark ? 'font-medium text-[#dae2fd]' : 'font-medium text-slate-800'}>
+          <p
+            className={
+              isDark
+                ? 'font-medium text-[#dae2fd]'
+                : 'font-medium text-slate-800'
+            }
+          >
             Map unavailable
           </p>
-          <p className={`mt-2 text-sm ${isDark ? 'text-[#8e90a2]' : 'text-slate-500'}`}>
-            Set <code className="text-xs">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> in{' '}
+          <p
+            className={`mt-2 text-sm ${isDark ? 'text-[#8e90a2]' : 'text-slate-500'}`}
+          >
+            Set <code className="text-xs">GOOGLE_MAPS_API_KEY</code> in{' '}
             <code className="text-xs">.env.local</code>
           </p>
         </div>
@@ -80,14 +93,18 @@ export function FleetMap({
 
   return (
     <div className={shellClass}>
-      <div className={`flex items-center justify-between border-b px-4 py-3 ${headerBorder}`}>
+      <div
+        className={`flex items-center justify-between border-b px-4 py-3 ${headerBorder}`}
+      >
         <div>
           <h2 className={titleClass}>Live fleet map</h2>
           <p className={subClass}>
             {located.length} of {fleet.length} vehicles with GPS
           </p>
         </div>
-        <div className={`flex gap-3 text-xs ${isDark ? 'text-[#8e90a2]' : 'text-slate-500'}`}>
+        <div
+          className={`flex gap-3 text-xs ${isDark ? 'text-[#8e90a2]' : 'text-slate-500'}`}
+        >
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-emerald-500" /> Online
           </span>
@@ -135,8 +152,9 @@ export function FleetMap({
               <div className="min-w-[160px] p-1 text-sm text-slate-800">
                 <p className="font-semibold">{infoVehicle.license_plate}</p>
                 <p className="text-xs text-slate-600">
-                  {[infoVehicle.make, infoVehicle.model].filter(Boolean).join(' ') ||
-                    'Vehicle'}
+                  {[infoVehicle.make, infoVehicle.model]
+                    .filter(Boolean)
+                    .join(' ') || 'Vehicle'}
                 </p>
                 <p className="mt-2 text-xs capitalize">
                   Status:{' '}

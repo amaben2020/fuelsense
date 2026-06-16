@@ -20,7 +20,12 @@ interface TeltonikaGps {
   latitude?: number | null;
   longitude?: number | null;
   speed?: number | null;
+  satellites?: number | null;
 }
+
+// Below this many satellites, Teltonika's GPS fix is unreliable (multipath/urban
+// canyon drift) and produces the zigzag "false heatmap" near buildings.
+const MIN_GPS_SATELLITES = 3;
 
 interface TeltonikaRecord {
   timestamp?: number | Date;
@@ -152,7 +157,16 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
 
     const rawLat = record.gps?.latitude;
     const rawLng = record.gps?.longitude;
-    const validGps = rawLat != null && rawLng != null && (rawLat !== 0 || rawLng !== 0);
+    const satellites = record.gps?.satellites;
+    const hasGpsFix = satellites == null || satellites >= MIN_GPS_SATELLITES;
+    const validGps =
+      hasGpsFix && rawLat != null && rawLng != null && (rawLat !== 0 || rawLng !== 0);
+
+    // GPS speed comes from Doppler shift and can report a few km/h of noise while
+    // parked. The engine being off is a stronger signal than a weak GPS reading,
+    // so treat ignition-off as authoritative and zero out speed in that case.
+    const rawSpeedKph = record.gps?.speed != null ? Math.round(record.gps.speed) : null;
+    const speedKph = !ignitionOn ? 0 : rawSpeedKph;
 
     const telemetryRow = {
       imei: device.imei,
@@ -162,7 +176,7 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       odometerKm: odometerMeters != null ? Math.round(odometerMeters / 1000) : null,
       latitude: validGps ? rawLat!.toString() : null,
       longitude: validGps ? rawLng!.toString() : null,
-      speedKph: record.gps?.speed != null ? Math.round(record.gps.speed) : null,
+      speedKph,
       ignitionOn,
       recordedAt,
     };

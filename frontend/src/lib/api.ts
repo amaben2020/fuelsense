@@ -557,7 +557,14 @@ export interface VehicleTrack {
   color: string;
   path: { lat: number; lng: number }[];
   heading: number;
-  current: { lat: number; lng: number; speedKph: number | null; fuelLiters: number | null };
+  current: {
+    lat: number;
+    lng: number;
+    speedKph: number | null;
+    fuelLiters: number | null;
+    ignitionOn: boolean | null;
+    recordedAt: string;
+  };
 }
 
 export type VehicleDisplayStatus = 'online' | 'idle' | 'offline' | 'no_device';
