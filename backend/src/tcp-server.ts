@@ -5,6 +5,7 @@ import {
 } from '@groupe-savoy/teltonika-sdk';
 import { db, devices, telemetry, vehicles, eq, and } from './lib/db-helpers';
 import { detectAnomalies } from './lib/anomaly-detector';
+import { invalidate } from './lib/redis';
 
 const REAL_DEVICE_IMEI = process.env.REAL_DEVICE_IMEI || '862129084847783';
 
@@ -149,14 +150,18 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     const ignitionOn = getIoValue(record.io, 239) === 1;
     const recordedAt = record.timestamp ? new Date(record.timestamp as number) : new Date();
 
+    const rawLat = record.gps?.latitude;
+    const rawLng = record.gps?.longitude;
+    const validGps = rawLat != null && rawLng != null && (rawLat !== 0 || rawLng !== 0);
+
     const telemetryRow = {
       imei: device.imei,
       customerId: device.customerId!,
       vehicleId: device.vehicleId!,
       fuelLevelLiters: fuelLevelLiters?.toString() ?? null,
       odometerKm: odometerMeters != null ? Math.round(odometerMeters / 1000) : null,
-      latitude: record.gps?.latitude?.toString() ?? null,
-      longitude: record.gps?.longitude?.toString() ?? null,
+      latitude: validGps ? rawLat!.toString() : null,
+      longitude: validGps ? rawLng!.toString() : null,
       speedKph: record.gps?.speed != null ? Math.round(record.gps.speed) : null,
       ignitionOn,
       recordedAt,
@@ -177,6 +182,8 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     }
 
     await db.insert(telemetry).values(telemetryRow);
+    // fire-and-forget — don't let cache failure block telemetry
+    invalidate(device.customerId!, 'tracks', 'fleet', 'summary').catch(() => {});
 
     if (isRealDevice(device.imei)) {
       console.log('[REAL DEVICE] telemetry row saved', {

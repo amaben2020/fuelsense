@@ -21,6 +21,28 @@ export function DriverSettingsPanel({
   });
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [addForm, setAddForm] = useState({ full_name: '', phone: '', license_number: '' });
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const handleAddDriver = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addForm.full_name.trim()) return;
+    setAdding(true);
+    setAddError(null);
+    try {
+      await api('/drivers', {
+        method: 'POST',
+        body: JSON.stringify(addForm),
+      });
+      setAddForm({ full_name: '', phone: '', license_number: '' });
+      onAssigned();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add driver');
+    } finally {
+      setAdding(false);
+    }
+  };
 
   const handleAssign = async (driverId: string) => {
     const vehicleId = assignments[driverId];
@@ -48,6 +70,43 @@ export function DriverSettingsPanel({
           Each vehicle has one assigned driver. Reassign anytime — updates live on the map.
         </p>
       </div>
+
+      <form onSubmit={handleAddDriver} className="border-b border-[#434656] px-6 py-4">
+        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[#8e90a2]">Add driver</p>
+        <div className="flex flex-wrap gap-3">
+          <input
+            type="text"
+            placeholder="Full name *"
+            value={addForm.full_name}
+            onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))}
+            required
+            className="w-44 rounded-lg border border-[#434656] bg-[#171f33] px-3 py-1.5 text-sm text-[#dae2fd] placeholder-[#8e90a2]"
+          />
+          <input
+            type="text"
+            placeholder="Phone"
+            value={addForm.phone}
+            onChange={(e) => setAddForm((f) => ({ ...f, phone: e.target.value }))}
+            className="w-36 rounded-lg border border-[#434656] bg-[#171f33] px-3 py-1.5 text-sm text-[#dae2fd] placeholder-[#8e90a2]"
+          />
+          <input
+            type="text"
+            placeholder="License number"
+            value={addForm.license_number}
+            onChange={(e) => setAddForm((f) => ({ ...f, license_number: e.target.value }))}
+            className="w-40 rounded-lg border border-[#434656] bg-[#171f33] px-3 py-1.5 text-sm text-[#dae2fd] placeholder-[#8e90a2]"
+          />
+          <button
+            type="submit"
+            disabled={adding || !addForm.full_name.trim()}
+            className="rounded-lg bg-[#2e5bff] px-4 py-1.5 text-sm text-white disabled:opacity-40"
+          >
+            {adding ? 'Adding…' : 'Add driver'}
+          </button>
+        </div>
+        {addError && <p className="mt-2 text-xs text-[#ffb4ab]">{addError}</p>}
+      </form>
+
       {error && <p className="px-6 py-2 text-sm text-[#ffb4ab]">{error}</p>}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-left text-sm">

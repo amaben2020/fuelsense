@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import {
   db,
   customers,
@@ -10,7 +11,15 @@ import { signToken, authenticateCustomer } from '../middleware/auth';
 
 const router = express.Router();
 
-router.post('/register', async (req: Request, res: Response) => {
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many auth attempts, please try again later.' },
+});
+
+router.post('/register', authLimiter, async (req: Request, res: Response) => {
   const { name, email, password, companyName, phone } = req.body as {
     name?: string;
     email?: string;
@@ -59,7 +68,7 @@ router.post('/register', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', authLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body as { email?: string; password?: string };
 
   if (!email?.trim() || !password) {

@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, alerts, vehicles, eq, and, desc } from '../lib/db-helpers';
+import { withCache, invalidate, cacheKey } from '../lib/redis';
 
 const router = express.Router();
 
@@ -71,30 +72,33 @@ function mapAlertToAnomaly(row: AlertRow): Record<string, unknown> {
 
 router.get('/anomalies', async (req: Request, res: Response) => {
   try {
-    const rows = await db
-      .select({
-        id: alerts.id,
-        imei: alerts.imei,
-        customer_id: alerts.customerId,
-        vehicle_id: alerts.vehicleId,
-        alert_type: alerts.alertType,
-        message: alerts.message,
-        fuel_level_liters: alerts.fuelLevelLiters,
-        fuel_drop_liters: alerts.fuelDropLiters,
-        estimated_loss_ngn: alerts.estimatedLossNgn,
-        latitude: alerts.latitude,
-        longitude: alerts.longitude,
-        is_resolved: alerts.isResolved,
-        created_at: alerts.createdAt,
-        license_plate: vehicles.licensePlate,
-      })
-      .from(alerts)
-      .leftJoin(vehicles, eq(alerts.vehicleId, vehicles.id))
-      .where(eq(alerts.customerId, req.user.customerId))
-      .orderBy(desc(alerts.createdAt))
-      .limit(30);
-
-    res.json(rows.map((row) => mapAlertToAnomaly(row as unknown as AlertRow)));
+    const key = cacheKey(req.user.customerId, 'anomalies');
+    const result = await withCache(key, 8, async () => {
+      const rows = await db
+        .select({
+          id: alerts.id,
+          imei: alerts.imei,
+          customer_id: alerts.customerId,
+          vehicle_id: alerts.vehicleId,
+          alert_type: alerts.alertType,
+          message: alerts.message,
+          fuel_level_liters: alerts.fuelLevelLiters,
+          fuel_drop_liters: alerts.fuelDropLiters,
+          estimated_loss_ngn: alerts.estimatedLossNgn,
+          latitude: alerts.latitude,
+          longitude: alerts.longitude,
+          is_resolved: alerts.isResolved,
+          created_at: alerts.createdAt,
+          license_plate: vehicles.licensePlate,
+        })
+        .from(alerts)
+        .leftJoin(vehicles, eq(alerts.vehicleId, vehicles.id))
+        .where(eq(alerts.customerId, req.user.customerId))
+        .orderBy(desc(alerts.createdAt))
+        .limit(30);
+      return rows.map((row) => mapAlertToAnomaly(row as unknown as AlertRow));
+    });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -102,32 +106,34 @@ router.get('/anomalies', async (req: Request, res: Response) => {
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const rows = await db
-      .select({
-        id: alerts.id,
-        imei: alerts.imei,
-        customer_id: alerts.customerId,
-        vehicle_id: alerts.vehicleId,
-        alert_type: alerts.alertType,
-        message: alerts.message,
-        fuel_level_liters: alerts.fuelLevelLiters,
-        fuel_drop_liters: alerts.fuelDropLiters,
-        estimated_loss_ngn: alerts.estimatedLossNgn,
-        latitude: alerts.latitude,
-        longitude: alerts.longitude,
-        is_resolved: alerts.isResolved,
-        resolved_at: alerts.resolvedAt,
-        created_at: alerts.createdAt,
-        license_plate: vehicles.licensePlate,
-      })
-      .from(alerts)
-      .leftJoin(vehicles, eq(alerts.vehicleId, vehicles.id))
-      .where(
-        and(eq(alerts.customerId, req.user.customerId), eq(alerts.isResolved, false))
-      )
-      .orderBy(desc(alerts.createdAt))
-      .limit(20);
-
+    const key = cacheKey(req.user.customerId, 'alerts');
+    const rows = await withCache(key, 8, () =>
+      db
+        .select({
+          id: alerts.id,
+          imei: alerts.imei,
+          customer_id: alerts.customerId,
+          vehicle_id: alerts.vehicleId,
+          alert_type: alerts.alertType,
+          message: alerts.message,
+          fuel_level_liters: alerts.fuelLevelLiters,
+          fuel_drop_liters: alerts.fuelDropLiters,
+          estimated_loss_ngn: alerts.estimatedLossNgn,
+          latitude: alerts.latitude,
+          longitude: alerts.longitude,
+          is_resolved: alerts.isResolved,
+          resolved_at: alerts.resolvedAt,
+          created_at: alerts.createdAt,
+          license_plate: vehicles.licensePlate,
+        })
+        .from(alerts)
+        .leftJoin(vehicles, eq(alerts.vehicleId, vehicles.id))
+        .where(
+          and(eq(alerts.customerId, req.user.customerId), eq(alerts.isResolved, false))
+        )
+        .orderBy(desc(alerts.createdAt))
+        .limit(20)
+    );
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -155,6 +161,7 @@ router.patch('/:id/acknowledge', async (req: Request, res: Response) => {
       return;
     }
 
+    await invalidate(req.user.customerId, 'alerts', 'anomalies');
     res.json({ ok: true, id: updated.id });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });

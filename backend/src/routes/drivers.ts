@@ -6,6 +6,44 @@ const router = express.Router();
 
 router.use(authenticateCustomer);
 
+router.post('/', async (req: Request, res: Response) => {
+  const { full_name, phone, license_number } = req.body as {
+    full_name?: string;
+    phone?: string;
+    license_number?: string;
+  };
+
+  if (!full_name?.trim()) {
+    res.status(400).json({ error: 'full_name is required' });
+    return;
+  }
+
+  try {
+    const [driver] = await db
+      .insert(drivers)
+      .values({
+        customerId: req.user.customerId,
+        fullName: full_name.trim(),
+        phone: phone?.trim() || null,
+        licenseNumber: license_number?.trim() || null,
+      })
+      .returning({
+        id: drivers.id,
+        full_name: drivers.fullName,
+        phone: drivers.phone,
+        license_number: drivers.licenseNumber,
+        status: drivers.status,
+        vehicle_id: sql<string | null>`null`,
+        license_plate: sql<string | null>`null`,
+        created_at: drivers.createdAt,
+      });
+
+    res.status(201).json(driver);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.get('/', async (req: Request, res: Response) => {
   try {
     const rows = await db

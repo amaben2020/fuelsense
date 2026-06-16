@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, telemetry, vehicles, fuelPurchases, eq, desc, sql } from '../lib/db-helpers';
+import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { fleetEfficiencyAggSql } from '../lib/fleet-efficiency-sql';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
 import { buildDailyActivityReplay } from '../lib/event-replay';
@@ -98,6 +99,8 @@ router.get('/tracks', async (req: Request, res: Response) => {
   const customerId = req.user.customerId;
 
   try {
+    const key = cacheKey(customerId, 'tracks', String(minutes));
+    const cached = await withCache(key, 4, async () => {
     const recent = await db.execute(sql`
       SELECT
         t.vehicle_id,
@@ -118,6 +121,7 @@ router.get('/tracks', async (req: Request, res: Response) => {
         AND t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL
         AND t.latitude IS NOT NULL
         AND t.longitude IS NOT NULL
+        AND (t.latitude::numeric != 0 OR t.longitude::numeric != 0)
       ORDER BY t.vehicle_id ASC, t.recorded_at ASC
       LIMIT ${limit}
     `);
@@ -150,6 +154,7 @@ router.get('/tracks', async (req: Request, res: Response) => {
             AND t.recorded_at > NOW() - INTERVAL '7 days'
             AND t.latitude IS NOT NULL
             AND t.longitude IS NOT NULL
+            AND (t.latitude::numeric != 0 OR t.longitude::numeric != 0)
         )
         SELECT
           vehicle_id,
@@ -172,8 +177,11 @@ router.get('/tracks', async (req: Request, res: Response) => {
       source = rows.length > 0 ? 'historical' : source;
     }
 
-    res.setHeader('X-Track-Source', source);
-    res.json(rows);
+    return { rows, source };
+    }); // end withCache
+
+    res.setHeader('X-Track-Source', cached.source);
+    res.json(cached.rows);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

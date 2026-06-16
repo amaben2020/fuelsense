@@ -3,6 +3,7 @@ import { authenticateCustomer } from '../middleware/auth';
 import { db, alerts, eq, and, sql } from '../lib/db-helpers';
 import { fleetEfficiencyAggSql } from '../lib/fleet-efficiency-sql';
 import { round1, round2, computeL100km, DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
+import { withCache, cacheKey } from '../lib/redis';
 
 const router = express.Router();
 
@@ -14,6 +15,9 @@ router.get('/summary', async (req: Request, res: Response) => {
 
   try {
     const customerId = req.user.customerId;
+    const key = cacheKey(customerId, 'summary', String(days));
+
+    const cached = await withCache(key, 15, async () => {
 
     const fleetResult = await db.execute(sql`
       SELECT
@@ -76,24 +80,27 @@ router.get('/summary', async (req: Request, res: Response) => {
       0
     );
 
-    res.json({
-      period_days: days,
-      currency: 'NGN',
-      price_per_liter_ngn: pricePerLiter,
-      total_vehicles: Number(fleet.total_vehicles) || 0,
-      online_vehicles: Number(fleet.online_vehicles) || 0,
-      total_fuel_liters: Math.round(Number(fleet.total_fuel_liters) * 10) / 10,
-      low_fuel_vehicles: Number(fleet.low_fuel_vehicles) || 0,
-      total_distance_km: Math.round(totalDistanceKm),
-      total_fuel_used_liters: round1(totalFuelUsedLiters),
-      avg_efficiency_km_l:
-        avgEfficiencyKmL != null ? round2(avgEfficiencyKmL) : null,
-      avg_efficiency_l_100km: avgEfficiencyL100km,
-      total_fuel_cost_ngn: totalFuelCostNgn,
-      active_alerts: activeAlerts,
-      theft_alerts: theftAlerts.length,
-      estimated_theft_loss_ngn: theftLossNgn,
+      return {
+        period_days: days,
+        currency: 'NGN',
+        price_per_liter_ngn: pricePerLiter,
+        total_vehicles: Number(fleet.total_vehicles) || 0,
+        online_vehicles: Number(fleet.online_vehicles) || 0,
+        total_fuel_liters: Math.round(Number(fleet.total_fuel_liters) * 10) / 10,
+        low_fuel_vehicles: Number(fleet.low_fuel_vehicles) || 0,
+        total_distance_km: Math.round(totalDistanceKm),
+        total_fuel_used_liters: round1(totalFuelUsedLiters),
+        avg_efficiency_km_l:
+          avgEfficiencyKmL != null ? round2(avgEfficiencyKmL) : null,
+        avg_efficiency_l_100km: avgEfficiencyL100km,
+        total_fuel_cost_ngn: totalFuelCostNgn,
+        active_alerts: activeAlerts,
+        theft_alerts: theftAlerts.length,
+        estimated_theft_loss_ngn: theftLossNgn,
+      };
     });
+
+    res.json(cached);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

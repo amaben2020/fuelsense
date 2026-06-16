@@ -14,6 +14,7 @@ import {
   desc,
   sql,
 } from '../lib/db-helpers';
+import { withCache, invalidate, cacheKey } from '../lib/redis';
 
 const router = express.Router();
 
@@ -21,7 +22,8 @@ router.use(authenticateCustomer);
 
 router.get('/fleet', async (req: Request, res: Response) => {
   try {
-    const rows = await getFleetByCustomerId(db, req.user.customerId);
+    const key = cacheKey(req.user.customerId, 'fleet');
+    const rows = await withCache(key, 5, () => getFleetByCustomerId(db, req.user.customerId));
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -89,6 +91,7 @@ router.post('/', async (req: Request, res: Response) => {
       return { vehicle, fleetRow };
     });
 
+    await invalidate(req.user.customerId, 'fleet', 'summary', 'alerts');
     res.status(201).json({
       success: true,
       ...result.vehicle,
@@ -156,6 +159,7 @@ router.post('/with-device', async (req: Request, res: Response) => {
       return { vehicle, fleetRow };
     });
 
+    await invalidate(req.user.customerId, 'fleet', 'summary', 'alerts');
     res.status(201).json({
       success: true,
       message: 'Vehicle and device added. Data will appear once the tracker connects.',

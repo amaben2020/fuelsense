@@ -32,6 +32,7 @@ import {
   getToken,
   TrackPoint,
 } from '@/lib/api';
+import { useAuthStore } from '@/store/authStore';
 import { buildVehicleTracks } from '@/lib/map-utils';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
 import { FleetOperationsOverview } from '@/components/dashboard/FleetOperationsOverview';
@@ -96,6 +97,7 @@ export default function DashboardPage() {
   const [followVehicle, setFollowVehicle] = useState(true);
   const [siphonSidebarOpen, setSiphonSidebarOpen] = useState(false);
   const [fuelEventCount, setFuelEventCount] = useState(0);
+  const { customer: cachedCustomer, setCustomer: cacheCustomer, clearAuth } = useAuthStore();
   const fleetRef = useRef(fleet);
   fleetRef.current = fleet;
   const activeViewRef = useRef(activeView);
@@ -139,13 +141,15 @@ export default function DashboardPage() {
 
   const loadDashboard = async () => {
     try {
-      const [me, fleetRows, alertList, anomalyList, fuelEvents] = await Promise.all([
-        api<Customer>('/auth/me'),
+      const [meOrNull, fleetRows, alertList, anomalyList, fuelEvents] = await Promise.all([
+        cachedCustomer ? Promise.resolve(cachedCustomer) : api<Customer>('/auth/me'),
         api<FleetVehicle[]>('/vehicles/fleet'),
         api<Alert[]>('/alerts'),
         api<FuelAnomaly[]>('/alerts/anomalies').catch(() => [] as FuelAnomaly[]),
         api<FuelEventsResponse>('/fuel-events').catch(() => null),
       ]);
+      const me = meOrNull as Customer;
+      if (!cachedCustomer) cacheCustomer(me);
 
       if (!me.onboarding_completed && fleetRows.length === 0) {
         router.replace('/onboarding');
@@ -299,6 +303,7 @@ export default function DashboardPage() {
 
   const handleLogout = () => {
     clearToken();
+    clearAuth();
     router.push('/login');
   };
 
