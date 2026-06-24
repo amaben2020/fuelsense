@@ -7,9 +7,11 @@ import {
   timestamp,
   integer,
   bigserial,
+  bigint,
   numeric,
   text,
   unique,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 
 export const customers = pgTable('customers', {
@@ -230,4 +232,25 @@ export const deviceOrders = pgTable('device_orders', {
   totalAmountNgn: integer('total_amount_ngn').notNull(),
   shippingAddress: text('shipping_address'),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Raw frames table — stores the full undecoded SDK record for every packet
+// received from a device. Lets us cross-check AVL IDs, GPS fields, and Buffer
+// values against what we actually parsed and stored in `telemetry`.
+export const deviceFrames = pgTable('device_frames', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  imei: varchar('imei', { length: 20 }).references(() => devices.imei),
+  // null when the record was dropped (e.g. GPS fix rejected, unknown device)
+  telemetryId: bigint('telemetry_id', { mode: 'number' }).references(() => telemetry.id),
+  receivedAt: timestamp('received_at').notNull().defaultNow(),
+  // AVL event ID that triggered this record (e.g. 239 = ignition, 11 = overspeeding)
+  eventId: integer('event_id'),
+  // Satellite count at capture time — key signal for GPS fix quality
+  gpsSatellites: integer('gps_satellites'),
+  // Whether our code accepted this GPS fix (satellites >= MIN and coords non-zero)
+  gpsValid: boolean('gps_valid'),
+  // Full GPS object from the SDK: {latitude, longitude, speed, satellites, ...}
+  gpsRaw: jsonb('gps_raw'),
+  // All AVL IO keys from this record. Buffer values are serialised as {hex, dec}.
+  ioRaw: jsonb('io_raw'),
 });

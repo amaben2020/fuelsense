@@ -28,7 +28,8 @@ if (ALLOWED_ORIGINS.length === 0) {
   ALLOWED_ORIGINS.push(
     'http://localhost:3000',
     'https://fuelsense.ng',
-    'https://www.fuelsense.ng'
+    'https://www.fuelsense.ng',
+    'http://localhost:3001',
   );
 }
 
@@ -43,7 +44,7 @@ app.use(
       cb(new Error(`CORS: origin ${origin} not allowed`));
     },
     credentials: true,
-  })
+  }),
 );
 
 const globalLimiter = rateLimit({
@@ -92,12 +93,15 @@ const start = async () => {
           runFleetSimulator();
           console.log('Fleet simulator started (dev only)');
         } catch (err) {
-          console.warn('Fleet simulator failed to start:', (err as Error).message);
+          console.warn(
+            'Fleet simulator failed to start:',
+            (err as Error).message,
+          );
         }
       }, 2500);
     } else {
       console.log(
-        `Fleet simulator disabled — expecting real Teltonika devices on TCP port ${process.env.TCP_PORT ?? 5027}`
+        `Fleet simulator disabled — expecting real Teltonika devices on TCP port ${process.env.TCP_PORT ?? 5027}`,
       );
     }
   });

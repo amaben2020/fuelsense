@@ -17,6 +17,12 @@ import {
 
 const ANIMATION_MS = 1800;
 
+const TRAIL_OPTIONS = [
+  { label: '1h', value: 60 },
+  { label: '6h', value: 360 },
+  { label: '24h', value: 1440 },
+] as const;
+
 type AnimatedTrack = VehicleTrack & {
   displayLat: number;
   displayLng: number;
@@ -44,11 +50,7 @@ function MapCameraFollow({
   return null;
 }
 
-function MapInteractionGuard({
-  onUserInteract,
-}: {
-  onUserInteract: () => void;
-}) {
+function MapInteractionGuard({ onUserInteract }: { onUserInteract: () => void }) {
   const map = useMap();
 
   useEffect(() => {
@@ -71,6 +73,8 @@ export function LiveMonitoringMap({
   onSelectVehicle,
   followSelected,
   onUserPan,
+  trailMinutes,
+  onTrailMinutesChange,
 }: {
   tracks: VehicleTrack[];
   fleet: FleetVehicle[];
@@ -78,8 +82,11 @@ export function LiveMonitoringMap({
   onSelectVehicle: (id: string) => void;
   followSelected: boolean;
   onUserPan?: () => void;
+  trailMinutes: number;
+  onTrailMinutesChange: (m: number) => void;
 }) {
   const [animated, setAnimated] = useState<AnimatedTrack[]>([]);
+  const [showPoi, setShowPoi] = useState(false);
   const prevRef = useRef(
     new globalThis.Map<string, { lat: number; lng: number; heading: number }>(),
   );
@@ -102,11 +109,7 @@ export function LiveMonitoringMap({
       if (!prev) {
         return {
           track,
-          prev: {
-            lat: track.current.lat,
-            lng: track.current.lng,
-            heading: track.heading,
-          },
+          prev: { lat: track.current.lat, lng: track.current.lng, heading: track.heading },
           snap: true,
         };
       }
@@ -119,15 +122,9 @@ export function LiveMonitoringMap({
 
       const next: AnimatedTrack[] = targets.map(({ track, prev, snap }) => ({
         ...track,
-        displayLat: snap
-          ? track.current.lat
-          : lerp(prev.lat, track.current.lat, eased),
-        displayLng: snap
-          ? track.current.lng
-          : lerp(prev.lng, track.current.lng, eased),
-        displayHeading: snap
-          ? track.heading
-          : lerp(prev.heading, track.heading, eased),
+        displayLat: snap ? track.current.lat : lerp(prev.lat, track.current.lat, eased),
+        displayLng: snap ? track.current.lng : lerp(prev.lng, track.current.lng, eased),
+        displayHeading: snap ? track.heading : lerp(prev.heading, track.heading, eased),
       }));
 
       setAnimated(next);
@@ -135,10 +132,7 @@ export function LiveMonitoringMap({
       if (t < 1) {
         frameRef.current = requestAnimationFrame(tick);
       } else {
-        const snapshot = new globalThis.Map<
-          string,
-          { lat: number; lng: number; heading: number }
-        >();
+        const snapshot = new globalThis.Map<string, { lat: number; lng: number; heading: number }>();
         for (const track of tracks) {
           snapshot.set(track.vehicleId, {
             lat: track.current.lat,
@@ -157,46 +151,51 @@ export function LiveMonitoringMap({
   }, [tracks]);
 
   const selectedTrack =
-    animated.find((t) => t.vehicleId === selectedVehicleId) ??
-    animated[0] ??
-    null;
+    animated.find((t) => t.vehicleId === selectedVehicleId) ?? animated[0] ?? null;
 
-  const fleetStatus = useMemo(() => {
-    return new globalThis.Map(fleet.map((v) => [v.id, v.connection_status]));
-  }, [fleet]);
+  const fleetStatus = useMemo(
+    () => new globalThis.Map(fleet.map((v) => [v.id, v.connection_status])),
+    [fleet],
+  );
 
-  const fleetMeta = useMemo(() => {
-    return new globalThis.Map(
-      fleet.map((v) => [
-        v.id,
-        {
-          odometer: v.odometer_km,
-          driver: v.driver_name,
-          fuel: v.fuel_level_liters,
-        },
-      ]),
-    );
-  }, [fleet]);
+  const fleetMeta = useMemo(
+    () =>
+      new globalThis.Map(
+        fleet.map((v) => [
+          v.id,
+          { odometer: v.odometer_km, driver: v.driver_name, fuel: v.fuel_level_liters },
+        ]),
+      ),
+    [fleet],
+  );
 
-  const handleUserInteract = useCallback(() => {
-    onUserPan?.();
-  }, [onUserPan]);
+  const mapOptions = useMemo(
+    () =>
+      fleetMapDefaults(
+        { defaultCenter: LAGOS_CENTER, defaultZoom: 13 },
+        showPoi,
+      ),
+    [showPoi],
+  );
+
+  const handleUserInteract = useCallback(() => onUserPan?.(), [onUserPan]);
+  const handleSelectVehicle = useCallback(
+    (id: string) => onSelectVehicle(id),
+    [onSelectVehicle],
+  );
 
   if (!FLEET_MAPS_KEY) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center bg-[#0b1326] p-8 text-center">
-        <p className="text-[#8e90a2]">
-          Add GOOGLE_MAPS_API_KEY to enable live map
-        </p>
+        <p className="text-[#8e90a2]">Add GOOGLE_MAPS_API_KEY to enable live map</p>
       </div>
     );
   }
 
-  const initialCenter = initializedRef.current
-    ? undefined
-    : selectedTrack
+  const initialCenter =
+    !initializedRef.current && selectedTrack
       ? { lat: selectedTrack.displayLat, lng: selectedTrack.displayLng }
-      : LAGOS_CENTER;
+      : undefined;
 
   if (!initializedRef.current && selectedTrack) {
     initializedRef.current = true;
@@ -207,10 +206,9 @@ export function LiveMonitoringMap({
       <div className="absolute inset-0">
         <APIProvider apiKey={FLEET_MAPS_KEY}>
           <Map
-            {...fleetMapDefaults({
-              defaultCenter: initialCenter ?? LAGOS_CENTER,
-              defaultZoom: 13,
-            })}
+            {...mapOptions}
+            defaultCenter={initialCenter ?? LAGOS_CENTER}
+            defaultZoom={13}
             style={{ width: '100%', height: '100%' }}
           >
             <MapResizeFix />
@@ -223,9 +221,8 @@ export function LiveMonitoringMap({
             {animated.map((track) => (
               <EmphasizedRoute
                 key={`route-${track.vehicleId}`}
-                path={track.path.slice(-40)}
+                path={track.path}
                 color={track.color}
-                activeColor={track.color}
                 emphasized={track.vehicleId === selectedVehicleId}
               />
             ))}
@@ -239,21 +236,59 @@ export function LiveMonitoringMap({
                 accent={track.color}
                 selected={track.vehicleId === selectedVehicleId}
                 title={track.licensePlate}
-                onClick={() => onSelectVehicle(track.vehicleId)}
+                onClick={() => handleSelectVehicle(track.vehicleId)}
               />
             ))}
           </Map>
         </APIProvider>
       </div>
 
+      {/* Top header + controls overlay */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-[#0b1326]/90 to-transparent p-4">
-        <p className="text-sm font-medium text-[#dae2fd]">Live monitoring</p>
-        <p className="text-xs text-[#8e90a2]">
-          {animated.length} vehicles · GPS updates every 2s · pinch or scroll to
-          zoom
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm font-medium text-[#dae2fd]">Live monitoring</p>
+            <p className="text-xs text-[#8e90a2]">
+              {animated.length} vehicle{animated.length !== 1 ? 's' : ''} · GPS updates every 2s
+            </p>
+          </div>
+          {/* Interactive controls — pointer-events re-enabled */}
+          <div className="pointer-events-auto flex items-center gap-2">
+            {/* Trail duration selector */}
+            <div className="flex overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]/90 text-xs backdrop-blur-md">
+              {TRAIL_OPTIONS.map(({ label, value }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => onTrailMinutesChange(value)}
+                  className={`px-2.5 py-1.5 transition-colors ${
+                    trailMinutes === value
+                      ? 'bg-[#2e5bff] text-white'
+                      : 'text-[#8e90a2] hover:text-[#dae2fd]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* POI toggle */}
+            <button
+              type="button"
+              onClick={() => setShowPoi((v) => !v)}
+              className={`rounded-lg border px-2.5 py-1.5 text-xs backdrop-blur-md transition-colors ${
+                showPoi
+                  ? 'border-[#4edea3] bg-[#4edea3]/10 text-[#4edea3]'
+                  : 'border-[#434656] bg-[#171f33]/90 text-[#8e90a2] hover:text-[#dae2fd]'
+              }`}
+              title="Toggle fuel stations and markets"
+            >
+              POI
+            </button>
+          </div>
+        </div>
       </div>
 
+      {/* Vehicle cards strip */}
       <div className="absolute bottom-4 left-4 right-4 z-10 flex gap-2 overflow-x-auto pb-1">
         {animated.map((track) => {
           const status = fleetStatus.get(track.vehicleId) ?? 'offline';
@@ -262,7 +297,7 @@ export function LiveMonitoringMap({
             <button
               key={track.vehicleId}
               type="button"
-              onClick={() => onSelectVehicle(track.vehicleId)}
+              onClick={() => handleSelectVehicle(track.vehicleId)}
               className={`pointer-events-auto shrink-0 rounded-xl border px-3 py-2 text-left backdrop-blur-md transition ${
                 track.vehicleId === selectedVehicleId
                   ? 'border-[#b8c3ff] bg-[#171f33]/95 ring-1 ring-[#b8c3ff]/40'
@@ -270,39 +305,27 @@ export function LiveMonitoringMap({
               }`}
             >
               <div className="flex items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: track.color }}
-                />
-                <span className="text-sm font-medium text-[#dae2fd]">
-                  {track.licensePlate}
-                </span>
-                <span
-                  className={`text-[10px] capitalize ${
-                    status === 'online' ? 'text-[#4edea3]' : 'text-[#ffb4ab]'
-                  }`}
-                >
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: track.color }} />
+                <span className="text-sm font-medium text-[#dae2fd]">{track.licensePlate}</span>
+                <span className={`text-[10px] capitalize ${status === 'online' ? 'text-[#4edea3]' : 'text-[#ffb4ab]'}`}>
                   {status}
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-[#8e90a2]">
                 {meta?.driver ? `${meta.driver} · ` : ''}
                 {track.current.speedKph ?? 0} km/h
-                {track.current.fuelLiters != null
-                  ? ` · ${track.current.fuelLiters.toFixed(1)} L`
-                  : ''}
+                {track.current.fuelLiters != null ? ` · ${track.current.fuelLiters.toFixed(1)} L` : ''}
               </p>
             </button>
           );
         })}
       </div>
 
+      {/* Selected vehicle info panel */}
       {selectedTrack && (
         <div className="pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl border border-[#434656] bg-[#171f33]/95 p-4 backdrop-blur-md">
           <div className="flex items-center justify-between">
-            <p className="font-semibold text-[#dae2fd]">
-              {selectedTrack.licensePlate}
-            </p>
+            <p className="font-semibold text-[#dae2fd]">{selectedTrack.licensePlate}</p>
             <span
               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                 selectedTrack.current.ignitionOn
@@ -310,18 +333,12 @@ export function LiveMonitoringMap({
                   : 'bg-[#434656]/40 text-[#8e90a2]'
               }`}
             >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  selectedTrack.current.ignitionOn ? 'bg-[#4edea3]' : 'bg-[#8e90a2]'
-                }`}
-              />
+              <span className={`h-1.5 w-1.5 rounded-full ${selectedTrack.current.ignitionOn ? 'bg-[#4edea3]' : 'bg-[#8e90a2]'}`} />
               {selectedTrack.current.ignitionOn ? 'Ignition on' : 'Ignition off'}
             </span>
           </div>
           <p className="text-xs text-[#8e90a2]">
-            {[selectedTrack.make, selectedTrack.model]
-              .filter(Boolean)
-              .join(' ')}
+            {[selectedTrack.make, selectedTrack.model].filter(Boolean).join(' ')}
             {selectedTrack.driverName ? ` · ${selectedTrack.driverName}` : ''}
           </p>
           <p className="mt-1 text-[10px] text-[#8e90a2]">
@@ -330,9 +347,7 @@ export function LiveMonitoringMap({
           <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
             <div className="rounded-lg bg-[#0b1326] p-2">
               <p className="text-[#8e90a2]">Speed</p>
-              <p className="font-mono text-lg text-[#dae2fd]">
-                {selectedTrack.current.speedKph ?? 0}
-              </p>
+              <p className="font-mono text-lg text-[#dae2fd]">{selectedTrack.current.speedKph ?? 0}</p>
             </div>
             <div className="rounded-lg bg-[#0b1326] p-2">
               <p className="text-[#8e90a2]">Fuel</p>

@@ -3,7 +3,7 @@ import {
   TeltonikaDataCodec,
   TeltonikaGPRSCodec,
 } from '@groupe-savoy/teltonika-sdk';
-import { db, devices, telemetry, vehicles, eq, and } from './lib/db-helpers';
+import { db, devices, telemetry, deviceFrames, vehicles, eq, and } from './lib/db-helpers';
 import { detectAnomalies } from './lib/anomaly-detector';
 import { invalidate } from './lib/redis';
 
@@ -63,6 +63,24 @@ const getIoValue = (io: Record<string | number, unknown> | undefined | null, avl
     return Number((value as Record<string, unknown>).value);
   }
   return Number(value);
+};
+
+// Serialises an AVL IO map to a plain object safe for JSONB storage.
+// Buffer values (multi-byte AVL elements) are stored as {hex, dec} so you
+// can see both the raw bytes and the interpreted integer in one glance.
+const serializeIo = (io: Record<string | number, unknown> | undefined | null): Record<string, unknown> | null => {
+  if (!io) return null;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(io)) {
+    if (Buffer.isBuffer(value)) {
+      out[key] = { hex: value.toString('hex'), dec: readIoNumber(value) };
+    } else if (value != null && typeof value === 'object' && 'value' in (value as object)) {
+      out[key] = (value as Record<string, unknown>).value;
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
 };
 
 const isRealDevice = (imei: string): boolean => imei === REAL_DEVICE_IMEI;
@@ -195,9 +213,22 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       });
     }
 
-    await db.insert(telemetry).values(telemetryRow);
+    const [savedRow] = await db.insert(telemetry).values(telemetryRow).returning({ id: telemetry.id });
     // fire-and-forget — don't let cache failure block telemetry
     invalidate(device.customerId!, 'tracks', 'fleet', 'summary').catch(() => {});
+
+    // Store raw frame for parse debugging (real device only — avoids noise from simulators).
+    if (isRealDevice(device.imei)) {
+      db.insert(deviceFrames).values({
+        imei: device.imei,
+        telemetryId: savedRow?.id ?? null,
+        eventId: record.event ?? null,
+        gpsSatellites: satellites != null ? satellites : null,
+        gpsValid: validGps,
+        gpsRaw: record.gps ? { ...record.gps } : null,
+        ioRaw: serializeIo(record.io),
+      }).catch((err) => console.error('[REAL DEVICE] device_frames insert failed:', err));
+    }
 
     if (isRealDevice(device.imei)) {
       console.log('[REAL DEVICE] telemetry row saved', {

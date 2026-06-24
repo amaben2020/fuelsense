@@ -62,7 +62,27 @@ export const FLEET_DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
   },
 ];
 
-export function fleetMapLayerProps() {
+// Styles with POI business layer enabled (fuel stations, markets, etc.)
+export const FLEET_DARK_MAP_STYLES_POI: google.maps.MapTypeStyle[] = [
+  ...FLEET_DARK_MAP_STYLES.filter((s) => s.featureType !== 'poi'),
+  // Show business POIs (includes fuel stations, markets, restaurants)
+  {
+    featureType: 'poi.business',
+    stylers: [{ visibility: 'on' }],
+  },
+  {
+    featureType: 'poi.business',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#7a8098' }],
+  },
+  {
+    featureType: 'poi.business',
+    elementType: 'labels.icon',
+    stylers: [{ visibility: 'on' }],
+  },
+];
+
+export function fleetMapLayerProps(showPoi = false) {
   if (FLEET_MAP_ID) {
     return {
       mapId: FLEET_MAP_ID,
@@ -70,18 +90,18 @@ export function fleetMapLayerProps() {
     };
   }
   return {
-    styles: FLEET_DARK_MAP_STYLES,
+    styles: showPoi ? FLEET_DARK_MAP_STYLES_POI : FLEET_DARK_MAP_STYLES,
     backgroundColor: '#151a28',
   };
 }
 
-export function fleetMapDefaults(overrides: Record<string, unknown> = {}) {
+export function fleetMapDefaults(overrides: Record<string, unknown> = {}, showPoi = false) {
   return {
     gestureHandling: 'greedy' as const,
     disableDefaultUI: false,
     zoomControl: true,
     scrollwheel: true,
-    ...fleetMapLayerProps(),
+    ...fleetMapLayerProps(showPoi),
     ...overrides,
   };
 }

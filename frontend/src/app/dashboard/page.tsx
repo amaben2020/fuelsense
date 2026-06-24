@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -95,6 +95,9 @@ export default function DashboardPage() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [followVehicle, setFollowVehicle] = useState(true);
+  const [trailMinutes, setTrailMinutes] = useState(1440);
+  const trailMinutesRef = useRef(1440);
+  trailMinutesRef.current = trailMinutes;
   const [siphonSidebarOpen, setSiphonSidebarOpen] = useState(false);
   const [fuelEventCount, setFuelEventCount] = useState(0);
   const { customer: cachedCustomer, setCustomer: cacheCustomer, clearAuth } = useAuthStore();
@@ -130,14 +133,16 @@ export default function DashboardPage() {
     }
   };
 
-  const loadLiveTracks = async () => {
+  const loadLiveTracks = useCallback(async () => {
     try {
-      const trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=30');
+      const trackPoints = await api<TrackPoint[]>(
+        `/telemetry/tracks?minutes=${trailMinutesRef.current}`,
+      );
       setLiveTracks(buildVehicleTracks(trackPoints));
     } catch {
       // no-op — keep existing tracks on error
     }
-  };
+  }, []);
 
   const loadDashboard = async () => {
     try {
@@ -203,7 +208,9 @@ export default function DashboardPage() {
 
       let trackPoints: TrackPoint[] = [];
       try {
-        trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=90');
+        trackPoints = await api<TrackPoint[]>(
+          `/telemetry/tracks?minutes=${trailMinutesRef.current}`,
+        );
       } catch {
         trackPoints = [];
       }
@@ -252,12 +259,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (activeView !== 'live' || !getToken()) return;
-
-    const poll = () => loadLiveTracks();
-    poll();
-    const interval = setInterval(poll, LIVE_REFRESH_MS);
+    loadLiveTracks();
+    const interval = setInterval(loadLiveTracks, LIVE_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [activeView]);
+  }, [activeView, loadLiveTracks]);
+
+  // Re-fetch immediately when the user changes trail duration
+  useEffect(() => {
+    if (activeView === 'live' && getToken()) loadLiveTracks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trailMinutes]);
 
   useEffect(() => {
     if (!getToken()) return;
@@ -549,6 +560,8 @@ export default function DashboardPage() {
                 onSelectVehicle={setSelectedVehicleId}
                 followSelected={followVehicle}
                 onUserPan={() => setFollowVehicle(false)}
+                trailMinutes={trailMinutes}
+                onTrailMinutesChange={setTrailMinutes}
               />
             </div>
           )}

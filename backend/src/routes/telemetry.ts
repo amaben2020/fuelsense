@@ -94,90 +94,83 @@ router.get('/history', async (req: Request, res: Response) => {
 });
 
 router.get('/tracks', async (req: Request, res: Response) => {
-  const minutes = Math.min(Number(req.query.minutes) || 90, 240);
+  const minutes = Math.min(Number(req.query.minutes) || 1440, 1440);
   const limit = Math.min(Number(req.query.limit) || 2000, 5000);
   const customerId = req.user.customerId;
+
+  // Shared column list to avoid repetition across three fallback queries
+  const trackColumns = sql`
+    t.vehicle_id, t.imei, v.license_plate, v.make, v.model, v.driver_name,
+    t.latitude, t.longitude, t.speed_kph, t.fuel_level_liters,
+    t.ignition_on, t.recorded_at
+  `;
+  const validGps = sql`
+    t.latitude IS NOT NULL AND t.longitude IS NOT NULL
+    AND (t.latitude::numeric != 0 OR t.longitude::numeric != 0)
+  `;
 
   try {
     const key = cacheKey(customerId, 'tracks', String(minutes));
     const cached = await withCache(key, 4, async () => {
-    const recent = await db.execute(sql`
-      SELECT
-        t.vehicle_id,
-        t.imei,
-        v.license_plate,
-        v.make,
-        v.model,
-        v.driver_name,
-        t.latitude,
-        t.longitude,
-        t.speed_kph,
-        t.fuel_level_liters,
-        t.ignition_on,
-        t.recorded_at
-      FROM telemetry t
-      JOIN vehicles v ON v.id = t.vehicle_id
-      WHERE t.customer_id = ${customerId}
-        AND t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL
-        AND t.latitude IS NOT NULL
-        AND t.longitude IS NOT NULL
-        AND (t.latitude::numeric != 0 OR t.longitude::numeric != 0)
-      ORDER BY t.vehicle_id ASC, t.recorded_at ASC
-      LIMIT ${limit}
-    `);
-
-    let rows = recent.rows;
-    let source = 'live';
-
-    if (rows.length === 0) {
-      const historical = await db.execute(sql`
-        WITH ranked AS (
-          SELECT
-            t.vehicle_id,
-            t.imei,
-            v.license_plate,
-            v.make,
-            v.model,
-            v.driver_name,
-            t.latitude,
-            t.longitude,
-            t.speed_kph,
-            t.fuel_level_liters,
-            t.ignition_on,
-            t.recorded_at,
-            ROW_NUMBER() OVER (
-              PARTITION BY t.vehicle_id ORDER BY t.recorded_at DESC
-            ) AS rn
-          FROM telemetry t
-          JOIN vehicles v ON v.id = t.vehicle_id
-          WHERE t.customer_id = ${customerId}
-            AND t.recorded_at > NOW() - INTERVAL '7 days'
-            AND t.latitude IS NOT NULL
-            AND t.longitude IS NOT NULL
-            AND (t.latitude::numeric != 0 OR t.longitude::numeric != 0)
-        )
-        SELECT
-          vehicle_id,
-          imei,
-          license_plate,
-          make,
-          model,
-          driver_name,
-          latitude,
-          longitude,
-          speed_kph,
-          fuel_level_liters,
-          ignition_on,
-          recorded_at
-        FROM ranked
-        WHERE rn <= ${limit}
-        ORDER BY vehicle_id ASC, recorded_at ASC
+      // Tier 1 — live window (user-selected trail duration)
+      const recent = await db.execute(sql`
+        SELECT ${trackColumns}
+        FROM telemetry t
+        JOIN vehicles v ON v.id = t.vehicle_id
+        WHERE t.customer_id = ${customerId}
+          AND t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL
+          AND ${validGps}
+        ORDER BY t.vehicle_id ASC, t.recorded_at ASC
+        LIMIT ${limit}
       `);
-      rows = historical.rows;
-      source = rows.length > 0 ? 'historical' : source;
-    }
 
-    return { rows, source };
+      let rows = recent.rows;
+      let source = 'live';
+
+      // Tier 2 — historical trail (last 30 days) when live window is empty
+      if (rows.length === 0) {
+        const historical = await db.execute(sql`
+          WITH ranked AS (
+            SELECT ${trackColumns},
+              ROW_NUMBER() OVER (PARTITION BY t.vehicle_id ORDER BY t.recorded_at DESC) AS rn
+            FROM telemetry t
+            JOIN vehicles v ON v.id = t.vehicle_id
+            WHERE t.customer_id = ${customerId}
+              AND t.recorded_at > NOW() - INTERVAL '30 days'
+              AND ${validGps}
+          )
+          SELECT vehicle_id, imei, license_plate, make, model, driver_name,
+                 latitude, longitude, speed_kph, fuel_level_liters, ignition_on, recorded_at
+          FROM ranked WHERE rn <= ${limit}
+          ORDER BY vehicle_id ASC, recorded_at ASC
+        `);
+        rows = historical.rows;
+        source = rows.length > 0 ? 'historical' : source;
+      }
+
+      // Tier 3 — last known position (no time limit) — ensures the car is always on the map
+      // even after extended offline periods. Returns one point per vehicle; no trail line
+      // renders (path.length < 2) but the car marker always appears at its last position.
+      if (rows.length === 0) {
+        const lastKnown = await db.execute(sql`
+          WITH ranked AS (
+            SELECT ${trackColumns},
+              ROW_NUMBER() OVER (PARTITION BY t.vehicle_id ORDER BY t.recorded_at DESC) AS rn
+            FROM telemetry t
+            JOIN vehicles v ON v.id = t.vehicle_id
+            WHERE t.customer_id = ${customerId}
+              AND ${validGps}
+          )
+          SELECT vehicle_id, imei, license_plate, make, model, driver_name,
+                 latitude, longitude, speed_kph, fuel_level_liters, ignition_on, recorded_at
+          FROM ranked WHERE rn = 1
+          ORDER BY vehicle_id ASC
+        `);
+        rows = lastKnown.rows;
+        source = rows.length > 0 ? 'last_known' : source;
+      }
+
+      return { rows, source };
     }); // end withCache
 
     res.setHeader('X-Track-Source', cached.source);

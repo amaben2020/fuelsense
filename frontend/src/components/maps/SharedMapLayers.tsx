@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import { Marker, Polyline, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 import {
-  ROUTE_ACTIVE,
   ROUTE_DIM,
-  ROUTE_GLOW,
   ROUTE_PRIMARY,
   anomalyPinSvgDataUrl,
   car3dSvgDataUrl,
 } from '@/lib/fleet-map-theme';
+
+// SVG arc path for a unit circle — used as the dotted trail symbol.
+// Numeric SymbolPath.CIRCLE (0) is avoided to keep the import side-effect-free.
+const CIRCLE_PATH = 'M 0 -1 A 1 1 0 1 0 0 1 A 1 1 0 1 0 0 -1 Z';
 
 export function MapResizeFix() {
   const map = useMap();
@@ -33,71 +35,60 @@ export function MapResizeFix() {
   return null;
 }
 
-export function EmphasizedRoute({
+export const EmphasizedRoute = memo(function EmphasizedRoute({
   path,
-  traveledPath,
   color = ROUTE_PRIMARY,
-  activeColor = ROUTE_ACTIVE,
   emphasized = true,
 }: {
   path: google.maps.LatLngLiteral[];
-  traveledPath?: google.maps.LatLngLiteral[];
+  traveledPath?: google.maps.LatLngLiteral[]; // kept for API compat, unused
   color?: string;
   activeColor?: string;
   emphasized?: boolean;
 }) {
   if (path.length < 2) return null;
 
-  const traveled =
-    traveledPath && traveledPath.length >= 2
-      ? traveledPath
-      : emphasized
-        ? path
-        : null;
+  const dotScale = emphasized ? 2.8 : 1.8;
+  const dotOpacity = emphasized ? 0.9 : 0.45;
+  const dotRepeat = emphasized ? '10px' : '14px';
 
   return (
     <>
+      {/* Thin dark rail so the dots have contrast against the basemap */}
       <Polyline
         path={path}
         strokeColor={ROUTE_DIM}
-        strokeOpacity={0.85}
-        strokeWeight={emphasized ? 9 : 6}
+        strokeOpacity={emphasized ? 0.7 : 0.4}
+        strokeWeight={emphasized ? 4 : 2}
         geodesic
         zIndex={1}
       />
+      {/* Dotted trail — the dots ARE the trail */}
       <Polyline
         path={path}
-        strokeColor={color}
-        strokeOpacity={0.28}
-        strokeWeight={emphasized ? 5 : 3}
+        strokeOpacity={0}
+        strokeWeight={1}
         geodesic
         zIndex={2}
+        icons={[
+          {
+            icon: {
+              path: CIRCLE_PATH,
+              scale: dotScale,
+              fillColor: color,
+              fillOpacity: dotOpacity,
+              strokeWeight: 0,
+            } as google.maps.Symbol,
+            offset: '0%',
+            repeat: dotRepeat,
+          },
+        ]}
       />
-      {traveled && (
-        <>
-          <Polyline
-            path={traveled}
-            strokeColor={ROUTE_GLOW}
-            strokeOpacity={0.38}
-            strokeWeight={10}
-            geodesic
-            zIndex={3}
-          />
-          <Polyline
-            path={traveled}
-            strokeColor={activeColor}
-            strokeOpacity={1}
-            strokeWeight={6}
-            geodesic
-            zIndex={4}
-          />
-        </>
-      )}
     </>
   );
-}
+});
 
-export function VehicleCarMarker({
+export const VehicleCarMarker = memo(function VehicleCarMarker({
   lat,
   lng,
   heading,
@@ -137,7 +128,7 @@ export function VehicleCarMarker({
       onClick={onClick}
     />
   );
-}
+});
 
 export function AnomalyMapMarker({
   lat,
