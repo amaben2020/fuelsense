@@ -86,7 +86,7 @@ export function LiveMonitoringMap({
   onTrailMinutesChange: (m: number) => void;
 }) {
   const [animated, setAnimated] = useState<AnimatedTrack[]>([]);
-  const [showPoi, setShowPoi] = useState(false);
+  const [showPoi, setShowPoi] = useState(true);
   const prevRef = useRef(
     new globalThis.Map<string, { lat: number; lng: number; heading: number }>(),
   );
@@ -186,8 +186,8 @@ export function LiveMonitoringMap({
 
   if (!FLEET_MAPS_KEY) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-[#0b1326] p-8 text-center">
-        <p className="text-[#8e90a2]">Add GOOGLE_MAPS_API_KEY to enable live map</p>
+      <div className="flex h-full min-h-0 items-center justify-center bg-canvas p-8 text-center">
+        <p className="text-ink-dim">Add GOOGLE_MAPS_API_KEY to enable live map</p>
       </div>
     );
   }
@@ -202,7 +202,7 @@ export function LiveMonitoringMap({
   }
 
   return (
-    <div className="relative h-full min-h-0 w-full overflow-hidden rounded-xl border border-[#434656]">
+    <div className="relative h-full min-h-0 w-full overflow-hidden rounded-xl border border-edge">
       <div className="absolute inset-0">
         <APIProvider apiKey={FLEET_MAPS_KEY}>
           <Map
@@ -218,14 +218,23 @@ export function LiveMonitoringMap({
               enabled={followSelected && !!selectedTrack}
             />
 
-            {animated.map((track) => (
-              <EmphasizedRoute
-                key={`route-${track.vehicleId}`}
-                path={track.path}
-                color={track.color}
-                emphasized={track.vehicleId === selectedVehicleId}
-              />
-            ))}
+            {animated.map((track) => {
+              const animatedPath =
+                track.path.length > 0
+                  ? [
+                      ...track.path.slice(0, -1),
+                      { lat: track.displayLat, lng: track.displayLng },
+                    ]
+                  : track.path;
+              return (
+                <EmphasizedRoute
+                  key={`route-${track.vehicleId}`}
+                  path={animatedPath}
+                  color={track.color}
+                  emphasized={track.vehicleId === selectedVehicleId}
+                />
+              );
+            })}
 
             {animated.map((track) => (
               <VehicleCarMarker
@@ -244,18 +253,18 @@ export function LiveMonitoringMap({
       </div>
 
       {/* Top header + controls overlay */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-[#0b1326]/90 to-transparent p-4">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-canvas/90 to-transparent p-4">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-sm font-medium text-[#dae2fd]">Live monitoring</p>
-            <p className="text-xs text-[#8e90a2]">
+            <p className="text-sm font-medium text-ink">Live monitoring</p>
+            <p className="text-xs text-ink-dim">
               {animated.length} vehicle{animated.length !== 1 ? 's' : ''} · GPS updates every 2s
             </p>
           </div>
           {/* Interactive controls — pointer-events re-enabled */}
           <div className="pointer-events-auto flex items-center gap-2">
             {/* Trail duration selector */}
-            <div className="flex overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]/90 text-xs backdrop-blur-md">
+            <div className="flex overflow-hidden rounded-lg border border-edge bg-panel/90 text-xs backdrop-blur-md">
               {TRAIL_OPTIONS.map(({ label, value }) => (
                 <button
                   key={value}
@@ -263,8 +272,8 @@ export function LiveMonitoringMap({
                   onClick={() => onTrailMinutesChange(value)}
                   className={`px-2.5 py-1.5 transition-colors ${
                     trailMinutes === value
-                      ? 'bg-[#2e5bff] text-white'
-                      : 'text-[#8e90a2] hover:text-[#dae2fd]'
+                      ? 'bg-accent text-white'
+                      : 'text-ink-dim hover:text-ink'
                   }`}
                 >
                   {label}
@@ -277,8 +286,8 @@ export function LiveMonitoringMap({
               onClick={() => setShowPoi((v) => !v)}
               className={`rounded-lg border px-2.5 py-1.5 text-xs backdrop-blur-md transition-colors ${
                 showPoi
-                  ? 'border-[#4edea3] bg-[#4edea3]/10 text-[#4edea3]'
-                  : 'border-[#434656] bg-[#171f33]/90 text-[#8e90a2] hover:text-[#dae2fd]'
+                  ? 'border-good bg-good/10 text-good'
+                  : 'border-edge bg-panel/90 text-ink-dim hover:text-ink'
               }`}
               title="Toggle fuel stations and markets"
             >
@@ -300,18 +309,18 @@ export function LiveMonitoringMap({
               onClick={() => handleSelectVehicle(track.vehicleId)}
               className={`pointer-events-auto shrink-0 rounded-xl border px-3 py-2 text-left backdrop-blur-md transition ${
                 track.vehicleId === selectedVehicleId
-                  ? 'border-[#b8c3ff] bg-[#171f33]/95 ring-1 ring-[#b8c3ff]/40'
-                  : 'border-[#434656] bg-[#171f33]/85 hover:bg-[#222a3d]/90'
+                  ? 'border-brand bg-panel/95 ring-1 ring-brand/40'
+                  : 'border-edge bg-panel/85 hover:bg-panel-hover/90'
               }`}
             >
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: track.color }} />
-                <span className="text-sm font-medium text-[#dae2fd]">{track.licensePlate}</span>
-                <span className={`text-[10px] capitalize ${status === 'online' ? 'text-[#4edea3]' : 'text-[#ffb4ab]'}`}>
+                <span className="text-sm font-medium text-ink">{track.licensePlate}</span>
+                <span className={`text-[10px] capitalize ${status === 'online' ? 'text-good' : 'text-bad'}`}>
                   {status}
                 </span>
               </div>
-              <p className="mt-0.5 text-xs text-[#8e90a2]">
+              <p className="mt-0.5 text-xs text-ink-dim">
                 {meta?.driver ? `${meta.driver} · ` : ''}
                 {track.current.speedKph ?? 0} km/h
                 {track.current.fuelLiters != null ? ` · ${track.current.fuelLiters.toFixed(1)} L` : ''}
@@ -323,45 +332,53 @@ export function LiveMonitoringMap({
 
       {/* Selected vehicle info panel */}
       {selectedTrack && (
-        <div className="pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl border border-[#434656] bg-[#171f33]/95 p-4 backdrop-blur-md">
+        <div className="pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl border border-edge bg-panel/95 p-4 backdrop-blur-md">
           <div className="flex items-center justify-between">
-            <p className="font-semibold text-[#dae2fd]">{selectedTrack.licensePlate}</p>
+            <p className="font-semibold text-ink">{selectedTrack.licensePlate}</p>
             <span
               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                 selectedTrack.current.ignitionOn
-                  ? 'bg-[#4edea3]/10 text-[#4edea3]'
-                  : 'bg-[#434656]/40 text-[#8e90a2]'
+                  ? 'bg-good/10 text-good'
+                  : 'bg-edge/40 text-ink-dim'
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${selectedTrack.current.ignitionOn ? 'bg-[#4edea3]' : 'bg-[#8e90a2]'}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${selectedTrack.current.ignitionOn ? 'bg-good' : 'bg-ink-dim'}`} />
               {selectedTrack.current.ignitionOn ? 'Ignition on' : 'Ignition off'}
             </span>
           </div>
-          <p className="text-xs text-[#8e90a2]">
+          <p className="text-xs text-ink-dim">
             {[selectedTrack.make, selectedTrack.model].filter(Boolean).join(' ')}
             {selectedTrack.driverName ? ` · ${selectedTrack.driverName}` : ''}
           </p>
-          <p className="mt-1 text-[10px] text-[#8e90a2]">
+          <p className="mt-1 text-[10px] text-ink-dim">
             Updated {timeAgo(selectedTrack.current.recordedAt)}
           </p>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-            <div className="rounded-lg bg-[#0b1326] p-2">
-              <p className="text-[#8e90a2]">Speed</p>
-              <p className="font-mono text-lg text-[#dae2fd]">{selectedTrack.current.speedKph ?? 0}</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
+            <div className="rounded-lg bg-canvas p-2">
+              <p className="text-ink-dim">Speed</p>
+              <p className="font-mono text-lg text-ink">{selectedTrack.current.speedKph ?? 0} <span className="text-[10px]">km/h</span></p>
             </div>
-            <div className="rounded-lg bg-[#0b1326] p-2">
-              <p className="text-[#8e90a2]">Fuel</p>
-              <p className="font-mono text-lg text-[#4edea3]">
+            <div className="rounded-lg bg-canvas p-2">
+              <p className="text-ink-dim">Fuel</p>
+              <p className="font-mono text-lg text-good">
                 {selectedTrack.current.fuelLiters != null
                   ? `${selectedTrack.current.fuelLiters.toFixed(1)}L`
                   : '—'}
               </p>
             </div>
-            <div className="rounded-lg bg-[#0b1326] p-2">
-              <p className="text-[#8e90a2]">Odometer</p>
-              <p className="font-mono text-lg text-[#dae2fd]">
+            <div className="rounded-lg bg-canvas p-2">
+              <p className="text-ink-dim">Odometer</p>
+              <p className="font-mono text-lg text-ink">
                 {fleetMeta.get(selectedTrack.vehicleId)?.odometer != null
                   ? `${Number(fleetMeta.get(selectedTrack.vehicleId)?.odometer).toLocaleString()} km`
+                  : '—'}
+              </p>
+            </div>
+            <div className="rounded-lg bg-canvas p-2">
+              <p className="text-ink-dim">Trip dist</p>
+              <p className="font-mono text-lg text-warn">
+                {selectedTrack.tripDistanceKm > 0
+                  ? `${selectedTrack.tripDistanceKm} km`
                   : '—'}
               </p>
             </div>

@@ -10,7 +10,7 @@ export function VehicleDetailPanel({
 }) {
   if (!vehicle) {
     return (
-      <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6 text-center text-[#8e90a2]">
+      <div className="rounded-lg border border-edge bg-panel p-6 text-center text-ink-dim">
         Select a vehicle to view live telemetry
       </div>
     );
@@ -25,15 +25,15 @@ export function VehicleDetailPanel({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
+      <div className="rounded-lg border border-edge bg-panel p-6">
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <h2 className="font-semibold text-[#dae2fd]">{vehicle.license_plate}</h2>
-            <p className="text-sm text-[#c4c5d9]">
+            <h2 className="font-semibold text-ink">{vehicle.license_plate}</h2>
+            <p className="text-sm text-ink-mid">
               {[vehicle.make, vehicle.model].filter(Boolean).join(' ')}
             </p>
           </div>
-          <span className="rounded-full bg-[#0b1326] px-2 py-1 font-mono text-xs text-[#8e90a2]">
+          <span className="rounded-full bg-canvas px-2 py-1 font-mono text-xs text-ink-dim">
             {vehicle.imei ?? 'No IMEI'}
           </span>
         </div>
@@ -56,10 +56,10 @@ export function VehicleDetailPanel({
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-mono text-2xl font-bold text-[#dae2fd]">
+              <span className="font-mono text-2xl font-bold text-ink">
                 {vehicle.fuel_level_liters != null ? `${pct}%` : '—'}
               </span>
-              <span className="text-xs text-[#8e90a2]">
+              <span className="text-xs text-ink-dim">
                 {vehicle.fuel_level_liters != null
                   ? `${Number(vehicle.fuel_level_liters).toFixed(1)} L`
                   : 'No data'}
@@ -95,11 +95,11 @@ export function VehicleDetailPanel({
         </div>
       </div>
 
-      <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
-        <h3 className="mb-3 flex items-center gap-2 font-semibold text-[#dae2fd]">
+      <div className="rounded-lg border border-edge bg-panel p-6">
+        <h3 className="mb-3 flex items-center gap-2 font-semibold text-ink">
           <Gauge className="h-4 w-4" /> Live status
         </h3>
-        <div className="space-y-2 text-sm text-[#c4c5d9]">
+        <div className="space-y-2 text-sm text-ink-mid">
           <Row label="Connection" value={vehicle.connection_status} />
           <Row
             label="Last telemetry"
@@ -122,8 +122,8 @@ export function VehicleDetailPanel({
       </div>
 
       {vehicleAlerts.length > 0 && (
-        <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
-          <h3 className="mb-3 flex items-center gap-2 font-semibold text-[#ffb4ab]">
+        <div className="rounded-lg border border-edge bg-panel p-6">
+          <h3 className="mb-3 flex items-center gap-2 font-semibold text-bad">
             <Zap className="h-4 w-4" /> Active alerts
           </h3>
           <div className="space-y-3">
@@ -132,12 +132,12 @@ export function VehicleDetailPanel({
                 key={alert.id}
                 className={`rounded-lg p-3 text-sm ${
                   alert.alert_type === 'fuel_theft'
-                    ? 'border-l-2 border-l-[#ffb4ab] bg-[#93000a]/20'
-                    : 'border-l-2 border-l-[#ffb95f] bg-[#996100]/20'
+                    ? 'border-l-2 border-l-bad bg-bad-deep/20'
+                    : 'border-l-2 border-l-warn bg-warn-deep/20'
                 }`}
               >
-                <p className="text-[#dae2fd]">{alert.message}</p>
-                <p className="mt-1 text-xs text-[#8e90a2]">
+                <p className="text-ink">{alert.message}</p>
+                <p className="mt-1 text-xs text-ink-dim">
                   {new Date(alert.created_at).toLocaleString()}
                 </p>
               </div>
@@ -161,13 +161,13 @@ function Stat({
   icon?: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="rounded-lg bg-[#0b1326] p-3">
-      <span className="flex items-center justify-center gap-1 text-xs text-[#8e90a2]">
+    <div className="rounded-lg bg-canvas p-3">
+      <span className="flex items-center justify-center gap-1 text-xs text-ink-dim">
         {Icon && <Icon className="h-3 w-3" />} {label}
       </span>
       <p
         className={`mt-1 font-mono text-lg font-bold ${
-          highlight === 'success' ? 'text-[#4edea3]' : 'text-[#dae2fd]'
+          highlight === 'success' ? 'text-good' : 'text-ink'
         }`}
       >
         {value}
@@ -179,8 +179,8 @@ function Stat({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4">
-      <span className="text-[#8e90a2]">{label}</span>
-      <span className="capitalize text-[#dae2fd]">{value}</span>
+      <span className="text-ink-dim">{label}</span>
+      <span className="capitalize text-ink">{value}</span>
     </div>
   );
 }

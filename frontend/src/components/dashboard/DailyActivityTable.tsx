@@ -24,18 +24,18 @@ const STATUS_STYLES: Record<
   DailyActivityStatus,
   { className: string; icon?: boolean }
 > = {
-  normal: { className: 'text-[#4edea3]' },
-  low_efficiency: { className: 'text-[#ffb4ab]', icon: true },
-  high_usage: { className: 'text-[#ffb95f]', icon: true },
-  data_anomaly: { className: 'text-[#ff6b6b] font-semibold', icon: true },
-  unknown: { className: 'text-[#8e90a2]' },
+  normal: { className: 'text-good' },
+  low_efficiency: { className: 'text-bad', icon: true },
+  high_usage: { className: 'text-warn', icon: true },
+  data_anomaly: { className: 'text-bad-bright font-semibold', icon: true },
+  unknown: { className: 'text-ink-dim' },
 };
 
 const SEVERITY_STYLES: Record<string, string> = {
-  low: 'bg-[#8e90a2]/20 text-[#c4c5d9]',
-  medium: 'bg-[#ffb95f]/20 text-[#ffb95f]',
-  high: 'bg-[#ffb4ab]/20 text-[#ffb4ab]',
-  critical: 'bg-[#ff6b6b]/20 text-[#ff6b6b]',
+  low: 'bg-ink-dim/20 text-ink-mid',
+  medium: 'bg-warn/20 text-warn',
+  high: 'bg-bad/20 text-bad',
+  critical: 'bg-bad-bright/20 text-bad-bright',
 };
 
 function formatActivityDate(row: DailyActivityRow) {
@@ -61,23 +61,23 @@ function Pagination({
   onPage: (p: number) => void;
 }) {
   return (
-    <div className="flex items-center justify-between border-t border-[#434656] bg-[#0b1326] px-6 py-3">
+    <div className="flex items-center justify-between border-t border-edge bg-canvas px-6 py-3">
       <button
         type="button"
         disabled={page <= 1}
         onClick={() => onPage(page - 1)}
-        className="rounded-lg border border-[#434656] px-3 py-1 text-xs disabled:opacity-40"
+        className="rounded-lg border border-edge px-3 py-1 text-xs disabled:opacity-40"
       >
         Previous
       </button>
-      <span className="text-xs text-[#8e90a2]">
+      <span className="text-xs text-ink-dim">
         Page {page} of {totalPages} · {total} records
       </span>
       <button
         type="button"
         disabled={page >= totalPages}
         onClick={() => onPage(page + 1)}
-        className="rounded-lg border border-[#434656] px-3 py-1 text-xs disabled:opacity-40"
+        className="rounded-lg border border-edge px-3 py-1 text-xs disabled:opacity-40"
       >
         Next
       </button>
@@ -135,27 +135,27 @@ export function DailyActivityTable({
         <EventReplayPanel target={replayTarget} onClose={() => setReplayTarget(null)} />
       )}
     <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
-      <div className="overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]">
-        <div className="border-b border-[#434656] px-6 py-4">
-          <h2 className="flex items-center gap-2 font-semibold text-[#dae2fd]">
+      <div className="overflow-hidden rounded-lg border border-edge bg-panel">
+        <div className="border-b border-edge px-6 py-4">
+          <h2 className="flex items-center gap-2 font-semibold text-ink">
             <Gauge className="h-4 w-4" /> Fleet efficiency overview (daily)
           </h2>
-          <p className="mt-1 text-xs text-[#8e90a2]">
+          <p className="mt-1 text-xs text-ink-dim">
             Daily metrics with plain-language status and insight — flags shown separately →
           </p>
         </div>
 
-        {error && <p className="px-6 py-3 text-sm text-[#ffb4ab]">{error}</p>}
+        {error && <p className="px-6 py-3 text-sm text-bad">{error}</p>}
 
         {loading ? (
-          <p className="p-6 text-sm text-[#8e90a2]">Loading daily activity…</p>
+          <p className="p-6 text-sm text-ink-dim">Loading daily activity…</p>
         ) : (data?.rows.length ?? 0) === 0 ? (
-          <p className="p-6 text-sm text-[#8e90a2]">No daily activity in this period.</p>
+          <p className="p-6 text-sm text-ink-dim">No daily activity in this period.</p>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-left text-sm">
-                <thead className="bg-[#0b1326] text-xs uppercase tracking-wider text-[#8e90a2]">
+                <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
                   <tr>
                     <th className="w-8 px-2 py-3" />
                     <th className="px-4 py-3">Date</th>
@@ -169,7 +169,7 @@ export function DailyActivityTable({
                     <th className="px-4 py-3">Insight</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#2d3449] text-[#c4c5d9]">
+                <tbody className="divide-y divide-divider text-ink-mid">
                   {data?.rows.map((row) => {
                     const key = `${row.vehicle_id}-${row.activity_date}`;
                     const expanded = expandedKey === key;
@@ -233,21 +233,21 @@ function ActivityRowBlock({
 
   return (
     <>
-      <tr className="hover:bg-[#0b1326]/40">
+      <tr className="hover:bg-canvas/40">
         <td className="px-2 py-2.5">
           <button
             type="button"
             onClick={onToggle}
-            className="rounded p-0.5 text-[#8e90a2] hover:bg-[#2d3449]"
+            className="rounded p-0.5 text-ink-dim hover:bg-divider"
             aria-label={expanded ? 'Collapse row' : 'Expand row'}
           >
             {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </button>
         </td>
-        <td className="whitespace-nowrap px-4 py-2.5 text-xs text-[#dae2fd]">
+        <td className="whitespace-nowrap px-4 py-2.5 text-xs text-ink">
           {formatActivityDate(row)}
         </td>
-        <td className="px-4 py-2.5 font-medium text-[#b8c3ff]">{row.license_plate}</td>
+        <td className="px-4 py-2.5 font-medium text-brand">{row.license_plate}</td>
         <td className="px-4 py-2.5">{row.driver_name ?? '—'}</td>
         <td className="px-4 py-2.5 font-mono">{row.distance_km} km</td>
         <td className="px-4 py-2.5 font-mono">{row.fuel_used_liters.toFixed(1)} L</td>
@@ -258,19 +258,19 @@ function ActivityRowBlock({
               ? `${row.efficiency_l_100km.toFixed(1)} L/100km`
               : '—'}
         </td>
-        <td className="px-4 py-2.5 font-mono text-[#8e90a2]">
+        <td className="px-4 py-2.5 font-mono text-ink-dim">
           {row.expected_efficiency_l_100km.toFixed(1)} L/100km
         </td>
         <td className={`px-4 py-2.5 text-xs ${statusStyle.className}`}>
           {statusStyle.icon && row.status !== 'normal' && <span className="mr-1">⚠</span>}
           {row.status_label}
         </td>
-        <td className="max-w-xs px-4 py-2.5 text-xs leading-relaxed text-[#8e90a2]">
+        <td className="max-w-xs px-4 py-2.5 text-xs leading-relaxed text-ink-dim">
           {row.insight ?? '—'}
         </td>
       </tr>
       {expanded && (
-        <tr className="bg-[#0b1326]/60">
+        <tr className="bg-canvas/60">
           <td colSpan={10} className="px-6 py-4">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Detail
@@ -307,11 +307,11 @@ function ActivityRowBlock({
               />
             </div>
             {rowFlags.length > 0 && (
-              <div className="mt-4 rounded-lg border border-[#434656] bg-[#171f33] p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+              <div className="mt-4 rounded-lg border border-edge bg-panel p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
                   Flags for this day
                 </p>
-                <ul className="mt-2 space-y-1 text-sm text-[#c4c5d9]">
+                <ul className="mt-2 space-y-1 text-sm text-ink-mid">
                   {rowFlags.map((f) => (
                     <li key={f.id}>
                       • {f.flag_label}: {f.reason}
@@ -325,7 +325,7 @@ function ActivityRowBlock({
               <button
                 type="button"
                 onClick={() => onViewDay(row.vehicle_id, row.activity_date)}
-                className="mt-4 inline-flex items-center gap-1 rounded-lg border border-[#2e5bff]/40 bg-[#2e5bff]/15 px-3 py-2 text-xs font-medium text-[#b8c3ff]"
+                className="mt-4 inline-flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/15 px-3 py-2 text-xs font-medium text-brand"
               >
                 <Play className="h-3.5 w-3.5" /> View day on map
               </button>
@@ -348,8 +348,8 @@ function Detail({
 }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wide text-[#8e90a2]">{label}</p>
-      <p className={`mt-0.5 font-mono text-sm ${highlight ? 'text-[#ffb4ab]' : 'text-[#dae2fd]'}`}>
+      <p className="text-[10px] uppercase tracking-wide text-ink-dim">{label}</p>
+      <p className={`mt-0.5 font-mono text-sm ${highlight ? 'text-bad' : 'text-ink'}`}>
         {value}
       </p>
     </div>
@@ -366,29 +366,29 @@ function ActiveFlagsPanel({
   onReplay: (flag: DailyActivityFlagRow) => void;
 }) {
   return (
-    <div className="h-fit rounded-lg border border-[#434656] bg-[#171f33] xl:sticky xl:top-6">
-      <div className="border-b border-[#434656] px-5 py-4">
-        <h3 className="flex items-center gap-2 font-semibold text-[#dae2fd]">
-          <AlertTriangle className="h-4 w-4 text-[#ffb4ab]" /> Active flags
+    <div className="h-fit rounded-lg border border-edge bg-panel xl:sticky xl:top-6">
+      <div className="border-b border-edge px-5 py-4">
+        <h3 className="flex items-center gap-2 font-semibold text-ink">
+          <AlertTriangle className="h-4 w-4 text-bad" /> Active flags
         </h3>
-        <p className="mt-1 text-xs text-[#8e90a2]">
+        <p className="mt-1 text-xs text-ink-dim">
           Business intelligence — separate from raw metrics
         </p>
       </div>
       <div className="max-h-[520px] space-y-2 overflow-y-auto p-4">
-        {loading && <p className="text-sm text-[#8e90a2]">Loading flags…</p>}
+        {loading && <p className="text-sm text-ink-dim">Loading flags…</p>}
         {!loading && flags.length === 0 && (
-          <p className="py-8 text-center text-sm text-[#4edea3]">No active flags in this period</p>
+          <p className="py-8 text-center text-sm text-good">No active flags in this period</p>
         )}
         {flags.map((flag) => (
           <div
             key={flag.id}
-            className="rounded-lg border border-[#2d3449] bg-[#0b1326] p-3 text-sm"
+            className="rounded-lg border border-divider bg-canvas p-3 text-sm"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="font-medium text-[#b8c3ff]">{flag.license_plate}</p>
-                <p className="text-xs text-[#8e90a2]">{flag.flag_label}</p>
+                <p className="font-medium text-brand">{flag.license_plate}</p>
+                <p className="text-xs text-ink-dim">{flag.flag_label}</p>
               </div>
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] capitalize ${SEVERITY_STYLES[flag.severity] ?? SEVERITY_STYLES.medium}`}
@@ -396,15 +396,15 @@ function ActiveFlagsPanel({
                 {flag.severity}
               </span>
             </div>
-            <p className="mt-2 text-xs text-[#c4c5d9]">{flag.reason}</p>
-            <p className="mt-1 text-xs text-[#ffb4ab]">{flag.impact}</p>
+            <p className="mt-2 text-xs text-ink-mid">{flag.reason}</p>
+            <p className="mt-1 text-xs text-bad">{flag.impact}</p>
             {flag.suggestion && (
-              <p className="mt-2 text-[10px] text-[#8e90a2]">→ {flag.suggestion}</p>
+              <p className="mt-2 text-[10px] text-ink-dim">→ {flag.suggestion}</p>
             )}
             <button
               type="button"
               onClick={() => onReplay(flag)}
-              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#2e5bff]/50 bg-[#2e5bff]/15 py-2 text-xs font-semibold text-[#b8c3ff] transition-colors hover:bg-[#2e5bff]/25"
+              className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent/50 bg-accent/15 py-2 text-xs font-semibold text-brand transition-colors hover:bg-accent/25"
             >
               <Play className="h-3.5 w-3.5 fill-current" />
               Replay & verify

@@ -29,13 +29,13 @@ export function DriverVehicleScreen() {
   if (loading && !status) {
     return (
       <div className="flex justify-center py-16">
-        <Loader2 className="h-8 w-8 animate-spin text-[#b8c3ff]" />
+        <Loader2 className="h-8 w-8 animate-spin text-brand" />
       </div>
     );
   }
 
   if (error && !status) {
-    return <p className="rounded-xl bg-[#93000a]/20 p-4 text-sm text-[#ffb4ab]">{error}</p>;
+    return <p className="rounded-xl bg-bad-deep/20 p-4 text-sm text-bad">{error}</p>;
   }
 
   if (!status) return null;
@@ -52,20 +52,20 @@ export function DriverVehicleScreen() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-[#434656] bg-[#171f33] p-5">
+      <div className="rounded-2xl border border-edge bg-panel p-5">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-xs uppercase tracking-wider text-[#8e90a2]">Your vehicle</p>
-            <p className="mt-1 text-2xl font-bold text-[#dae2fd]">{status.license_plate}</p>
-            <p className="text-sm text-[#8e90a2]">
+            <p className="text-xs uppercase tracking-wider text-ink-dim">Your vehicle</p>
+            <p className="mt-1 text-2xl font-bold text-ink">{status.license_plate}</p>
+            <p className="text-sm text-ink-dim">
               {[status.make, status.model].filter(Boolean).join(' ') || 'Assigned vehicle'}
             </p>
           </div>
           <span
             className={`rounded-full px-2.5 py-1 text-xs font-medium ${
               status.connection_status === 'online'
-                ? 'bg-[#4edea3]/20 text-[#4edea3]'
-                : 'bg-[#ffb4ab]/20 text-[#ffb4ab]'
+                ? 'bg-good/20 text-good'
+                : 'bg-bad/20 text-bad'
             }`}
           >
             {status.connection_status}
@@ -81,14 +81,14 @@ export function DriverVehicleScreen() {
                 ? `${status.fuel_level_liters.toFixed(1)} L`
                 : '—'
             }
-            accent="text-[#4edea3]"
+            accent="text-good"
             sub={fuelPct != null ? `${fuelPct}% of tank` : undefined}
           />
           <StatCard
             icon={Gauge}
             label="Speed"
             value={status.speed_kph != null ? `${status.speed_kph} km/h` : '—'}
-            accent="text-[#b8c3ff]"
+            accent="text-brand"
             sub={status.ignition_on ? 'Engine on' : 'Engine off'}
           />
           <StatCard
@@ -99,7 +99,7 @@ export function DriverVehicleScreen() {
                 ? `${status.odometer_km.toLocaleString()} km`
                 : '—'
             }
-            accent="text-[#dae2fd]"
+            accent="text-ink"
           />
           <StatCard
             icon={MapPin}
@@ -113,7 +113,7 @@ export function DriverVehicleScreen() {
                   })
                 : '—'
             }
-            accent="text-[#ffb95f]"
+            accent="text-warn"
             sub={
               status.latitude != null
                 ? `${status.latitude.toFixed(4)}, ${status.longitude?.toFixed(4)}`
@@ -124,13 +124,13 @@ export function DriverVehicleScreen() {
 
         {fuelPct != null && (
           <div className="mt-5">
-            <div className="mb-1 flex justify-between text-xs text-[#8e90a2]">
+            <div className="mb-1 flex justify-between text-xs text-ink-dim">
               <span>Tank level</span>
               <span>{fuelPct}%</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-[#0b1326]">
+            <div className="h-2 overflow-hidden rounded-full bg-canvas">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[#4edea3] to-[#2e5bff]"
+                className="h-full rounded-full bg-gradient-to-r from-good to-accent"
                 style={{ width: `${fuelPct}%` }}
               />
             </div>
@@ -143,13 +143,13 @@ export function DriverVehicleScreen() {
           href={mapsUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 rounded-2xl border border-[#2e5bff]/40 bg-[#2e5bff]/15 py-4 text-sm font-medium text-[#b8c3ff]"
+          className="flex items-center justify-center gap-2 rounded-2xl border border-accent/40 bg-accent/15 py-4 text-sm font-medium text-brand"
         >
           <MapPin className="h-4 w-4" /> Open location in Maps
         </a>
       )}
 
-      <p className="text-center text-[10px] text-[#8e90a2]">
+      <p className="text-center text-[10px] text-ink-dim">
         Updates every 5s from FMC150 telemetry
         {status.last_seen_at &&
           ` · last device ping ${new Date(status.last_seen_at).toLocaleTimeString('en-NG', { timeZone: 'Africa/Lagos' })}`}
@@ -172,11 +172,11 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <div className="rounded-xl bg-[#0b1326] p-3">
+    <div className="rounded-xl bg-canvas p-3">
       <Icon className={`mb-2 h-4 w-4 ${accent}`} />
-      <p className="text-[10px] uppercase tracking-wider text-[#8e90a2]">{label}</p>
+      <p className="text-[10px] uppercase tracking-wider text-ink-dim">{label}</p>
       <p className={`mt-1 font-mono text-lg font-semibold ${accent}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-[10px] text-[#8e90a2]">{sub}</p>}
+      {sub && <p className="mt-0.5 text-[10px] text-ink-dim">{sub}</p>}
     </div>
   );
 }

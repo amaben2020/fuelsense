@@ -7,7 +7,9 @@ import {
   Activity,
   AlertTriangle,
   Fuel,
+  Gauge,
   Menu,
+  Truck,
   Play,
   Plus,
   Radio,
@@ -35,10 +37,14 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { buildVehicleTracks } from '@/lib/map-utils';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { FleetOperationsOverview } from '@/components/dashboard/FleetOperationsOverview';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
+import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
+import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
+import { VehicleShowcase } from '@/components/dashboard/VehicleShowcase';
 import { FleetEfficiencyReport } from '@/components/dashboard/FleetEfficiencyReport';
 import { SavingsDashboard } from '@/components/dashboard/SavingsDashboard';
 import { SiphonEventsSidebar } from '@/components/dashboard/SiphonEventsSidebar';
@@ -56,12 +62,23 @@ import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 const REFRESH_MS = 3000;
 const LIVE_REFRESH_MS = 2000;
 
-type DashboardView = 'overview' | 'live' | 'fuel' | 'receipts' | 'anomalies' | 'alerts' | 'settings';
+type DashboardView =
+  | 'overview'
+  | 'live'
+  | 'vehicle'
+  | 'fuel'
+  | 'estimate'
+  | 'receipts'
+  | 'anomalies'
+  | 'alerts'
+  | 'settings';
 
 const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'overview', label: 'Operations', hash: 'overview' },
   { id: 'live', label: 'Live monitoring', hash: 'live' },
+  { id: 'vehicle', label: 'Vehicle view', hash: 'vehicle' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
+  { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
   { id: 'anomalies', label: 'Replay events', hash: 'anomalies' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
@@ -330,7 +347,9 @@ export default function DashboardPage() {
   const viewTitle = {
     overview: 'Operations',
     live: 'Live monitoring',
+    vehicle: 'Vehicle view',
     fuel: 'Fuel analytics',
+    estimate: 'Fuel estimate',
     receipts: 'Receipts',
     anomalies: 'Replay events',
     alerts: 'Alerts',
@@ -344,11 +363,11 @@ export default function DashboardPage() {
   const sidebar = (
     <>
       <div className="px-6 pb-6 pt-8">
-        <p className="text-2xl font-bold text-[#b8c3ff]">FuelSense</p>
-        <p className="mt-1 text-[10px] uppercase tracking-wider text-[#4edea3]">
+        <p className="neon-text text-2xl font-bold">FuelSense</p>
+        <p className="mt-1 text-[10px] uppercase tracking-wider text-good">
           Command center
         </p>
-        <p className="text-xs text-[#8e90a2]">
+        <p className="text-xs text-ink-dim">
           {onlineCount}/{fleet.length} online
           {lastUpdated ? ` · ${lastUpdated.toLocaleTimeString()}` : ''}
         </p>
@@ -368,10 +387,22 @@ export default function DashboardPage() {
           badge={liveTracks.length || undefined}
         />
         <NavItem
+          icon={Truck}
+          label="Vehicle view"
+          active={activeView === 'vehicle'}
+          onClick={() => switchView('vehicle')}
+        />
+        <NavItem
           icon={Fuel}
           label="Fuel analytics"
           active={activeView === 'fuel'}
           onClick={() => switchView('fuel')}
+        />
+        <NavItem
+          icon={Gauge}
+          label="Fuel estimate"
+          active={activeView === 'estimate'}
+          onClick={() => switchView('estimate')}
         />
         <NavItem
           icon={Receipt}
@@ -406,9 +437,9 @@ export default function DashboardPage() {
 
   return (
     <div
-      className={`bg-[#0b1326] text-[#dae2fd] ${activeView === 'live' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}
+      className={`bg-canvas text-ink ${activeView === 'live' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}
     >
-      <aside className="fixed left-0 top-0 z-40 hidden h-full w-64 border-r border-[#434656] bg-[#171f33] lg:block">
+      <aside className="fixed left-0 top-0 z-40 hidden h-full w-64 border-r border-edge bg-panel lg:block">
         {sidebar}
       </aside>
 
@@ -420,11 +451,11 @@ export default function DashboardPage() {
             aria-label="Close menu"
             onClick={() => setMobileNavOpen(false)}
           />
-          <aside className="relative h-full w-64 border-r border-[#434656] bg-[#171f33]">
+          <aside className="relative h-full w-64 border-r border-edge bg-panel">
             <button
               type="button"
               onClick={() => setMobileNavOpen(false)}
-              className="absolute right-3 top-3 rounded p-1 text-[#c4c5d9]"
+              className="absolute right-3 top-3 rounded p-1 text-ink-mid"
             >
               <X className="h-5 w-5" />
             </button>
@@ -450,24 +481,26 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={() => setMobileNavOpen(true)}
-                className="rounded-lg border border-[#434656] bg-[#171f33] p-2 lg:hidden"
+                className="rounded-lg border border-edge bg-panel p-2 lg:hidden"
               >
                 <Menu className="h-5 w-5" />
               </button>
               <div>
-                <h1 className="text-2xl font-bold text-[#dae2fd]">{viewTitle}</h1>
+                <h1 className="text-2xl font-bold text-ink">{viewTitle}</h1>
                 {activeView !== 'live' && (
                   <>
-                    <p className="mt-1 text-[#c4c5d9]">
+                    <p className="mt-1 text-ink-mid">
                       {customer?.company_name || customer?.name} · Real-time fuel intelligence
                     </p>
-                    <p className="mt-1 text-xs text-[#8e90a2]">
-                      Refresh #{tick} · every {REFRESH_MS / 1000}s
+                    <p className="mt-1 text-xs text-ink-dim">
+                      {lastUpdated
+                        ? `Updated ${Math.round((Date.now() - lastUpdated.getTime()) / 1000)}s ago`
+                        : 'Updating…'}
                     </p>
                   </>
                 )}
                 {activeView === 'live' && (
-                  <p className="mt-1 text-xs text-[#8e90a2]">
+                  <p className="mt-1 text-xs text-ink-dim">
                     {customer?.company_name || customer?.name} · {onlineCount} vehicles · refresh
                     every {LIVE_REFRESH_MS / 1000}s
                   </p>
@@ -481,35 +514,36 @@ export default function DashboardPage() {
                   onClick={() => setFollowVehicle((v) => !v)}
                   className={`rounded-lg border px-3 py-2 text-sm ${
                     followVehicle
-                      ? 'border-[#4edea3] bg-[#4edea3]/10 text-[#4edea3]'
-                      : 'border-[#434656] bg-[#171f33] text-[#c4c5d9]'
+                      ? 'border-good bg-good/10 text-good'
+                      : 'border-edge bg-panel text-ink-mid'
                   }`}
                 >
                   {followVehicle ? 'Following vehicle' : 'Free map'}
                 </button>
               )}
-              <div className="flex items-center gap-2 rounded-lg border border-[#434656] bg-[#171f33] px-3 py-2 text-sm">
+              <div className="flex items-center gap-2 rounded-lg border border-edge bg-panel px-3 py-2 text-sm">
                 <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#4edea3] opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#4edea3]" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-good opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-good" />
                 </span>
-                <span className="text-[#4edea3]">{onlineCount} live</span>
+                <span className="text-good">{onlineCount} live</span>
               </div>
+              <ThemeToggle />
               <Link
                 href="/dashboard/orders/new"
-                className="rounded-lg border border-[#434656] bg-[#171f33] px-4 py-2 text-sm text-[#c4c5d9] hover:bg-[#222a3d]"
+                className="rounded-lg border border-edge bg-panel px-4 py-2 text-sm text-ink-mid hover:bg-panel-hover"
               >
                 Buy trackers
               </Link>
               <button
                 onClick={() => setModalOpen(true)}
-                className="flex items-center gap-2 rounded-lg bg-[#2e5bff] px-4 py-2 text-sm font-medium text-white hover:bg-[#2448cc]"
+                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-strong"
               >
                 <Plus className="h-4 w-4" /> Add device
               </button>
               <button
                 onClick={handleLogout}
-                className="rounded-lg border border-[#434656] bg-[#171f33] px-4 py-2 text-sm text-[#c4c5d9] hover:bg-[#222a3d]"
+                className="rounded-lg border border-edge bg-panel px-4 py-2 text-sm text-ink-mid hover:bg-panel-hover"
               >
                 Sign out
               </button>
@@ -518,7 +552,7 @@ export default function DashboardPage() {
 
           {error && (
             <div
-              className={`rounded-lg border border-[#ffb95f]/40 bg-[#996100]/20 p-4 text-[#ffb95f] ${
+              className={`rounded-lg border border-warn/40 bg-warn-deep/20 p-4 text-warn ${
                 activeView === 'live' ? 'mb-2 shrink-0' : 'mb-6'
               }`}
             >
@@ -572,14 +606,14 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => switchView('anomalies')}
-                  className="rounded-lg border border-[#ffb4ab]/40 bg-[#93000a]/20 px-4 py-2 text-sm text-[#ffb4ab] hover:bg-[#93000a]/30"
+                  className="rounded-lg border border-bad/40 bg-bad-deep/20 px-4 py-2 text-sm text-bad hover:bg-bad-deep/30"
                 >
                   Replay events →
                 </button>
               </div>
               <DashboardKpis summary={summary} />
               {efficiencyError && (
-                <p className="text-sm text-[#ffb95f]">{efficiencyError}</p>
+                <p className="text-sm text-warn">{efficiencyError}</p>
               )}
               <SavingsDashboard summary={efficiencySummary} />
               <FuelAnalyticsPanel
@@ -589,6 +623,7 @@ export default function DashboardPage() {
                 onAcknowledgeAnomaly={handleAcknowledgeAnomaly}
                 onViewOnMap={handleViewAnomalyOnMap}
               />
+              <EstimatedConsumptionTable />
               <FleetEfficiencyReport rows={efficiency} summary={efficiencySummary} />
               <DailyActivityTable
                 onViewDay={(vehicleId) => {
@@ -607,6 +642,20 @@ export default function DashboardPage() {
               />
             </div>
           )}
+
+          {activeView === 'vehicle' && (
+            <VehicleShowcase
+              fleet={fleet}
+              selectedVehicleId={selectedVehicleId}
+              onSelectVehicle={setSelectedVehicleId}
+              onOpenLive={(vehicleId) => {
+                setSelectedVehicleId(vehicleId);
+                switchView('live');
+              }}
+            />
+          )}
+
+          {activeView === 'estimate' && <FuelEstimatePanel />}
 
           {activeView === 'receipts' && (
             <ReceiptsPanel
@@ -629,9 +678,9 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'alerts' && (
-            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
-              <h2 className="font-semibold text-[#dae2fd]">All active alerts</h2>
-              <p className="mt-1 text-xs text-[#8e90a2]">
+            <div className="rounded-lg border border-edge bg-panel p-6">
+              <h2 className="font-semibold text-ink">All active alerts</h2>
+              <p className="mt-1 text-xs text-ink-dim">
                 Fuel anomaly alerts include GPS coordinates from the tracker
               </p>
               <div className="mt-4">
@@ -642,30 +691,30 @@ export default function DashboardPage() {
 
           {activeView === 'settings' && (
             <div className="space-y-6">
-              <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
-                <h2 className="font-semibold text-[#dae2fd]">Fleet settings</h2>
+              <div className="rounded-lg border border-edge bg-panel p-6">
+                <h2 className="font-semibold text-ink">Fleet settings</h2>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <button
                     type="button"
                     onClick={() => setModalOpen(true)}
-                    className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
+                    className="rounded-lg border border-edge bg-canvas px-4 py-3 text-left text-sm hover:bg-panel-hover"
                   >
-                    <p className="font-medium text-[#dae2fd]">Add vehicle + IMEI</p>
-                    <p className="text-xs text-[#8e90a2]">Register a new tracker</p>
+                    <p className="font-medium text-ink">Add vehicle + IMEI</p>
+                    <p className="text-xs text-ink-dim">Register a new tracker</p>
                   </button>
                 <Link
                   href="/driver"
-                  className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
+                  className="rounded-lg border border-edge bg-canvas px-4 py-3 text-left text-sm hover:bg-panel-hover"
                 >
-                  <p className="font-medium text-[#dae2fd]">Driver receipt portal</p>
-                  <p className="text-xs text-[#8e90a2]">Mobile upload — matches OBD automatically</p>
+                  <p className="font-medium text-ink">Driver receipt portal</p>
+                  <p className="text-xs text-ink-dim">Mobile upload — matches OBD automatically</p>
                 </Link>
                 <Link
                   href="/dashboard/orders/new"
-                  className="rounded-lg border border-[#434656] bg-[#0b1326] px-4 py-3 text-left text-sm hover:bg-[#222a3d]"
+                  className="rounded-lg border border-edge bg-canvas px-4 py-3 text-left text-sm hover:bg-panel-hover"
                 >
-                  <p className="font-medium text-[#dae2fd]">Order trackers</p>
-                  <p className="text-xs text-[#8e90a2]">Buy additional FMC150 devices</p>
+                  <p className="font-medium text-ink">Order trackers</p>
+                  <p className="text-xs text-ink-dim">Buy additional FMC150 devices</p>
                 </Link>
                 </div>
               </div>
@@ -717,14 +766,14 @@ function NavItem({
       onClick={onClick}
       className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
         active
-          ? 'border-l-2 border-l-[#b8c3ff] bg-[#2e5bff]/10 text-[#b8c3ff]'
-          : 'text-[#c4c5d9] hover:bg-[#222a3d]'
+          ? 'border-l-2 border-l-brand bg-accent/10 text-brand'
+          : 'text-ink-mid hover:bg-panel-hover'
       }`}
     >
       <Icon className="h-5 w-5 shrink-0" />
       <span>{label}</span>
       {badge != null && badge > 0 && (
-        <span className="ml-auto rounded-full bg-[#4edea3]/20 px-1.5 py-0.5 text-xs text-[#4edea3]">
+        <span className="ml-auto rounded-full bg-good/20 px-1.5 py-0.5 text-xs text-good">
           {badge}
         </span>
       )}

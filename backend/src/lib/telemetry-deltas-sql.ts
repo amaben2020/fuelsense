@@ -5,6 +5,95 @@ interface TelemetryDeltasParams {
   days: number;
 }
 
+/**
+ * Distance-only delta CTEs — no fuel-level or odometer required.
+ * Uses odometer deltas when available, otherwise GPS haversine hops,
+ * both capped by speed × elapsed time to reject GPS jumps.
+ */
+export function distanceDeltasCte({ customerId, days }: TelemetryDeltasParams): SQL {
+  return sql`
+    readings AS (
+      SELECT
+        t.vehicle_id,
+        v.license_plate,
+        v.model,
+        COALESCE(dr.full_name, v.driver_name) AS driver_name,
+        t.odometer_km,
+        t.latitude::double precision AS latitude,
+        t.longitude::double precision AS longitude,
+        t.speed_kph,
+        t.recorded_at
+      FROM telemetry t
+      JOIN vehicles v ON v.id = t.vehicle_id
+      LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
+      WHERE t.customer_id = ${customerId}
+        AND t.recorded_at > NOW() - (${days} || ' days')::INTERVAL
+    ),
+    ordered AS (
+      SELECT
+        *,
+        LAG(odometer_km) OVER w AS prev_odometer,
+        LAG(latitude) OVER w AS prev_latitude,
+        LAG(longitude) OVER w AS prev_longitude,
+        LAG(recorded_at) OVER w AS prev_recorded_at
+      FROM readings
+      WINDOW w AS (PARTITION BY vehicle_id ORDER BY recorded_at)
+    ),
+    hops AS (
+      SELECT
+        vehicle_id,
+        license_plate,
+        model,
+        driver_name,
+        recorded_at,
+        speed_kph,
+        CASE
+          WHEN odometer_km IS NOT NULL AND prev_odometer IS NOT NULL
+            AND odometer_km >= prev_odometer
+            THEN (odometer_km - prev_odometer)::double precision
+        END AS odo_km,
+        CASE
+          WHEN latitude IS NOT NULL AND longitude IS NOT NULL
+            AND prev_latitude IS NOT NULL AND prev_longitude IS NOT NULL
+            THEN 6371 * 2 * ASIN(SQRT(
+              POWER(SIN(RADIANS(latitude - prev_latitude) / 2), 2)
+              + COS(RADIANS(prev_latitude)) * COS(RADIANS(latitude))
+                * POWER(SIN(RADIANS(longitude - prev_longitude) / 2), 2)
+            ))
+        END AS gps_km,
+        GREATEST(
+          COALESCE(speed_kph, 0)
+            * EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at))
+            / 3600.0
+            * 1.25,
+          CASE
+            WHEN EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at)) <= 15 THEN 0.25
+            WHEN EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at)) <= 600 THEN 12
+            ELSE 35
+          END
+        )::double precision AS cap_km
+      FROM ordered
+      WHERE prev_recorded_at IS NOT NULL
+    ),
+    deltas AS (
+      SELECT
+        vehicle_id,
+        license_plate,
+        model,
+        driver_name,
+        recorded_at,
+        CASE
+          WHEN odo_km IS NOT NULL THEN LEAST(odo_km, cap_km)
+          -- ignore stationary GPS jitter
+          WHEN gps_km IS NOT NULL AND COALESCE(speed_kph, 0) >= 2
+            THEN LEAST(gps_km, cap_km)
+          ELSE 0
+        END AS dist_delta
+      FROM hops
+    )
+  `;
+}
+
 /** Shared telemetry delta CTEs — capped distance, consumption-only fuel deltas. */
 export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams): SQL {
   return sql`

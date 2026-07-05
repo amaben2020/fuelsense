@@ -64,30 +64,30 @@ export default function DriverPortalPage() {
 
   if (!authed) {
     return (
-      <div className="min-h-screen bg-[#0b1326] px-4 py-8">
+      <div className="min-h-screen bg-canvas px-4 py-8">
         <div className="mx-auto max-w-md">
           <div className="mb-8 flex items-center gap-3">
-            <div className="rounded-xl bg-[#2e5bff]/20 p-2.5">
-              <Truck className="h-7 w-7 text-[#b8c3ff]" />
+            <div className="rounded-xl bg-accent/20 p-2.5">
+              <Truck className="h-7 w-7 text-brand" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-[#dae2fd]">FuelSense Driver</h1>
-              <p className="text-sm text-[#8e90a2]">Mobile fuel & fleet portal</p>
+              <h1 className="text-xl font-bold text-ink">FuelSense Driver</h1>
+              <p className="text-sm text-ink-dim">Mobile fuel & fleet portal</p>
             </div>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4 rounded-2xl border border-[#434656] bg-[#171f33] p-5">
-            {error && <p className="text-sm text-[#ffb4ab]">{error}</p>}
-            <label className="block text-xs text-[#8e90a2]">
+          <form onSubmit={handleLogin} className="space-y-4 rounded-2xl border border-edge bg-panel p-5">
+            {error && <p className="text-sm text-bad">{error}</p>}
+            <label className="block text-xs text-ink-dim">
               Driver code
               <input
                 value={driverCode}
                 onChange={(e) => setDriverCode(e.target.value)}
                 autoComplete="username"
-                className="mt-1 w-full rounded-xl border border-[#434656] bg-[#0b1326] px-3 py-3 text-base text-[#dae2fd]"
+                className="mt-1 w-full rounded-xl border border-edge bg-canvas px-3 py-3 text-base text-ink"
               />
             </label>
-            <label className="block text-xs text-[#8e90a2]">
+            <label className="block text-xs text-ink-dim">
               PIN
               <input
                 type="password"
@@ -95,19 +95,19 @@ export default function DriverPortalPage() {
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 autoComplete="current-password"
-                className="mt-1 w-full rounded-xl border border-[#434656] bg-[#0b1326] px-3 py-3 text-base text-[#dae2fd]"
+                className="mt-1 w-full rounded-xl border border-edge bg-canvas px-3 py-3 text-base text-ink"
               />
             </label>
             <button
               type="submit"
-              className="w-full rounded-xl bg-[#2e5bff] py-3.5 text-sm font-semibold text-white"
+              className="w-full rounded-xl bg-accent py-3.5 text-sm font-semibold text-white"
             >
               Sign in
             </button>
           </form>
 
           <div className="mt-6">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#8e90a2]">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">
               Test drivers
             </p>
             <div className="space-y-2">
@@ -119,11 +119,11 @@ export default function DriverPortalPage() {
                     setDriverCode(d.code);
                     setPin(d.pin);
                   }}
-                  className="w-full rounded-xl border border-[#434656] bg-[#171f33]/60 px-4 py-3 text-left text-sm text-[#c4c5d9] active:bg-[#222a3d]"
+                  className="w-full rounded-xl border border-edge bg-panel/60 px-4 py-3 text-left text-sm text-ink-mid active:bg-panel-hover"
                 >
-                  <span className="font-mono text-[#b8c3ff]">{d.code}</span>
-                  <span className="text-[#8e90a2]"> · PIN {d.pin}</span>
-                  <span className="block text-xs text-[#8e90a2]">{d.name}</span>
+                  <span className="font-mono text-brand">{d.code}</span>
+                  <span className="text-ink-dim"> · PIN {d.pin}</span>
+                  <span className="block text-xs text-ink-dim">{d.name}</span>
                 </button>
               ))}
             </div>
@@ -131,7 +131,7 @@ export default function DriverPortalPage() {
 
           <Link
             href="/login"
-            className="mt-6 block text-center text-xs text-[#8e90a2] hover:text-[#b8c3ff]"
+            className="mt-6 block text-center text-xs text-ink-dim hover:text-brand"
           >
             Fleet manager login →
           </Link>
@@ -141,17 +141,17 @@ export default function DriverPortalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b1326] pb-24">
-      <header className="sticky top-0 z-30 border-b border-[#434656] bg-[#0b1326]/95 px-4 py-4 backdrop-blur-md">
+    <div className="min-h-screen bg-canvas pb-24">
+      <header className="sticky top-0 z-30 border-b border-edge bg-canvas/95 px-4 py-4 backdrop-blur-md">
         <div className="mx-auto flex max-w-lg items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-wider text-[#4edea3]">Driver</p>
-            <p className="font-semibold text-[#dae2fd]">{driver?.name}</p>
-            <p className="text-xs text-[#8e90a2]">
+            <p className="text-xs uppercase tracking-wider text-good">Driver</p>
+            <p className="font-semibold text-ink">{driver?.name}</p>
+            <p className="text-xs text-ink-dim">
               {driver?.license_plate ?? 'No vehicle'} · {driver?.driver_code}
             </p>
           </div>
-          <button type="button" onClick={logout} className="text-xs text-[#8e90a2]">
+          <button type="button" onClick={logout} className="text-xs text-ink-dim">
             Sign out
           </button>
         </div>

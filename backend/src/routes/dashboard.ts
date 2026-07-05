@@ -2,7 +2,16 @@ import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, alerts, eq, and, sql } from '../lib/db-helpers';
 import { fleetEfficiencyAggSql } from '../lib/fleet-efficiency-sql';
-import { round1, round2, computeL100km, DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
+import { distanceDeltasCte } from '../lib/telemetry-deltas-sql';
+import {
+  round1,
+  round2,
+  computeL100km,
+  baselineEfficiencyKmL,
+  fuelUsedForDistanceKm,
+  kmLToMpg,
+  DEFAULT_FUEL_PRICE_NGN_LITER,
+} from '../lib/fuel-metrics';
 import { withCache, cacheKey } from '../lib/redis';
 
 const router = express.Router();
@@ -97,6 +106,124 @@ router.get('/summary', async (req: Request, res: Response) => {
         active_alerts: activeAlerts,
         theft_alerts: theftAlerts.length,
         estimated_theft_loss_ngn: theftLossNgn,
+      };
+    });
+
+    res.json(cached);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Fuel estimate from distance ÷ baseline efficiency — no fuel-level sensor required.
+router.get('/estimated-consumption', async (req: Request, res: Response) => {
+  const days = Math.min(Number(req.query.days) || 7, 90);
+  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
+
+  try {
+    const customerId = req.user.customerId;
+    const key = cacheKey(customerId, 'estimated-consumption', String(days));
+
+    const cached = await withCache(key, 30, async () => {
+      // Everything (day groups, per-vehicle rows, grand totals) is derived from
+      // the same rounded daily rows so every level of the table sums exactly.
+      const dailyResult = await db.execute(sql`
+        WITH ${distanceDeltasCte({ customerId, days })}
+        SELECT
+          recorded_at::date AS activity_date,
+          vehicle_id,
+          license_plate,
+          model,
+          driver_name,
+          COALESCE(SUM(dist_delta), 0)::numeric AS distance_km
+        FROM deltas
+        GROUP BY recorded_at::date, vehicle_id, license_plate, model, driver_name
+        ORDER BY activity_date DESC, license_plate ASC
+      `);
+
+      interface EstimateRow {
+        vehicle_id: unknown;
+        license_plate: unknown;
+        model: unknown;
+        driver_name: unknown;
+        distance_km: number;
+        efficiency_km_l: number;
+        efficiency_mpg: number | null;
+        estimated_fuel_liters: number;
+        estimated_cost_ngn: number;
+      }
+      interface Totals {
+        distance_km: number;
+        estimated_fuel_liters: number;
+        estimated_cost_ngn: number;
+      }
+      const addTo = (t: Totals, r: EstimateRow) => {
+        t.distance_km = round1(t.distance_km + r.distance_km);
+        t.estimated_fuel_liters = round1(t.estimated_fuel_liters + r.estimated_fuel_liters);
+        t.estimated_cost_ngn += r.estimated_cost_ngn;
+      };
+
+      const dayMap = new Map<string, { date: string; vehicles: EstimateRow[]; totals: Totals }>();
+      const vehicleMap = new Map<string, EstimateRow>();
+      const totals: Totals = { distance_km: 0, estimated_fuel_liters: 0, estimated_cost_ngn: 0 };
+
+      for (const r of dailyResult.rows || []) {
+        const row = r as Record<string, unknown>;
+        const rawKm = Number(row.distance_km) || 0;
+        // parked-day GPS jitter — exclude everywhere so groups and totals agree
+        if (rawKm < 0.05) continue;
+
+        const efficiencyKmL = baselineEfficiencyKmL(String(row.model ?? ''));
+        const distanceKm = round1(rawKm);
+        const liters = round1(fuelUsedForDistanceKm(distanceKm, efficiencyKmL));
+        const dayRow: EstimateRow = {
+          vehicle_id: row.vehicle_id,
+          license_plate: row.license_plate,
+          model: row.model,
+          driver_name: row.driver_name,
+          distance_km: distanceKm,
+          efficiency_km_l: round2(efficiencyKmL),
+          efficiency_mpg: kmLToMpg(efficiencyKmL),
+          estimated_fuel_liters: liters,
+          estimated_cost_ngn: Math.round(liters * pricePerLiter),
+        };
+
+        const date = String(row.activity_date).slice(0, 10);
+        if (!dayMap.has(date)) {
+          dayMap.set(date, {
+            date,
+            vehicles: [],
+            totals: { distance_km: 0, estimated_fuel_liters: 0, estimated_cost_ngn: 0 },
+          });
+        }
+        const day = dayMap.get(date)!;
+        day.vehicles.push(dayRow);
+        addTo(day.totals, dayRow);
+        addTo(totals, dayRow);
+
+        const vid = String(row.vehicle_id);
+        if (!vehicleMap.has(vid)) {
+          vehicleMap.set(vid, { ...dayRow, distance_km: 0, estimated_fuel_liters: 0, estimated_cost_ngn: 0 });
+        }
+        const period = vehicleMap.get(vid)!;
+        period.distance_km = round1(period.distance_km + dayRow.distance_km);
+        period.estimated_fuel_liters = round1(
+          period.estimated_fuel_liters + dayRow.estimated_fuel_liters
+        );
+        period.estimated_cost_ngn += dayRow.estimated_cost_ngn;
+      }
+
+      const vehicles = Array.from(vehicleMap.values()).sort((a, b) =>
+        String(a.license_plate).localeCompare(String(b.license_plate))
+      );
+
+      return {
+        period_days: days,
+        price_per_liter_ngn: pricePerLiter,
+        basis: 'distance_over_baseline_efficiency',
+        vehicles,
+        daily: Array.from(dayMap.values()),
+        totals,
       };
     });
 

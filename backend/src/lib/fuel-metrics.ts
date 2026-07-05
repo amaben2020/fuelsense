@@ -12,7 +12,7 @@ export const CO2_KG_PER_LITER = 2.31;
 export const REFUEL_THRESHOLD_LITERS = 5;
 export const THEFT_DROP_THRESHOLD_LITERS = 12;
 export const IDLE_BURN_LITERS_PER_HOUR = 0.9;
-export const DEFAULT_FUEL_PRICE_NGN_LITER = 1340;
+export const DEFAULT_FUEL_PRICE_NGN_LITER = 1300;
 
 export function efficiencyProfileForModel(model: string): { min: number; max: number; avg: number } {
   return VEHICLE_EFFICIENCY[model] || DEFAULT_EFFICIENCY;
@@ -86,6 +86,14 @@ export function kmLToL100km(kmL: number | null): number | null {
 
 export function baselineEfficiencyL100km(model: string): number {
   return kmLToL100km(baselineEfficiencyKmL(model)) as number;
+}
+
+/** 1 km/L = 2.35215 miles per US gallon. */
+export const KM_PER_LITER_TO_MPG = 2.35215;
+
+export function kmLToMpg(kmL: number | null): number | null {
+  if (!kmL || kmL <= 0) return null;
+  return round1(kmL * KM_PER_LITER_TO_MPG);
 }
 
 /** Positive % = worse (more fuel per 100 km than baseline). */

@@ -1,5 +1,6 @@
 import { sql, SQL } from 'drizzle-orm';
 import { telemetryDeltasCte } from './telemetry-deltas-sql';
+import { DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics';
 
 interface FleetEfficiencyParams {
   customerId: string;
@@ -8,7 +9,7 @@ interface FleetEfficiencyParams {
 }
 
 export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: FleetEfficiencyParams): SQL {
-  const fuelPrice = pricePerLiter ?? 1340;
+  const fuelPrice = pricePerLiter ?? DEFAULT_FUEL_PRICE_NGN_LITER;
 
   return sql`
     WITH ${telemetryDeltasCte({ customerId, days })},

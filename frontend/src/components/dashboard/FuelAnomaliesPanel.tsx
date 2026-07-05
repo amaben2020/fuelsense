@@ -86,24 +86,24 @@ export function FuelAnomaliesPanel({
         <EventReplayPanel target={replayTarget} onClose={() => setReplayTarget(null)} />
       )}
 
-      <div className="rounded-lg border border-[#434656] bg-[#171f33]">
-        <div className="border-b border-[#434656] px-6 py-4">
-          <h2 className="flex items-center gap-2 text-xl font-bold text-[#dae2fd]">
-            <AlertTriangle className="h-5 w-5 text-[#ffb4ab]" /> Fuel anomalies
+      <div className="rounded-lg border border-edge bg-panel">
+        <div className="border-b border-edge px-6 py-4">
+          <h2 className="flex items-center gap-2 text-xl font-bold text-ink">
+            <AlertTriangle className="h-5 w-5 text-bad" /> Fuel anomalies
           </h2>
-          <p className="mt-1 text-xs text-[#8e90a2]">
+          <p className="mt-1 text-xs text-ink-dim">
             {TRUST_COPY.notVerdict} — use evidence replay before deciding
           </p>
         </div>
 
-        <div className="mx-4 mt-4 rounded-lg border border-[#ffb4ab]/30 bg-[#ffb4ab]/10 p-3 sm:mx-6">
-          <p className="text-xs text-[#8e90a2]">Total preventable loss</p>
-          <p className="text-2xl font-bold text-[#ffb4ab]">
+        <div className="mx-4 mt-4 rounded-lg border border-bad/30 bg-bad/10 p-3 sm:mx-6">
+          <p className="text-xs text-ink-dim">Total preventable loss</p>
+          <p className="text-2xl font-bold text-bad">
             {formatNgn(data?.total_preventable_loss_ngn ?? 0)}
           </p>
         </div>
 
-        <div className="mt-4 flex border-b border-[#434656] px-2 sm:px-4">
+        <div className="mt-4 flex border-b border-edge px-2 sm:px-4">
           <TabButton
             active={activeTab === 'siphon'}
             onClick={() => setActiveTab('siphon')}
@@ -119,7 +119,7 @@ export function FuelAnomaliesPanel({
         </div>
 
         <div className="space-y-3 p-4 sm:p-6">
-          {loading && <p className="text-sm text-[#8e90a2]">Loading…</p>}
+          {loading && <p className="text-sm text-ink-dim">Loading…</p>}
 
           {activeTab === 'siphon' &&
             (siphonEvents.length === 0 ? (
@@ -181,7 +181,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={`flex-1 py-3 text-xs transition-colors ${
-        active ? 'border-b-2 border-[#ffb4ab] text-[#ffb4ab]' : 'text-[#8e90a2]'
+        active ? 'border-b-2 border-bad text-bad' : 'text-ink-dim'
       }`}
     >
       <span className="inline-flex items-center justify-center gap-1">
@@ -194,8 +194,8 @@ function TabButton({
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="py-12 text-center">
-      <Shield className="mx-auto mb-3 h-12 w-12 text-[#4edea3]" />
-      <p className="text-[#c4c5d9]">{message}</p>
+      <Shield className="mx-auto mb-3 h-12 w-12 text-good" />
+      <p className="text-ink-mid">{message}</p>
     </div>
   );
 }
@@ -221,23 +221,23 @@ function SiphonCard({
 
   return (
     <div
-      className={`cursor-pointer rounded-lg border bg-[#0b1326] p-4 ${expanded ? 'border-[#b8c3ff]' : 'border-[#2d3449]'}`}
+      className={`cursor-pointer rounded-lg border bg-canvas p-4 ${expanded ? 'border-brand' : 'border-divider'}`}
       onClick={onToggle}
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-semibold text-[#dae2fd]">{TRUST_COPY.siphonTitle}</p>
-          <p className="text-xs text-[#8e90a2]">
+          <p className="font-semibold text-ink">{TRUST_COPY.siphonTitle}</p>
+          <p className="text-xs text-ink-dim">
             {event.vehicle_plate} · {event.driver_name ?? '—'}
           </p>
         </div>
-        <span className="rounded-full bg-[#ffb4ab]/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-[#ffb4ab]">
+        <span className="rounded-full bg-bad/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-bad">
           {severity} · {confidence}%
         </span>
       </div>
       <ul className="mt-2 space-y-0.5">
         {reasons.map((line) => (
-          <li key={line} className="text-xs text-[#8e90a2]">
+          <li key={line} className="text-xs text-ink-dim">
             • {line}
           </li>
         ))}
@@ -254,15 +254,15 @@ function SiphonCard({
             e.stopPropagation();
             onReplay();
           }}
-          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg bg-[#2e5bff] py-2.5 text-xs font-semibold text-white shadow-lg shadow-[#2e5bff]/20"
+          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg bg-accent py-2.5 text-xs font-semibold text-white shadow-lg shadow-accent/20"
         >
           <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
         </button>
       )}
       {expanded && (
-        <div className="mt-3 border-t border-[#2d3449] pt-3" onClick={(e) => e.stopPropagation()}>
-          <p className="mb-2 text-xs font-semibold text-[#8e90a2]">OBD evidence</p>
-          <p className="text-xs text-[#c4c5d9]">
+        <div className="mt-3 border-t border-divider pt-3" onClick={(e) => e.stopPropagation()}>
+          <p className="mb-2 text-xs font-semibold text-ink-dim">OBD evidence</p>
+          <p className="text-xs text-ink-mid">
             {event.evidence.fuel_level_before?.toFixed(1)}L → {event.evidence.fuel_level_after?.toFixed(1)}L ·
             engine {event.evidence.engine_state_before ? 'ON' : 'OFF'} →{' '}
             {event.evidence.engine_state_after ? 'ON' : 'OFF'}
@@ -271,21 +271,21 @@ function SiphonCard({
             <button
               type="button"
               onClick={onReplay}
-              className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#2e5bff] py-2 text-xs font-medium text-white"
+              className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-accent py-2 text-xs font-medium text-white"
             >
               <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
             </button>
             <button
               type="button"
               onClick={onResolve}
-              className="flex-1 rounded-lg bg-[#4edea3] py-2 text-xs font-medium text-[#0b1326]"
+              className="flex-1 rounded-lg bg-good py-2 text-xs font-medium text-canvas"
             >
               Mark resolved
             </button>
             <button
               type="button"
               onClick={onViewMap}
-              className="flex-1 rounded-lg border border-[#434656] py-2 text-xs text-[#c4c5d9]"
+              className="flex-1 rounded-lg border border-edge py-2 text-xs text-ink-mid"
             >
               View map
             </button>
@@ -310,19 +310,19 @@ function ReceiptFlagCard({
   const reasons = receiptMismatchContextLines(flag).slice(0, 3);
 
   return (
-    <div className="rounded-lg border border-[#ffb4ab]/30 bg-[#0b1326] p-4">
+    <div className="rounded-lg border border-bad/30 bg-canvas p-4">
       <div className="flex items-start justify-between gap-2">
-        <p className="font-semibold text-[#dae2fd]">{TRUST_COPY.receiptMismatchTitle}</p>
-        <span className="rounded-full bg-[#ffb95f]/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-[#ffb95f]">
+        <p className="font-semibold text-ink">{TRUST_COPY.receiptMismatchTitle}</p>
+        <span className="rounded-full bg-warn/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-warn">
           {severity} · {confidence}%
         </span>
       </div>
-      <p className="text-xs text-[#8e90a2]">
+      <p className="text-xs text-ink-dim">
         {flag.vehicle_plate} · {flag.driver_name} · {flag.merchant_name}
       </p>
       <ul className="mt-2 space-y-0.5">
         {reasons.map((line) => (
-          <li key={line} className="text-xs text-[#8e90a2]">
+          <li key={line} className="text-xs text-ink-dim">
             • {line}
           </li>
         ))}
@@ -336,14 +336,14 @@ function ReceiptFlagCard({
         <button
           type="button"
           onClick={onReplay}
-          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#2e5bff] py-2.5 text-xs font-semibold text-white"
+          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-accent py-2.5 text-xs font-semibold text-white"
         >
           <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
         </button>
         <button
           type="button"
           onClick={onResolve}
-          className="flex-1 rounded-lg bg-[#4edea3] py-2 text-xs font-medium text-[#0b1326]"
+          className="flex-1 rounded-lg bg-good py-2 text-xs font-medium text-canvas"
         >
           Resolve
         </button>
@@ -355,8 +355,8 @@ function ReceiptFlagCard({
 function Row({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex justify-between gap-2">
-      <span className="text-[#8e90a2]">{label}</span>
-      <span className={highlight ? 'font-mono text-[#ffb4ab]' : 'font-mono text-[#dae2fd]'}>{value}</span>
+      <span className="text-ink-dim">{label}</span>
+      <span className={highlight ? 'font-mono text-bad' : 'font-mono text-ink'}>{value}</span>
     </div>
   );
 }

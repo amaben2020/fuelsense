@@ -17,9 +17,9 @@ export function SiphonEventsSidebar({
   return (
     <>
       <button type="button" className="fixed inset-0 z-40 bg-black/50" aria-label="Close" onClick={onClose} />
-      <div className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col overflow-hidden border-l border-[#434656] bg-[#171f33] shadow-2xl">
-        <div className="flex shrink-0 items-center justify-end border-b border-[#434656] px-4 py-3">
-          <button type="button" onClick={onClose} className="rounded p-1 text-[#c4c5d9] hover:bg-[#2d3449]">
+      <div className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col overflow-hidden border-l border-edge bg-panel shadow-2xl">
+        <div className="flex shrink-0 items-center justify-end border-b border-edge px-4 py-3">
+          <button type="button" onClick={onClose} className="rounded p-1 text-ink-mid hover:bg-divider">
             <X className="h-5 w-5" />
           </button>
         </div>

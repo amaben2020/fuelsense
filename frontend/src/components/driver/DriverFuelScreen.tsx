@@ -245,17 +245,17 @@ export function DriverFuelScreen({
 
   return (
     <div className="space-y-4 pb-4">
-      <div className="flex items-center justify-between rounded-xl border border-[#434656] bg-[#171f33] px-4 py-3">
+      <div className="flex items-center justify-between rounded-xl border border-edge bg-panel px-4 py-3">
         <div className="flex items-center gap-2 text-xs">
           {online ? (
             <>
-              <Wifi className="h-4 w-4 text-[#4edea3]" />
-              <span className="text-[#4edea3]">Online</span>
+              <Wifi className="h-4 w-4 text-good" />
+              <span className="text-good">Online</span>
             </>
           ) : (
             <>
-              <CloudOff className="h-4 w-4 text-[#ffb95f]" />
-              <span className="text-[#ffb95f]">Offline — receipts queue locally</span>
+              <CloudOff className="h-4 w-4 text-warn" />
+              <span className="text-warn">Offline — receipts queue locally</span>
             </>
           )}
         </div>
@@ -263,7 +263,7 @@ export function DriverFuelScreen({
           <button
             type="button"
             onClick={syncQueue}
-            className="flex items-center gap-1 text-xs text-[#b8c3ff]"
+            className="flex items-center gap-1 text-xs text-brand"
           >
             <RefreshCw className="h-3 w-3" /> Sync {pending}
           </button>
@@ -275,36 +275,36 @@ export function DriverFuelScreen({
           <button
             type="button"
             onClick={openCamera}
-            className="flex w-full items-center gap-4 rounded-2xl border-2 border-dashed border-[#434656] bg-[#171f33] p-5 text-left active:border-[#b8c3ff]"
+            className="flex w-full items-center gap-4 rounded-2xl border-2 border-dashed border-edge bg-panel p-5 text-left active:border-brand"
           >
-            <div className="rounded-xl bg-[#2e5bff]/20 p-3">
-              <Camera className="h-7 w-7 text-[#b8c3ff]" />
+            <div className="rounded-xl bg-accent/20 p-3">
+              <Camera className="h-7 w-7 text-brand" />
             </div>
             <div>
-              <p className="font-semibold text-[#dae2fd]">Snap receipt</p>
-              <p className="text-xs text-[#8e90a2]">Camera scan — auto-reads liters, merchant, time</p>
+              <p className="font-semibold text-ink">Snap receipt</p>
+              <p className="text-xs text-ink-dim">Camera scan — auto-reads liters, merchant, time</p>
             </div>
           </button>
 
           <button
             type="button"
             onClick={openGallery}
-            className="flex w-full items-center gap-4 rounded-2xl border border-[#434656] bg-[#171f33] p-4 text-left"
+            className="flex w-full items-center gap-4 rounded-2xl border border-edge bg-panel p-4 text-left"
           >
-            <Upload className="h-5 w-5 text-[#8e90a2]" />
-            <span className="text-sm text-[#c4c5d9]">Upload from gallery</span>
+            <Upload className="h-5 w-5 text-ink-dim" />
+            <span className="text-sm text-ink-mid">Upload from gallery</span>
           </button>
 
           <button
             type="button"
             onClick={startManual}
-            className="flex w-full items-center gap-4 rounded-2xl border border-[#434656] bg-[#171f33] p-4 text-left"
+            className="flex w-full items-center gap-4 rounded-2xl border border-edge bg-panel p-4 text-left"
           >
-            <PenLine className="h-5 w-5 text-[#8e90a2]" />
-            <span className="text-sm text-[#c4c5d9]">Enter manually</span>
+            <PenLine className="h-5 w-5 text-ink-dim" />
+            <span className="text-sm text-ink-mid">Enter manually</span>
           </button>
 
-          <div className="flex items-center gap-2 text-xs text-[#8e90a2]">
+          <div className="flex items-center gap-2 text-xs text-ink-dim">
             <MapPin className="h-3 w-3" />
             {location ? 'GPS will attach to this receipt' : 'Waiting for GPS…'}
           </div>
@@ -328,15 +328,15 @@ export function DriverFuelScreen({
       />
 
       {mode === 'scanning' && (
-        <div className="flex flex-col items-center rounded-2xl border border-[#434656] bg-[#171f33] py-12">
-          <Loader2 className="h-10 w-10 animate-spin text-[#b8c3ff]" />
-          <p className="mt-4 text-sm text-[#dae2fd]">Reading receipt…</p>
-          <p className="mt-1 text-xs text-[#8e90a2]">Extracting merchant, liters, amount, time</p>
+        <div className="flex flex-col items-center rounded-2xl border border-edge bg-panel py-12">
+          <Loader2 className="h-10 w-10 animate-spin text-brand" />
+          <p className="mt-4 text-sm text-ink">Reading receipt…</p>
+          <p className="mt-1 text-xs text-ink-dim">Extracting merchant, liters, amount, time</p>
         </div>
       )}
 
       {mode === 'form' && (
-        <div className="space-y-3 rounded-2xl border border-[#434656] bg-[#171f33] p-4">
+        <div className="space-y-3 rounded-2xl border border-edge bg-panel p-4">
           {receiptPhoto && (
             <img
               src={receiptPhoto}
@@ -345,11 +345,11 @@ export function DriverFuelScreen({
             />
           )}
           {parseConfidence != null && (
-            <p className="text-xs text-[#4edea3]">
+            <p className="text-xs text-good">
               Receipt scan · confidence {parseConfidence}% — review fields below
             </p>
           )}
-          {error && <p className="text-sm text-[#ffb4ab]">{error}</p>}
+          {error && <p className="text-sm text-bad">{error}</p>}
 
           <Field label="Merchant" value={merchantName} onChange={setMerchantName} />
           <Field label="Address" value={merchantAddress} onChange={setMerchantAddress} />
@@ -365,7 +365,7 @@ export function DriverFuelScreen({
             <button
               type="button"
               onClick={resetForm}
-              className="flex-1 rounded-xl border border-[#434656] py-3 text-sm text-[#c4c5d9]"
+              className="flex-1 rounded-xl border border-edge py-3 text-sm text-ink-mid"
             >
               Cancel
             </button>
@@ -373,7 +373,7 @@ export function DriverFuelScreen({
               type="button"
               disabled={submitting}
               onClick={handleSubmit}
-              className="flex-1 rounded-xl bg-[#2e5bff] py-3 text-sm font-medium text-white disabled:opacity-50"
+              className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-50"
             >
               {submitting ? 'Submitting…' : online ? 'Submit receipt' : 'Save offline'}
             </button>
@@ -382,26 +382,26 @@ export function DriverFuelScreen({
       )}
 
       {mode === 'success' && (
-        <div className="rounded-2xl border border-[#4edea3]/30 bg-[#4edea3]/10 py-10 text-center">
-          <CheckCircle className="mx-auto h-12 w-12 text-[#4edea3]" />
-          <p className="mt-3 font-medium text-[#dae2fd]">Receipt recorded</p>
-          <p className="mt-1 px-6 text-xs text-[#8e90a2]">{message}</p>
+        <div className="rounded-2xl border border-good/30 bg-good/10 py-10 text-center">
+          <CheckCircle className="mx-auto h-12 w-12 text-good" />
+          <p className="mt-3 font-medium text-ink">Receipt recorded</p>
+          <p className="mt-1 px-6 text-xs text-ink-dim">{message}</p>
         </div>
       )}
 
       {recent.length > 0 && mode === 'home' && (
         <div>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#8e90a2]">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">
             Recent submissions
           </h3>
           <div className="space-y-2">
             {recent.slice(0, 5).map((r) => (
               <div
                 key={r.id}
-                className="rounded-xl border border-[#434656] bg-[#171f33]/80 px-3 py-2.5"
+                className="rounded-xl border border-edge bg-panel/80 px-3 py-2.5"
               >
-                <p className="text-sm font-medium text-[#dae2fd]">{r.merchant_name}</p>
-                <p className="text-xs text-[#8e90a2]">
+                <p className="text-sm font-medium text-ink">{r.merchant_name}</p>
+                <p className="text-xs text-ink-dim">
                   {new Date(r.transaction_date).toLocaleString('en-NG', {
                     timeZone: 'Africa/Lagos',
                     hour: 'numeric',
@@ -415,10 +415,10 @@ export function DriverFuelScreen({
                 <span
                   className={`text-[10px] uppercase ${
                     r.reconciliation_status === 'flagged_theft'
-                      ? 'text-[#ffb4ab]'
+                      ? 'text-bad'
                       : r.reconciliation_status === 'matched'
-                        ? 'text-[#4edea3]'
-                        : 'text-[#ffb95f]'
+                        ? 'text-good'
+                        : 'text-warn'
                   }`}
                 >
                   {r.reconciliation_status.replace('_', ' ')}
@@ -444,13 +444,13 @@ function Field({
   type?: string;
 }) {
   return (
-    <label className="block text-xs text-[#8e90a2]">
+    <label className="block text-xs text-ink-dim">
       {label}
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-[#434656] bg-[#0b1326] px-3 py-2.5 text-sm text-[#dae2fd]"
+        className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2.5 text-sm text-ink"
       />
     </label>
   );

@@ -3,13 +3,85 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* FuelSense palette — neon enterprise, dark (default) */
+  --canvas: #0b0e13;
+  --panel: #12161e;
+  --panel-deep: #0e1219;
+  --panel-hover: #1a202b;
+  --divider: #1e2530;
+  --edge: #28303d;
+  --ink: #e8ecf4;
+  --ink-mid: #b7bfcc;
+  --ink-dim: #7d8697;
+  --brand: #00e599;
+  --good: #00e599;
+  --warn: #ffb95f;
+  --bad: #ffb4ab;
+  --bad-bright: #ff6b6b;
+  --bad-ink: #690005;
+}
+
+.light {
+  --canvas: #f6f8fa;
+  --panel: #ffffff;
+  --panel-deep: #eef1f5;
+  --panel-hover: #eef1f6;
+  --divider: #e4e8ee;
+  --edge: #d3dae3;
+  --ink: #0e1420;
+  --ink-mid: #3d4757;
+  --ink-dim: #69738a;
+  --brand: #009e6c;
+  --good: #00885d;
+  --warn: #9a6206;
+  --bad: #c22f2f;
+  --bad-bright: #d32f2f;
+  --bad-ink: #ffffff;
+}
+
+/* Neon.tech-style glowing text — glow only in dark mode; light mode stays crisp */
+.neon-text {
+  color: var(--brand);
+  text-shadow:
+    0 0 8px color-mix(in srgb, var(--brand) 55%, transparent),
+    0 0 28px color-mix(in srgb, var(--brand) 25%, transparent);
+}
+
+.light .neon-text {
+  text-shadow: none;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
+
+  /* softer, enterprise card radii */
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-panel-deep: var(--panel-deep);
+  --color-panel-hover: var(--panel-hover);
+  --color-divider: var(--divider);
+  --color-edge: var(--edge);
+  --color-ink: var(--ink);
+  --color-ink-mid: var(--ink-mid);
+  --color-ink-dim: var(--ink-dim);
+  --color-brand: var(--brand);
+  --color-accent: #2e5bff;
+  --color-accent-strong: #2448cc;
+  --color-accent-soft: #3d6bff;
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-warn-deep: #996100;
+  --color-bad: var(--bad);
+  --color-bad-bright: var(--bad-bright);
+  --color-bad-deep: #93000a;
+  --color-bad-ink: var(--bad-ink);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,11 +94,21 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
 }
 
 .safe-area-pb {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+@keyframes truck-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
 }
 
 @keyframes fleet-loader-dots {

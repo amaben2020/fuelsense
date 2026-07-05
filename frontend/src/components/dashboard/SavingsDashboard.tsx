@@ -21,32 +21,32 @@ export function SavingsDashboard({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-[#434656] bg-gradient-to-r from-[#171f33] to-[#222a3d] p-6">
+      <div className="rounded-xl border border-edge bg-gradient-to-r from-panel to-panel-hover p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-sm text-[#c4c5d9]">Your {periodDays}-day preventable fuel loss</p>
-            <p className="mt-1 text-4xl font-bold text-[#ffb4ab]">
+            <p className="text-sm text-ink-mid">Your {periodDays}-day preventable fuel loss</p>
+            <p className="mt-1 text-4xl font-bold text-bad">
               {formatNgn(summary.total_loss_ngn)}
             </p>
-            <p className="mt-1 text-xs text-[#8e90a2]">
+            <p className="mt-1 text-xs text-ink-dim">
               OBD spend {formatNgn(summary.total_telemetry_cost_ngn ?? summary.total_actual_cost_ngn)}{' '}
               vs expected {formatNgn(summary.total_expected_cost_ngn)} at{' '}
               {formatFuelPricePerLiter(summary.price_per_liter_ngn)}
             </p>
           </div>
           <div className="text-right">
-            <p className="text-sm text-[#c4c5d9]">Potential annual savings opportunity</p>
-            <p className="text-2xl font-bold text-[#4edea3]">
+            <p className="text-sm text-ink-mid">Potential annual savings opportunity</p>
+            <p className="text-2xl font-bold text-good">
               {formatMillionsNgn(annualSavingsOpportunity)}
             </p>
-            <p className="mt-1 text-xs text-[#8e90a2]">
+            <p className="mt-1 text-xs text-ink-dim">
               ~{formatNgn(recoverable)} recoverable in last {periodDays} days if addressed
             </p>
           </div>
           <button
             type="button"
             onClick={() => setExplainOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg border border-[#434656] bg-[#0b1326] px-3 py-2 text-xs text-[#b8c3ff] hover:bg-[#222a3d]"
+            className="inline-flex items-center gap-2 rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-brand hover:bg-panel-hover"
           >
             <HelpCircle className="h-4 w-4" /> How is this calculated?
           </button>
@@ -54,28 +54,28 @@ export function SavingsDashboard({
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
+        <div className="rounded-lg border border-edge bg-panel p-4">
           <div className="mb-3 flex items-center gap-2">
-            <Receipt className="h-4 w-4 text-[#ffb4ab]" />
-            <h3 className="font-semibold text-[#dae2fd]">Suspicious fuel patterns</h3>
+            <Receipt className="h-4 w-4 text-bad" />
+            <h3 className="font-semibold text-ink">Suspicious fuel patterns</h3>
           </div>
-          <p className="text-2xl font-bold text-[#ffb4ab]">
+          <p className="text-2xl font-bold text-bad">
             {formatNgn(summary.total_theft_loss_ngn)}
           </p>
-          <p className="mt-1 text-xs text-[#8e90a2]">
+          <p className="mt-1 text-xs text-ink-dim">
             Receipt vs OBD mismatch + siphon alerts
           </p>
         </div>
 
-        <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
+        <div className="rounded-lg border border-edge bg-panel p-4">
           <div className="mb-3 flex items-center gap-2">
-            <TrendingDown className="h-4 w-4 text-[#ffb95f]" />
-            <h3 className="font-semibold text-[#dae2fd]">Inefficiency loss</h3>
+            <TrendingDown className="h-4 w-4 text-warn" />
+            <h3 className="font-semibold text-ink">Inefficiency loss</h3>
           </div>
-          <p className="text-2xl font-bold text-[#ffb95f]">
+          <p className="text-2xl font-bold text-warn">
             {formatNgn(summary.total_efficiency_loss_ngn)}
           </p>
-          <p className="mt-1 text-xs text-[#8e90a2]">
+          <p className="mt-1 text-xs text-ink-dim">
             Extra fuel vs manufacturer baseline efficiency
           </p>
         </div>

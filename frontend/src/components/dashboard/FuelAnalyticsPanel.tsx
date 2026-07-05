@@ -34,17 +34,17 @@ export function FuelAnalyticsPanel({
         />
       </div>
 
-      <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6">
-        <h2 className="font-semibold text-[#dae2fd]">Loss by vehicle</h2>
-        <p className="mt-1 text-xs text-[#8e90a2]">
+      <div className="rounded-lg border border-edge bg-panel p-6">
+        <h2 className="font-semibold text-ink">Loss by vehicle</h2>
+        <p className="mt-1 text-xs text-ink-dim">
           Actual vs expected ·{' '}
           {efficiencySummary
             ? formatNgn(efficiencySummary.price_per_liter_ngn)
-            : '₦1340'}
+            : '₦1300'}
           /L
         </p>
         {sortedByLoss.length === 0 ? (
-          <p className="mt-4 text-sm text-[#8e90a2]">
+          <p className="mt-4 text-sm text-ink-dim">
             No consumption data yet.
           </p>
         ) : (
@@ -52,13 +52,13 @@ export function FuelAnalyticsPanel({
             {sortedByLoss.slice(0, 6).map((row) => (
               <li
                 key={row.vehicle_id}
-                className="flex items-center justify-between gap-3 rounded-lg bg-[#0b1326] px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-lg bg-canvas px-3 py-2"
               >
                 <div>
-                  <p className="font-medium text-[#dae2fd]">
+                  <p className="font-medium text-ink">
                     {row.license_plate}
                   </p>
-                  <p className="text-xs text-[#8e90a2]">
+                  <p className="text-xs text-ink-dim">
                     {row.fuel_used_liters.toFixed(1)} L · {row.distance_km} km ·{' '}
                     {row.efficiency_l_100km?.toFixed(1) ?? '—'} L/100km vs target{' '}
                     {row.expected_efficiency_l_100km?.toFixed(1) ?? '—'}
@@ -66,7 +66,7 @@ export function FuelAnalyticsPanel({
                 </div>
                 <p
                   className={`font-mono text-sm ${
-                    row.total_loss_ngn > 0 ? 'text-[#ffb4ab]' : 'text-[#4edea3]'
+                    row.total_loss_ngn > 0 ? 'text-bad' : 'text-good'
                   }`}
                 >
                   {row.total_loss_ngn > 0

@@ -22,22 +22,22 @@ function KpiCard({
   tone?: 'default' | 'success' | 'warning' | 'critical';
 }) {
   const toneClass = {
-    default: 'text-[#dae2fd]',
-    success: 'text-[#4edea3]',
-    warning: 'text-[#ffb95f]',
-    critical: 'text-[#ffb4ab]',
+    default: 'text-ink',
+    success: 'text-good',
+    warning: 'text-warn',
+    critical: 'text-bad',
   }[tone];
 
   return (
-    <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
+    <div className="rounded-lg border border-edge bg-panel p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-xs uppercase tracking-wider text-[#8e90a2]">{title}</p>
+          <p className="text-xs uppercase tracking-wider text-ink-dim">{title}</p>
           <p className={`mt-1 text-2xl font-bold tabular-nums ${toneClass}`}>{value}</p>
-          {hint && <p className="mt-1 text-xs text-[#c4c5d9]">{hint}</p>}
+          {hint && <p className="mt-1 text-xs text-ink-mid">{hint}</p>}
         </div>
-        <div className="rounded-lg bg-[#0b1326] p-2">
-          <Icon className="h-4 w-4 text-[#b8c3ff]" />
+        <div className="rounded-lg bg-canvas p-2">
+          <Icon className="h-4 w-4 text-brand" />
         </div>
       </div>
     </div>
@@ -47,7 +47,7 @@ function KpiCard({
 export function DashboardKpis({ summary }: { summary: DashboardSummary | null }) {
   if (!summary) {
     return (
-      <div className="rounded-lg border border-[#434656] bg-[#171f33] p-6 text-sm text-[#8e90a2]">
+      <div className="rounded-lg border border-edge bg-panel p-6 text-sm text-ink-dim">
         Loading fleet metrics…
       </div>
     );

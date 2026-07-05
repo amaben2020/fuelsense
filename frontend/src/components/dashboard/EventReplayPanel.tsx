@@ -169,7 +169,7 @@ function FuelChart({
     .filter((v): v is number => v != null);
   if (!fuels.length) {
     return (
-      <p className="text-xs text-[#8e90a2]">No fuel readings in this window</p>
+      <p className="text-xs text-ink-dim">No fuel readings in this window</p>
     );
   }
 
@@ -292,21 +292,21 @@ function StatusBand({
 }) {
   return (
     <div>
-      <p className="mb-1 text-[10px] uppercase tracking-wide text-[#8e90a2]">
+      <p className="mb-1 text-[10px] uppercase tracking-wide text-ink-dim">
         {label}
       </p>
-      <div className="flex h-6 overflow-hidden rounded border border-[#2d3449] bg-[#0b1326]">
+      <div className="flex h-6 overflow-hidden rounded border border-divider bg-canvas">
         {readings.map((r, i) => (
           <div
             key={`${label}-${i}`}
             title={value(r)}
-            className={`flex-1 border-r border-[#171f33] last:border-r-0 ${
-              i === activeIndex ? 'ring-1 ring-inset ring-[#4edea3]' : ''
-            } ${i <= activeIndex ? 'bg-[#2e5bff]/35' : 'bg-[#171f33]'}`}
+            className={`flex-1 border-r border-panel last:border-r-0 ${
+              i === activeIndex ? 'ring-1 ring-inset ring-good' : ''
+            } ${i <= activeIndex ? 'bg-accent/35' : 'bg-panel'}`}
           />
         ))}
       </div>
-      <p className="mt-1 font-mono text-xs text-[#dae2fd]">
+      <p className="mt-1 font-mono text-xs text-ink">
         {value(readings[activeIndex])}
       </p>
     </div>
@@ -335,7 +335,7 @@ function ReplayMapSection({
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-lg border border-[#434656] bg-[#151a28]"
+      className="relative w-full overflow-hidden rounded-lg border border-edge bg-panel-deep"
       style={{ height: REPLAY_MAP_HEIGHT, minHeight: REPLAY_MAP_MIN_HEIGHT_PX }}
     >
       <Map
@@ -357,19 +357,19 @@ function ReplayMapSection({
         />
       </Map>
 
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 max-w-lg rounded-xl border border-[#434656]/80 bg-[#0b1326]/90 px-4 py-3 shadow-lg backdrop-blur-md">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8e90a2]">
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 max-w-lg rounded-xl border border-edge/80 bg-canvas/90 px-4 py-3 shadow-lg backdrop-blur-md">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
           {atAnomaly ? 'At flagged moment' : 'Synchronized map'}
         </p>
         <p
-          className={`mt-1 text-sm ${atAnomaly ? 'text-[#ffb4ab]' : 'text-[#dae2fd]'}`}
+          className={`mt-1 text-sm ${atAnomaly ? 'text-bad' : 'text-ink'}`}
         >
           {active
             ? `${formatTime(active.recorded_at)} · ${active.speed_kph ?? 0} km/h · ignition ${active.ignition_on ? 'ON' : 'OFF'} · ${active.fuel_level_liters?.toFixed(1) ?? '—'}L`
             : 'Scrub the timeline to move the vehicle'}
         </p>
         {locationName && (
-          <p className="mt-1 flex items-center gap-1 text-xs text-[#8e90a2]">
+          <p className="mt-1 flex items-center gap-1 text-xs text-ink-dim">
             <MapPin className="h-3 w-3 shrink-0" />
             {locationName}
           </p>
@@ -391,19 +391,19 @@ function CorrelationGrid({
           key={row.signal}
           className={`rounded-lg border px-3 py-2 ${
             row.tone === 'alert'
-              ? 'border-[#ffb4ab]/40 bg-[#93000a]/15'
+              ? 'border-bad/40 bg-bad-deep/15'
               : row.tone === 'warn'
-                ? 'border-[#ffb95f]/30 bg-[#996100]/10'
-                : 'border-[#434656] bg-[#0b1326]'
+                ? 'border-warn/30 bg-warn-deep/10'
+                : 'border-edge bg-canvas'
           }`}
         >
-          <p className="text-[10px] uppercase tracking-wide text-[#8e90a2]">
+          <p className="text-[10px] uppercase tracking-wide text-ink-dim">
             {row.signal}
           </p>
-          <p className="mt-0.5 font-mono text-sm font-semibold text-[#dae2fd]">
+          <p className="mt-0.5 font-mono text-sm font-semibold text-ink">
             {row.state}
           </p>
-          <p className="mt-0.5 text-[10px] leading-snug text-[#8e90a2]">
+          <p className="mt-0.5 text-[10px] leading-snug text-ink-dim">
             {row.detail}
           </p>
         </div>
@@ -418,26 +418,26 @@ function CausalTimelineList({
   steps: ReturnType<typeof buildCausalTimeline>;
 }) {
   return (
-    <ol className="relative space-y-0 border-l border-[#434656] pl-4">
+    <ol className="relative space-y-0 border-l border-edge pl-4">
       {steps.map((step, i) => (
         <li key={`${step.time}-${i}`} className="relative pb-4 last:pb-0">
           <span
-            className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full border-2 border-[#0b1326] ${
+            className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full border-2 border-canvas ${
               step.kind === 'anomaly'
-                ? 'bg-[#ffb4ab]'
+                ? 'bg-bad'
                 : step.kind === 'alert'
-                  ? 'bg-[#2e5bff]'
-                  : 'bg-[#8e90a2]'
+                  ? 'bg-accent'
+                  : 'bg-ink-dim'
             }`}
           />
-          <p className="font-mono text-xs text-[#b8c3ff]">
+          <p className="font-mono text-xs text-brand">
             {formatReplayClock(step.time)}
           </p>
           <p
             className={`text-sm ${
               step.kind === 'anomaly'
-                ? 'font-medium text-[#ffb4ab]'
-                : 'text-[#c4c5d9]'
+                ? 'font-medium text-bad'
+                : 'text-ink-mid'
             }`}
           >
             {step.label}
@@ -460,17 +460,17 @@ function CertaintyTimelineList({
           key={`${point.time}-${i}`}
           className="flex items-center justify-between gap-3 text-sm"
         >
-          <span className="font-mono text-xs text-[#b8c3ff]">
+          <span className="font-mono text-xs text-brand">
             {formatReplayClock(point.time)}
           </span>
           <div className="flex flex-1 items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#171f33]">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel">
               <div
-                className="h-full rounded-full bg-[#4edea3]"
+                className="h-full rounded-full bg-good"
                 style={{ width: `${point.percent}%` }}
               />
             </div>
-            <span className="w-10 font-mono text-xs font-semibold text-[#4edea3]">
+            <span className="w-10 font-mono text-xs font-semibold text-good">
               {point.percent}%
             </span>
           </div>
@@ -574,28 +574,28 @@ export function EventReplayPanel({
   }, [data, readings, moments, anomalyIndex, activeIndex]);
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-[#0b1326]">
-      <header className="flex shrink-0 items-center justify-between border-b border-[#434656] px-4 py-3 md:px-6">
+    <div className="fixed inset-0 z-[60] flex flex-col bg-canvas">
+      <header className="flex shrink-0 items-center justify-between border-b border-edge px-4 py-3 md:px-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-[#c4c5d9] hover:bg-[#171f33]"
+            className="rounded-lg p-2 text-ink-mid hover:bg-panel"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold text-[#dae2fd]">
-              <Truck className="h-5 w-5 text-[#b8c3ff]" />
+            <h2 className="flex items-center gap-2 text-lg font-bold text-ink">
+              <Truck className="h-5 w-5 text-brand" />
               {data?.vehicle_plate ?? 'Loading…'}
             </h2>
             {data && (
               <>
-                <p className="text-xs text-[#8e90a2]">
+                <p className="text-xs text-ink-dim">
                   {data.driver_name ?? '—'} ·{' '}
                   {formatRange(data.range_start, data.range_end)}
                 </p>
-                <p className="mt-0.5 text-[10px] text-[#8e90a2]">
+                <p className="mt-0.5 text-[10px] text-ink-dim">
                   {TRUST_COPY.notVerdict}
                 </p>
               </>
@@ -607,7 +607,7 @@ export function EventReplayPanel({
             type="button"
             disabled={!readings.length}
             onClick={jumpToAnomaly}
-            className="hidden items-center gap-1.5 rounded-lg border border-[#ffb4ab]/40 bg-[#ffb4ab]/10 px-3 py-2 text-xs font-medium text-[#ffb4ab] disabled:opacity-40 sm:inline-flex"
+            className="hidden items-center gap-1.5 rounded-lg border border-bad/40 bg-bad/10 px-3 py-2 text-xs font-medium text-bad disabled:opacity-40 sm:inline-flex"
           >
             <Crosshair className="h-3.5 w-3.5" />
             Jump to anomaly
@@ -616,7 +616,7 @@ export function EventReplayPanel({
             type="button"
             disabled={!readings.length}
             onClick={() => setPlaying((p) => !p)}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#2e5bff] px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
             {playing ? (
               <Pause className="h-4 w-4" />
@@ -629,32 +629,32 @@ export function EventReplayPanel({
       </header>
 
       {loading && (
-        <div className="flex flex-1 items-center justify-center text-[#8e90a2]">
+        <div className="flex flex-1 items-center justify-center text-ink-dim">
           Loading replay…
         </div>
       )}
       {error && (
-        <div className="flex flex-1 items-center justify-center text-[#ffb4ab]">
+        <div className="flex flex-1 items-center justify-center text-bad">
           {error}
         </div>
       )}
 
       {!loading && !error && data && intelligence && (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="shrink-0 border-b border-[#434656] bg-[#171f33] p-4 md:px-6">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+          <div className="shrink-0 border-b border-edge bg-panel p-4 md:px-6">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-dim">
               GPS trace — synced with fuel timeline
             </p>
             {!FLEET_MAPS_KEY ? (
               <div
-                className="flex items-center justify-center rounded-lg border border-[#434656] bg-[#0b1326] text-sm text-[#8e90a2]"
+                className="flex items-center justify-center rounded-lg border border-edge bg-canvas text-sm text-ink-dim"
                 style={{
                   height: REPLAY_MAP_HEIGHT,
                   minHeight: REPLAY_MAP_MIN_HEIGHT_PX,
                 }}
               >
                 <div className="text-center">
-                  <MapPin className="mx-auto mb-2 h-8 w-8 text-[#b8c3ff]" />
+                  <MapPin className="mx-auto mb-2 h-8 w-8 text-brand" />
                   Add GOOGLE_MAPS_API_KEY to show the replay map
                 </div>
               </div>
@@ -672,30 +672,30 @@ export function EventReplayPanel({
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,1fr)]">
-            <div className="flex min-h-0 flex-col overflow-y-auto border-b border-[#434656] xl:border-b-0 xl:border-r">
+            <div className="flex min-h-0 flex-col overflow-y-auto border-b border-edge xl:border-b-0 xl:border-r">
               <div className="space-y-5 p-4 md:p-6">
-                <section className="rounded-xl border border-[#ffb4ab]/30 bg-gradient-to-br from-[#93000a]/15 to-[#171f33] p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[#ffb4ab]">
+                <section className="rounded-xl border border-bad/30 bg-gradient-to-br from-bad-deep/15 to-panel p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-bad">
                     What happened (operational summary)
                   </p>
-                  <p className="mt-2 text-base leading-relaxed text-[#dae2fd]">
+                  <p className="mt-2 text-base leading-relaxed text-ink">
                     {intelligence.primary}
                   </p>
                 </section>
 
                 <section>
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#8e90a2]">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-ink-dim">
                     Signal correlation (scrubber position)
                   </p>
                   <CorrelationGrid rows={intelligence.correlation} />
                 </section>
 
-                <section className="rounded-xl border border-[#434656] bg-[#171f33] p-4">
+                <section className="rounded-xl border border-edge bg-panel p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-[#dae2fd]">
+                    <p className="text-sm font-semibold text-ink">
                       Fuel level — primary evidence
                     </p>
-                    <span className="font-mono text-xs text-[#8e90a2]">
+                    <span className="font-mono text-xs text-ink-dim">
                       {readings[activeIndex]
                         ? formatTime(readings[activeIndex].recorded_at)
                         : '—'}
@@ -710,32 +710,32 @@ export function EventReplayPanel({
                 </section>
 
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <section className="rounded-xl border border-[#434656] bg-[#171f33] p-4">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                  <section className="rounded-xl border border-edge bg-panel p-4">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-dim">
                       Incident timeline (causality)
                     </p>
                     <CausalTimelineList steps={intelligence.causal} />
                   </section>
-                  <section className="rounded-xl border border-[#434656] bg-[#171f33] p-4">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                  <section className="rounded-xl border border-edge bg-panel p-4">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-dim">
                       Detection confidence rising
                     </p>
-                    <p className="mb-3 text-[10px] text-[#8e90a2]">
+                    <p className="mb-3 text-[10px] text-ink-dim">
                       How certainty built as telemetry accumulated
                     </p>
                     <CertaintyTimelineList points={intelligence.certainty} />
                   </section>
                 </div>
 
-                <section className="rounded-xl border border-[#434656] bg-[#171f33] p-4">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                <section className="rounded-xl border border-edge bg-panel p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-dim">
                     Synchronized playback
                   </p>
-                  <div className="mb-2 flex items-center justify-between text-xs text-[#8e90a2]">
+                  <div className="mb-2 flex items-center justify-between text-xs text-ink-dim">
                     <span>
                       {formatTime(readings[0]?.recorded_at ?? data.range_start)}
                     </span>
-                    <span className="font-mono text-[#dae2fd]">
+                    <span className="font-mono text-ink">
                       {readings[activeIndex]
                         ? formatTime(readings[activeIndex].recorded_at)
                         : '—'}
@@ -756,7 +756,7 @@ export function EventReplayPanel({
                       setPlaying(false);
                       setActiveIndex(Number(e.target.value));
                     }}
-                    className="w-full accent-[#2e5bff]"
+                    className="w-full accent-accent"
                   />
                   {moments.length > 0 && (
                     <div className="relative mt-2 h-3">
@@ -772,11 +772,11 @@ export function EventReplayPanel({
                             title={m.label}
                             onClick={() => jumpToMoment(m.index)}
                             style={{ left: `${pct}%` }}
-                            className={`absolute top-0 h-3 w-3 -translate-x-1/2 rounded-full border-2 border-[#0b1326] ${
+                            className={`absolute top-0 h-3 w-3 -translate-x-1/2 rounded-full border-2 border-canvas ${
                               PAUSE_MOMENT_TYPES.has(m.type)
-                                ? 'bg-[#ffb4ab]'
-                                : 'bg-[#2e5bff]'
-                            } ${m.index === activeIndex ? 'ring-2 ring-[#4edea3]' : ''}`}
+                                ? 'bg-bad'
+                                : 'bg-accent'
+                            } ${m.index === activeIndex ? 'ring-2 ring-good' : ''}`}
                           />
                         );
                       })}
@@ -800,19 +800,19 @@ export function EventReplayPanel({
               </div>
             </div>
 
-            <aside className="overflow-y-auto border-[#434656] bg-[#0b1326] p-4 md:p-6 xl:border-l">
-              <div className="rounded-lg border border-[#ffb4ab]/30 bg-[#ffb4ab]/10 p-4">
+            <aside className="overflow-y-auto border-edge bg-canvas p-4 md:p-6 xl:border-l">
+              <div className="rounded-lg border border-bad/30 bg-bad/10 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#ffb4ab]" />
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-bad" />
                     <div>
-                      <p className="font-semibold text-[#ffb4ab]">
+                      <p className="font-semibold text-bad">
                         {intelligence.title}
                       </p>
-                      <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
+                      <p className="mt-1 text-2xl font-bold text-ink">
                         −{data.anomaly.liters_lost.toFixed(1)} L
                       </p>
-                      <p className="text-sm text-[#c4c5d9]">
+                      <p className="text-sm text-ink-mid">
                         Est. impact {formatNgn(data.anomaly.estimated_loss_ngn)}{' '}
                         · {TRUST_COPY.requiresReview}
                       </p>
@@ -821,10 +821,10 @@ export function EventReplayPanel({
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
                       intelligence.severity === 'HIGH'
-                        ? 'bg-[#ffb4ab]/20 text-[#ffb4ab]'
+                        ? 'bg-bad/20 text-bad'
                         : intelligence.severity === 'MEDIUM'
-                          ? 'bg-[#ffb95f]/20 text-[#ffb95f]'
-                          : 'bg-[#8e90a2]/20 text-[#c4c5d9]'
+                          ? 'bg-warn/20 text-warn'
+                          : 'bg-ink-dim/20 text-ink-mid'
                     }`}
                   >
                     {intelligence.severity} · {data.anomaly.confidence_percent}%
@@ -832,59 +832,59 @@ export function EventReplayPanel({
                 </div>
               </div>
 
-              <div className="mt-4 rounded-lg border border-[#434656] bg-[#171f33] p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+              <div className="mt-4 rounded-lg border border-edge bg-panel p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
                   Why flagged
                 </p>
                 <ul className="mt-3 space-y-2">
                   {intelligence.whyFlagged.map((reason) => (
                     <li
                       key={reason}
-                      className="flex gap-2 text-sm leading-relaxed text-[#c4c5d9]"
+                      className="flex gap-2 text-sm leading-relaxed text-ink-mid"
                     >
-                      <span className="text-[#b8c3ff]">•</span>
+                      <span className="text-brand">•</span>
                       {reason}
                     </li>
                   ))}
                 </ul>
               </div>
 
-              <div className="mt-4 rounded-lg border border-[#434656] bg-[#171f33] p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+              <div className="mt-4 rounded-lg border border-edge bg-panel p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
                   Confidence based on
                 </p>
                 <ul className="mt-3 space-y-1.5">
                   {intelligence.factors.map((factor) => (
-                    <li key={factor} className="text-sm text-[#c4c5d9]">
+                    <li key={factor} className="text-sm text-ink-mid">
                       • {factor}
                     </li>
                   ))}
                 </ul>
               </div>
 
-              <div className="mt-4 rounded-lg border border-[#2e5bff]/30 bg-[#2e5bff]/10 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#b8c3ff]">
+              <div className="mt-4 rounded-lg border border-accent/30 bg-accent/10 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-brand">
                   Compare vs normal behavior
                 </p>
                 <div className="mt-3 grid gap-2 text-sm">
                   <div className="flex justify-between gap-2">
-                    <span className="text-[#8e90a2]">
+                    <span className="text-ink-dim">
                       Normal fuel drift while parked
                     </span>
-                    <span className="font-mono text-[#4edea3]">
+                    <span className="font-mono text-good">
                       {data.anomaly.baseline_comparison?.normal_range ??
                         intelligence.baseline.normalRange}
                     </span>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <span className="text-[#8e90a2]">
+                    <span className="text-ink-dim">
                       Observed during event
                     </span>
                     <span
                       className={`font-mono font-semibold ${
                         intelligence.baseline.isAbnormal
-                          ? 'text-[#ffb4ab]'
-                          : 'text-[#dae2fd]'
+                          ? 'text-bad'
+                          : 'text-ink'
                       }`}
                     >
                       {data.anomaly.baseline_comparison?.observed_value ??
@@ -896,33 +896,33 @@ export function EventReplayPanel({
 
               {data.event_type === 'receipt_fraud' &&
                 data.anomaly.declared_liters != null && (
-                  <div className="mt-4 rounded-lg border border-[#434656] bg-[#171f33] p-3 text-sm">
+                  <div className="mt-4 rounded-lg border border-edge bg-panel p-3 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-[#8e90a2]">Receipt claimed</span>
-                      <span className="font-mono text-[#dae2fd]">
+                      <span className="text-ink-dim">Receipt claimed</span>
+                      <span className="font-mono text-ink">
                         {data.anomaly.declared_liters.toFixed(1)} L
                       </span>
                     </div>
                     <div className="mt-2 flex justify-between">
-                      <span className="text-[#8e90a2]">OBD recorded</span>
-                      <span className="font-mono text-[#ffb4ab]">
+                      <span className="text-ink-dim">OBD recorded</span>
+                      <span className="font-mono text-bad">
                         {data.anomaly.obd_liters_actual?.toFixed(1) ?? '—'} L
                       </span>
                     </div>
                   </div>
                 )}
 
-              <div className="mt-4 rounded-lg border border-[#4edea3]/30 bg-[#4edea3]/10 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#4edea3]">
+              <div className="mt-4 rounded-lg border border-good/30 bg-good/10 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-good">
                   Recommended next steps
                 </p>
                 <ul className="mt-3 space-y-2">
                   {intelligence.actions.map((action) => (
                     <li
                       key={action}
-                      className="flex gap-2 text-sm text-[#c4c5d9]"
+                      className="flex gap-2 text-sm text-ink-mid"
                     >
-                      <span className="text-[#4edea3]">→</span>
+                      <span className="text-good">→</span>
                       {action}
                     </li>
                   ))}
@@ -931,7 +931,7 @@ export function EventReplayPanel({
 
               {moments.length > 0 && (
                 <div className="mt-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8e90a2]">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-dim">
                     Jump to moment
                   </p>
                   <ul className="space-y-2">
@@ -942,20 +942,20 @@ export function EventReplayPanel({
                           onClick={() => jumpToMoment(moment.index)}
                           className={`w-full rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
                             moment.index === activeIndex
-                              ? 'border-[#4edea3] bg-[#4edea3]/10 text-[#dae2fd]'
-                              : 'border-[#2d3449] bg-[#171f33] text-[#c4c5d9] hover:border-[#434656]'
+                              ? 'border-good bg-good/10 text-ink'
+                              : 'border-divider bg-panel text-ink-mid hover:border-edge'
                           }`}
                         >
                           <span
                             className={
                               PAUSE_MOMENT_TYPES.has(moment.type)
-                                ? 'text-[#ffb4ab]'
-                                : 'text-[#b8c3ff]'
+                                ? 'text-bad'
+                                : 'text-brand'
                             }
                           >
                             {formatTime(moment.recorded_at)}
                           </span>
-                          <span className="mt-0.5 block text-[#8e90a2]">
+                          <span className="mt-0.5 block text-ink-dim">
                             {moment.label}
                           </span>
                         </button>

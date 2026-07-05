@@ -157,9 +157,12 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
 
     const TANK_CAPACITY_LITERS = Number(process.env.REAL_DEVICE_TANK_LITERS || 60);
 
+    // Fuel sources in priority order:
+    //   390/270/30 — OEM/CAN fuel level (litres × 100, matches our mock encoder)
+    //   48/89      — OBD fuel level as % of tank (standard OBD element on FMx003)
     const fuelCanRaw =
       getIoValue(record.io, 390) ?? getIoValue(record.io, 270) ?? getIoValue(record.io, 30);
-    const fuelObdPct = getIoValue(record.io, 89);
+    const fuelObdPct = getIoValue(record.io, 48) ?? getIoValue(record.io, 89);
 
     const fuelLevelLiters =
       fuelCanRaw != null
@@ -168,8 +171,14 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
           ? Number(((fuelObdPct / 100) * TANK_CAPACITY_LITERS).toFixed(2))
           : null;
 
-    const fuelSource = fuelCanRaw != null ? 'CAN' : fuelObdPct != null ? 'OBD' : 'none';
-    const odometerMeters = getIoValue(record.io, 112);
+    const fuelSource = fuelCanRaw != null ? 'CAN' : fuelObdPct != null ? 'OBD%' : 'none';
+
+    // Mileage sources in priority order:
+    //   389 — OBD OEM total mileage (km, FMx003 reads the dashboard odometer)
+    //   16  — total odometer (metres, GPS-based, standard Teltonika element)
+    //   112 — legacy mock odometer (metres)
+    const obdMileageKm = getIoValue(record.io, 389);
+    const odometerMeters = getIoValue(record.io, 16) ?? getIoValue(record.io, 112);
     const ignitionOn = getIoValue(record.io, 239) === 1;
     const recordedAt = record.timestamp ? new Date(record.timestamp as number) : new Date();
 
@@ -191,7 +200,12 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       customerId: device.customerId!,
       vehicleId: device.vehicleId!,
       fuelLevelLiters: fuelLevelLiters?.toString() ?? null,
-      odometerKm: odometerMeters != null ? Math.round(odometerMeters / 1000) : null,
+      odometerKm:
+        obdMileageKm != null
+          ? Math.round(obdMileageKm)
+          : odometerMeters != null
+            ? Math.round(odometerMeters / 1000)
+            : null,
       latitude: validGps ? rawLat!.toString() : null,
       longitude: validGps ? rawLng!.toString() : null,
       speedKph,
@@ -207,6 +221,8 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
         fuelLevelLiters,
         fuelCanRaw,
         fuelObdPct,
+        obdMileageKm,
+        odometerMeters,
         ignitionOn,
         speedKph: telemetryRow.speedKph,
         ioIds: Object.keys(record.io || {}),
@@ -217,18 +233,16 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     // fire-and-forget — don't let cache failure block telemetry
     invalidate(device.customerId!, 'tracks', 'fleet', 'summary').catch(() => {});
 
-    // Store raw frame for parse debugging (real device only — avoids noise from simulators).
-    if (isRealDevice(device.imei)) {
-      db.insert(deviceFrames).values({
-        imei: device.imei,
-        telemetryId: savedRow?.id ?? null,
-        eventId: record.event ?? null,
-        gpsSatellites: satellites != null ? satellites : null,
-        gpsValid: validGps,
-        gpsRaw: record.gps ? { ...record.gps } : null,
-        ioRaw: serializeIo(record.io),
-      }).catch((err) => console.error('[REAL DEVICE] device_frames insert failed:', err));
-    }
+    // Store raw frame for every registered device so parse issues can be diagnosed.
+    db.insert(deviceFrames).values({
+      imei: device.imei,
+      telemetryId: savedRow?.id ?? null,
+      eventId: record.event ?? null,
+      gpsSatellites: satellites != null ? satellites : null,
+      gpsValid: validGps,
+      gpsRaw: record.gps ? { ...record.gps } : null,
+      ioRaw: serializeIo(record.io),
+    }).catch((err) => console.error('[device_frames] insert failed:', err));
 
     if (isRealDevice(device.imei)) {
       console.log('[REAL DEVICE] telemetry row saved', {

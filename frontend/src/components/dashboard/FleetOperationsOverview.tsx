@@ -373,7 +373,7 @@ export function FleetOperationsOverview({
 
   if (!summary) {
     return (
-      <div className="rounded-xl border border-[#434656] bg-[#171f33] p-8 text-center text-sm text-[#8e90a2]">
+      <div className="rounded-xl border border-edge bg-panel p-8 text-center text-sm text-ink-dim">
         Loading operational snapshot…
       </div>
     );
@@ -391,11 +391,11 @@ export function FleetOperationsOverview({
       )}
 
       {/* 1. Top summary — money first, minimal */}
-      <section className="rounded-xl border border-[#434656] bg-[#171f33] px-4 py-4 sm:px-6">
-        <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[#8e90a2]">
+      <section className="rounded-xl border border-edge bg-panel px-4 py-4 sm:px-6">
+        <p className="mb-1 text-xs font-medium uppercase tracking-wider text-ink-dim">
           Operational snapshot
         </p>
-        <p className="mb-4 text-xs text-[#8e90a2]">{TRUST_COPY.notVerdict}</p>
+        <p className="mb-4 text-xs text-ink-dim">{TRUST_COPY.notVerdict}</p>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
           <MetricPill
             icon={Fuel}
@@ -421,7 +421,7 @@ export function FleetOperationsOverview({
         <button
           type="button"
           onClick={() => setFinancialDetailsOpen((v) => !v)}
-          className="mt-4 flex w-full items-center justify-between rounded-lg border border-[#434656] bg-[#0b1326] px-3 py-2 text-xs text-[#b8c3ff]"
+          className="mt-4 flex w-full items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-brand"
         >
           <span>{financialDetailsOpen ? 'Hide' : 'Show'} breakdown & savings projection</span>
           {financialDetailsOpen ? (
@@ -431,33 +431,33 @@ export function FleetOperationsOverview({
           )}
         </button>
         {financialDetailsOpen && efficiencySummary && (
-          <div className="mt-3 grid gap-3 border-t border-[#434656] pt-4 sm:grid-cols-2">
-            <div className="rounded-lg bg-[#0b1326] p-3">
-              <p className="text-xs text-[#8e90a2]">Suspicious fuel patterns</p>
-              <p className="font-mono text-lg text-[#ffb4ab]">
+          <div className="mt-3 grid gap-3 border-t border-edge pt-4 sm:grid-cols-2">
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-xs text-ink-dim">Suspicious fuel patterns</p>
+              <p className="font-mono text-lg text-bad">
                 {formatNgn(efficiencySummary.total_theft_loss_ngn)}
               </p>
             </div>
-            <div className="rounded-lg bg-[#0b1326] p-3">
-              <p className="text-xs text-[#8e90a2]">Efficiency gap</p>
-              <p className="font-mono text-lg text-[#ffb95f]">
+            <div className="rounded-lg bg-canvas p-3">
+              <p className="text-xs text-ink-dim">Efficiency gap</p>
+              <p className="font-mono text-lg text-warn">
                 {formatNgn(efficiencySummary.total_efficiency_loss_ngn)}
               </p>
             </div>
-            <div className="rounded-lg bg-[#4edea3]/10 p-3 sm:col-span-2">
-              <p className="text-xs text-[#4edea3]">Potential annual savings opportunity</p>
-              <p className="text-2xl font-bold text-[#dae2fd]">
+            <div className="rounded-lg bg-good/10 p-3 sm:col-span-2">
+              <p className="text-xs text-good">Potential annual savings opportunity</p>
+              <p className="text-2xl font-bold text-ink">
                 {formatMillionsNgn(annualSavingsOpportunity)}
               </p>
-              <p className="mt-1 text-xs text-[#8e90a2]">
+              <p className="mt-1 text-xs text-ink-dim">
                 ~{formatNgn(efficiencySummary.recoverable_ngn)} recoverable in last {periodDays}{' '}
                 days if addressed
               </p>
             </div>
             {healthScore != null && (
-              <div className="rounded-lg bg-[#0b1326] p-3 sm:col-span-2">
-                <p className="text-xs text-[#8e90a2]">Fleet health score</p>
-                <p className={`text-lg font-bold ${healthTone === 'good' ? 'text-[#4edea3]' : healthTone === 'warn' ? 'text-[#ffb95f]' : 'text-[#ffb4ab]'}`}>
+              <div className="rounded-lg bg-canvas p-3 sm:col-span-2">
+                <p className="text-xs text-ink-dim">Fleet health score</p>
+                <p className={`text-lg font-bold ${healthTone === 'good' ? 'text-good' : healthTone === 'warn' ? 'text-warn' : 'text-bad'}`}>
                   {healthScore}/100
                 </p>
               </div>
@@ -469,53 +469,53 @@ export function FleetOperationsOverview({
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-2">
           {/* 2. What needs attention */}
-          <section className="rounded-xl border border-[#434656] bg-[#171f33]">
-            <header className="border-b border-[#434656] px-5 py-4">
-              <h2 className="text-lg font-semibold text-[#dae2fd]">What needs attention?</h2>
-              <p className="mt-0.5 text-xs text-[#8e90a2]">
+          <section className="rounded-xl border border-edge bg-panel">
+            <header className="border-b border-edge px-5 py-4">
+              <h2 className="text-lg font-semibold text-ink">What needs attention?</h2>
+              <p className="mt-0.5 text-xs text-ink-dim">
                 Operational intelligence for investigations — use evidence replay before deciding
               </p>
             </header>
             {attentionItems.length === 0 ? (
-              <p className="px-5 py-8 text-sm text-[#4edea3]">
+              <p className="px-5 py-8 text-sm text-good">
                 No critical issues right now. Fleet is operating within expected bounds.
               </p>
             ) : (
-              <ul className="divide-y divide-[#2d3449]">
+              <ul className="divide-y divide-divider">
                 {attentionItems.map((item, index) => (
                   <li key={item.id} className="flex flex-wrap items-start gap-3 px-5 py-4">
                     <span
                       className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                         item.severity === 'critical'
-                          ? 'bg-[#93000a]/40 text-[#ffb4ab]'
-                          : 'bg-[#996100]/30 text-[#ffb95f]'
+                          ? 'bg-bad-deep/40 text-bad'
+                          : 'bg-warn-deep/30 text-warn'
                       }`}
                     >
                       {index + 1}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-[#dae2fd]">{item.title}</p>
+                        <p className="font-medium text-ink">{item.title}</p>
                         <ConfidenceBadge
                           confidence={item.confidence}
                           severity={item.severityLevel}
                         />
                       </div>
-                      <p className="mt-0.5 text-sm text-[#c4c5d9]">
-                        Vehicle <span className="font-mono text-[#b8c3ff]">{item.vehicle}</span>
-                        <span className="ml-2 text-[#8e90a2]">· {item.source}</span>
+                      <p className="mt-0.5 text-sm text-ink-mid">
+                        Vehicle <span className="font-mono text-brand">{item.vehicle}</span>
+                        <span className="ml-2 text-ink-dim">· {item.source}</span>
                       </p>
-                      <p className="mt-1 text-xs text-[#c4c5d9]">{item.detail}</p>
+                      <p className="mt-1 text-xs text-ink-mid">{item.detail}</p>
                       <ul className="mt-2 space-y-0.5">
                         {item.reasons.map((line) => (
-                          <li key={line} className="flex gap-1.5 text-xs text-[#8e90a2]">
-                            <span className="text-[#b8c3ff]">•</span>
+                          <li key={line} className="flex gap-1.5 text-xs text-ink-dim">
+                            <span className="text-brand">•</span>
                             {line}
                           </li>
                         ))}
                       </ul>
                       {item.lossNgn != null && item.lossNgn > 0 && (
-                        <p className="mt-2 text-xs text-[#ffb95f]">
+                        <p className="mt-2 text-xs text-warn">
                           Est. impact {formatNgn(item.lossNgn)} · {TRUST_COPY.requiresReview}
                         </p>
                       )}
@@ -525,7 +525,7 @@ export function FleetOperationsOverview({
                         <button
                           type="button"
                           onClick={() => setReplayTarget(item.replayTarget!)}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2e5bff] px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-[#2e5bff]/20"
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-accent/20"
                         >
                           <Play className="h-4 w-4" /> {TRUST_COPY.investigateCta} ▶
                         </button>
@@ -534,7 +534,7 @@ export function FleetOperationsOverview({
                         <button
                           type="button"
                           onClick={() => onViewOnMap(item.vehicleId!)}
-                          className="rounded-lg border border-[#434656] px-3 py-2 text-xs text-[#c4c5d9]"
+                          className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-mid"
                         >
                           Live
                         </button>
@@ -544,11 +544,11 @@ export function FleetOperationsOverview({
                 ))}
               </ul>
             )}
-            <footer className="border-t border-[#434656] px-5 py-3">
+            <footer className="border-t border-edge px-5 py-3">
               <button
                 type="button"
                 onClick={onOpenAnomalies}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#b8c3ff] hover:underline"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:underline"
               >
                 <Play className="h-3.5 w-3.5" /> {TRUST_COPY.viewEvidenceCta} — all events
               </button>
@@ -556,16 +556,16 @@ export function FleetOperationsOverview({
           </section>
 
           {/* 3. Daily fleet efficiency */}
-          <section className="overflow-hidden rounded-xl border border-[#434656] bg-[#171f33]">
-            <header className="border-b border-[#434656] px-5 py-4">
-              <h2 className="font-semibold text-[#dae2fd]">Fleet efficiency</h2>
-              <p className="mt-0.5 text-xs text-[#8e90a2]">
+          <section className="overflow-hidden rounded-xl border border-edge bg-panel">
+            <header className="border-b border-edge px-5 py-4">
+              <h2 className="font-semibold text-ink">Fleet efficiency</h2>
+              <p className="mt-0.5 text-xs text-ink-dim">
                 Last {efficiency[0]?.period_days ?? 7} days · tap a row for detail
               </p>
             </header>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="bg-[#0b1326] text-xs uppercase tracking-wider text-[#8e90a2]">
+                <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
                   <tr>
                     <th className="px-5 py-3" />
                     <th className="px-5 py-3">Vehicle</th>
@@ -577,10 +577,10 @@ export function FleetOperationsOverview({
                     <th className="px-5 py-3">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#2d3449] text-[#c4c5d9]">
+                <tbody className="divide-y divide-divider text-ink-mid">
                   {efficiency.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-6 text-[#8e90a2]">
+                      <td colSpan={8} className="px-5 py-6 text-ink-dim">
                         No efficiency data yet.
                       </td>
                     </tr>
@@ -591,30 +591,30 @@ export function FleetOperationsOverview({
                       return (
                         <Fragment key={row.vehicle_id}>
                           <tr
-                            className="cursor-pointer hover:bg-[#222a3d]/50"
+                            className="cursor-pointer hover:bg-panel-hover/50"
                             onClick={() =>
                               setExpandedVehicle(open ? null : row.vehicle_id)
                             }
                           >
                             <td className="px-5 py-3">
                               {open ? (
-                                <ChevronDown className="h-4 w-4 text-[#8e90a2]" />
+                                <ChevronDown className="h-4 w-4 text-ink-dim" />
                               ) : (
-                                <ChevronRight className="h-4 w-4 text-[#8e90a2]" />
+                                <ChevronRight className="h-4 w-4 text-ink-dim" />
                               )}
                             </td>
-                            <td className="px-5 py-3 font-medium text-[#dae2fd]">
+                            <td className="px-5 py-3 font-medium text-ink">
                               {row.license_plate}
                             </td>
                             <td className="px-5 py-3">{row.driver_name ?? '—'}</td>
                             <td className="px-5 py-3 font-mono">{row.distance_km} km</td>
                             <td className="px-5 py-3 font-mono">{row.fuel_used_liters.toFixed(1)}L</td>
-                            <td className="px-5 py-3 font-mono text-[#b8c3ff]">
+                            <td className="px-5 py-3 font-mono text-brand">
                               {row.efficiency_km_l != null
                                 ? `${row.efficiency_km_l.toFixed(1)} km/L`
                                 : '—'}
                             </td>
-                            <td className="px-5 py-3 font-mono text-[#8e90a2]">
+                            <td className="px-5 py-3 font-mono text-ink-dim">
                               {row.expected_efficiency_km_l.toFixed(1)} km/L
                             </td>
                             <td className="px-5 py-3">
@@ -622,12 +622,12 @@ export function FleetOperationsOverview({
                             </td>
                           </tr>
                           {open && (
-                            <tr className="bg-[#0b1326]/60">
-                              <td colSpan={8} className="px-5 py-3 text-xs text-[#8e90a2]">
+                            <tr className="bg-canvas/60">
+                              <td colSpan={8} className="px-5 py-3 text-xs text-ink-dim">
                                 <ul className="grid gap-1 sm:grid-cols-2">
                                   <li>
                                     Preventable loss:{' '}
-                                    <span className="text-[#ffb4ab]">
+                                    <span className="text-bad">
                                       {formatNgn(row.total_loss_ngn)}
                                     </span>
                                   </li>
@@ -650,7 +650,7 @@ export function FleetOperationsOverview({
                                     e.stopPropagation();
                                     onViewOnMap(row.vehicle_id);
                                   }}
-                                  className="mt-2 inline-flex items-center gap-1 text-[#b8c3ff]"
+                                  className="mt-2 inline-flex items-center gap-1 text-brand"
                                 >
                                   <MapPin className="h-3 w-3" /> View on live map
                                 </button>
@@ -667,31 +667,31 @@ export function FleetOperationsOverview({
           </section>
 
           {/* 4. Live fuel events */}
-          <section className="rounded-xl border border-[#434656] bg-[#171f33]">
-            <header className="flex items-center justify-between border-b border-[#434656] px-5 py-4">
+          <section className="rounded-xl border border-edge bg-panel">
+            <header className="flex items-center justify-between border-b border-edge px-5 py-4">
               <div>
-                <h2 className="flex items-center gap-2 font-semibold text-[#dae2fd]">
-                  <Radio className="h-4 w-4 text-[#4edea3]" />
+                <h2 className="flex items-center gap-2 font-semibold text-ink">
+                  <Radio className="h-4 w-4 text-good" />
                   Fuel anomalies feed
                 </h2>
-                <p className="mt-0.5 text-xs text-[#8e90a2]">
+                <p className="mt-0.5 text-xs text-ink-dim">
                   Confidence, context, and replay for each flag
                 </p>
               </div>
-              <span className="rounded-full bg-[#4edea3]/15 px-2 py-0.5 text-[10px] uppercase text-[#4edea3]">
+              <span className="rounded-full bg-good/15 px-2 py-0.5 text-[10px] uppercase text-good">
                 Live
               </span>
             </header>
             {liveFeed.length === 0 ? (
-              <p className="px-5 py-6 text-sm text-[#8e90a2]">No recent fuel events.</p>
+              <p className="px-5 py-6 text-sm text-ink-dim">No recent fuel events.</p>
             ) : (
-              <ul className="divide-y divide-[#2d3449]">
+              <ul className="divide-y divide-divider">
                 {liveFeed.map((item) => (
                   <li key={item.id} className="px-5 py-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs text-[#b8c3ff]">
+                          <span className="font-mono text-xs text-brand">
                             {formatEventTime(item.time)}
                           </span>
                           <ConfidenceBadge
@@ -699,16 +699,16 @@ export function FleetOperationsOverview({
                             severity={item.severityLevel}
                           />
                         </div>
-                        <p className="mt-1 text-sm font-medium text-[#dae2fd]">{item.label}</p>
-                        <p className="text-xs text-[#c4c5d9]">
+                        <p className="mt-1 text-sm font-medium text-ink">{item.label}</p>
+                        <p className="text-xs text-ink-mid">
                           {item.vehicle} · {item.detail}
                         </p>
-                        <p className="mt-1 text-[10px] uppercase text-[#8e90a2]">
+                        <p className="mt-1 text-[10px] uppercase text-ink-dim">
                           Why flagged
                         </p>
                         <ul className="mt-0.5 space-y-0.5">
                           {item.reasons.map((line) => (
-                            <li key={line} className="text-xs text-[#8e90a2]">
+                            <li key={line} className="text-xs text-ink-dim">
                               • {line}
                             </li>
                           ))}
@@ -718,7 +718,7 @@ export function FleetOperationsOverview({
                         <button
                           type="button"
                           onClick={() => setReplayTarget(item.replayTarget!)}
-                          className="shrink-0 rounded-lg border border-[#2e5bff]/50 bg-[#2e5bff]/15 px-3 py-2 text-xs font-medium text-[#b8c3ff]"
+                          className="shrink-0 rounded-lg border border-accent/50 bg-accent/15 px-3 py-2 text-xs font-medium text-brand"
                         >
                           <Play className="mr-1 inline h-3 w-3" />
                           {TRUST_COPY.investigateCta} ▶
@@ -734,28 +734,28 @@ export function FleetOperationsOverview({
 
         <div className="space-y-6">
           {/* 6. Hero loss card — product anchor */}
-          <section className="rounded-xl border border-[#ffb4ab]/25 bg-gradient-to-b from-[#93000a]/20 to-[#171f33] p-5">
-            <p className="text-xs uppercase tracking-wider text-[#ffb4ab]">
+          <section className="rounded-xl border border-bad/25 bg-gradient-to-b from-bad-deep/20 to-panel p-5">
+            <p className="text-xs uppercase tracking-wider text-bad">
               Your {periodDays}-day preventable fuel loss
             </p>
-            <p className="mt-2 text-3xl font-bold text-[#dae2fd]">{formatNgn(preventableLoss)}</p>
-            <p className="mt-2 text-sm text-[#4edea3]">
+            <p className="mt-2 text-3xl font-bold text-ink">{formatNgn(preventableLoss)}</p>
+            <p className="mt-2 text-sm text-good">
               Potential annual savings opportunity:{' '}
               <span className="font-semibold">{formatMillionsNgn(annualSavingsOpportunity)}</span>
             </p>
-            <p className="mt-2 text-xs text-[#8e90a2]">
+            <p className="mt-2 text-xs text-ink-dim">
               Investigate flagged events before treating as final — sensor and receipt evidence
               available.
             </p>
           </section>
 
           {/* 7. Vehicle health */}
-          <section className="rounded-xl border border-[#434656] bg-[#171f33] p-5">
-            <h2 className="flex items-center gap-2 font-semibold text-[#dae2fd]">
+          <section className="rounded-xl border border-edge bg-panel p-5">
+            <h2 className="flex items-center gap-2 font-semibold text-ink">
               <Truck className="h-4 w-4" /> Vehicle health
             </h2>
             {vehicleHealth.length === 0 ? (
-              <p className="mt-3 text-sm text-[#4edea3]">All tracked vehicles look healthy.</p>
+              <p className="mt-3 text-sm text-good">All tracked vehicles look healthy.</p>
             ) : (
               <ul className="mt-3 space-y-2">
                 {vehicleHealth.map((v) => (
@@ -763,16 +763,16 @@ export function FleetOperationsOverview({
                     <button
                       type="button"
                       onClick={() => onViewOnMap(v.id)}
-                      className="flex w-full items-center justify-between rounded-lg border border-[#434656] bg-[#0b1326] px-3 py-2 text-left text-sm hover:bg-[#222a3d]"
+                      className="flex w-full items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-left text-sm hover:bg-panel-hover"
                     >
-                      <span className="font-mono text-[#b8c3ff]">{v.plate}</span>
+                      <span className="font-mono text-brand">{v.plate}</span>
                       <span
                         className={
                           v.severity === 'bad'
-                            ? 'text-[#ffb4ab]'
+                            ? 'text-bad'
                             : v.severity === 'warn'
-                              ? 'text-[#ffb95f]'
-                              : 'text-[#8e90a2]'
+                              ? 'text-warn'
+                              : 'text-ink-dim'
                         }
                       >
                         {v.issue}
@@ -785,30 +785,30 @@ export function FleetOperationsOverview({
           </section>
 
           {/* 8. Driver accountability */}
-          <section className="rounded-xl border border-[#434656] bg-[#171f33] p-5">
-            <h2 className="flex items-center gap-2 font-semibold text-[#dae2fd]">
+          <section className="rounded-xl border border-edge bg-panel p-5">
+            <h2 className="flex items-center gap-2 font-semibold text-ink">
               <Users className="h-4 w-4" /> Driver efficiency
             </h2>
             <ol className="mt-3 space-y-2">
               {driverRanking.length === 0 ? (
-                <li className="text-sm text-[#8e90a2]">No driver data.</li>
+                <li className="text-sm text-ink-dim">No driver data.</li>
               ) : (
                 driverRanking.map((d, i) => (
                   <li
                     key={d.name}
-                    className="flex items-center justify-between rounded-lg border border-[#434656] bg-[#0b1326] px-3 py-2"
+                    className="flex items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2"
                   >
-                    <span className="text-sm text-[#c4c5d9]">
-                      <span className="mr-2 text-[#8e90a2]">{i + 1}.</span>
+                    <span className="text-sm text-ink-mid">
+                      <span className="mr-2 text-ink-dim">{i + 1}.</span>
                       {d.name}
                     </span>
                     <span
                       className={`font-mono text-sm font-semibold ${
                         d.score >= 75
-                          ? 'text-[#4edea3]'
+                          ? 'text-good'
                           : d.score >= 50
-                            ? 'text-[#ffb95f]'
-                            : 'text-[#ffb4ab]'
+                            ? 'text-warn'
+                            : 'text-bad'
                       }`}
                     >
                       {d.score}/100
@@ -821,23 +821,23 @@ export function FleetOperationsOverview({
           </section>
 
           {/* Evidence replay — primary differentiator */}
-          <section className="rounded-xl border-2 border-[#2e5bff]/40 bg-[#2e5bff]/10 p-5">
-            <p className="text-sm font-semibold text-[#dae2fd]">Evidence replay</p>
-            <p className="mt-1 text-xs text-[#8e90a2]">
+          <section className="rounded-xl border-2 border-accent/40 bg-accent/10 p-5">
+            <p className="text-sm font-semibold text-ink">Evidence replay</p>
+            <p className="mt-1 text-xs text-ink-dim">
               Map + fuel graph + timeline — closes disputes with data, not accusations
             </p>
             <div className="mt-4 flex flex-col gap-2">
               <button
                 type="button"
                 onClick={onOpenAnomalies}
-                className="flex items-center justify-center gap-2 rounded-lg bg-[#2e5bff] py-3 text-sm font-semibold text-white shadow-lg shadow-[#2e5bff]/25"
+                className="flex items-center justify-center gap-2 rounded-lg bg-accent py-3 text-sm font-semibold text-white shadow-lg shadow-accent/25"
               >
                 <Play className="h-4 w-4" /> {TRUST_COPY.viewEvidenceCta} ▶
               </button>
               <button
                 type="button"
                 onClick={() => onOpenLive()}
-                className="rounded-lg border border-[#434656] py-2.5 text-sm text-[#c4c5d9]"
+                className="rounded-lg border border-edge py-2.5 text-sm text-ink-mid"
               >
                 Live monitoring map
               </button>
@@ -863,20 +863,20 @@ function MetricPill({
   tone?: 'default' | 'good' | 'warn' | 'bad';
 }) {
   const valueColor = {
-    default: 'text-[#dae2fd]',
-    good: 'text-[#4edea3]',
-    warn: 'text-[#ffb95f]',
-    bad: 'text-[#ffb4ab]',
+    default: 'text-ink',
+    good: 'text-good',
+    warn: 'text-warn',
+    bad: 'text-bad',
   }[tone];
 
   return (
     <div>
-      <div className="flex items-center gap-1.5 text-[#8e90a2]">
+      <div className="flex items-center gap-1.5 text-ink-dim">
         <Icon className="h-3.5 w-3.5" />
         <span className="text-[10px] uppercase tracking-wider">{label}</span>
       </div>
       <p className={`mt-1 text-xl font-bold tabular-nums sm:text-2xl ${valueColor}`}>{value}</p>
-      {hint && <p className="mt-0.5 text-[10px] text-[#8e90a2]">{hint}</p>}
+      {hint && <p className="mt-0.5 text-[10px] text-ink-dim">{hint}</p>}
     </div>
   );
 }
@@ -889,9 +889,9 @@ function StatusChip({
   tone: 'good' | 'warn' | 'bad';
 }) {
   const cls = {
-    good: 'bg-[#4edea3]/15 text-[#4edea3]',
-    warn: 'bg-[#ffb95f]/15 text-[#ffb95f]',
-    bad: 'bg-[#ffb4ab]/15 text-[#ffb4ab]',
+    good: 'bg-good/15 text-good',
+    warn: 'bg-warn/15 text-warn',
+    bad: 'bg-bad/15 text-bad',
   }[tone];
   return (
     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${cls}`}>
@@ -908,9 +908,9 @@ function ConfidenceBadge({
   severity: 'HIGH' | 'MEDIUM' | 'LOW';
 }) {
   const severityCls = {
-    HIGH: 'bg-[#ffb4ab]/20 text-[#ffb4ab]',
-    MEDIUM: 'bg-[#ffb95f]/20 text-[#ffb95f]',
-    LOW: 'bg-[#8e90a2]/20 text-[#c4c5d9]',
+    HIGH: 'bg-bad/20 text-bad',
+    MEDIUM: 'bg-warn/20 text-warn',
+    LOW: 'bg-ink-dim/20 text-ink-mid',
   }[severity];
   return (
     <span

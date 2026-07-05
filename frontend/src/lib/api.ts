@@ -164,6 +164,39 @@ export interface DashboardSummary {
   estimated_theft_loss_ngn: number;
 }
 
+export interface EstimatedConsumptionRow {
+  vehicle_id: string;
+  license_plate: string;
+  model: string | null;
+  driver_name: string | null;
+  distance_km: number;
+  efficiency_km_l: number;
+  efficiency_mpg: number | null;
+  estimated_fuel_liters: number;
+  estimated_cost_ngn: number;
+}
+
+export interface EstimatedConsumptionTotals {
+  distance_km: number;
+  estimated_fuel_liters: number;
+  estimated_cost_ngn: number;
+}
+
+export interface EstimatedConsumptionDay {
+  date: string;
+  vehicles: EstimatedConsumptionRow[];
+  totals: EstimatedConsumptionTotals;
+}
+
+export interface EstimatedConsumptionResponse {
+  period_days: number;
+  price_per_liter_ngn: number;
+  basis: string;
+  vehicles: EstimatedConsumptionRow[];
+  daily: EstimatedConsumptionDay[];
+  totals: EstimatedConsumptionTotals;
+}
+
 export interface FuelAnomaly {
   id: string;
   vehicle_id?: string | null;
@@ -557,6 +590,7 @@ export interface VehicleTrack {
   color: string;
   path: { lat: number; lng: number }[];
   heading: number;
+  tripDistanceKm: number;
   current: {
     lat: number;
     lng: number;

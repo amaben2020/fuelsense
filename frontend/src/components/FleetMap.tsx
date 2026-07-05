@@ -53,20 +53,20 @@ export function FleetMap({
   const isDark = theme === 'dark';
 
   const shellClass = isDark
-    ? 'overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]'
+    ? 'overflow-hidden rounded-lg border border-edge bg-panel'
     : 'overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60';
-  const headerBorder = isDark ? 'border-[#434656]' : 'border-slate-100';
+  const headerBorder = isDark ? 'border-edge' : 'border-slate-100';
   const titleClass = isDark
-    ? 'font-semibold text-[#dae2fd]'
+    ? 'font-semibold text-ink'
     : 'font-semibold text-slate-900';
-  const subClass = isDark ? 'text-xs text-[#8e90a2]' : 'text-xs text-slate-500';
+  const subClass = isDark ? 'text-xs text-ink-dim' : 'text-xs text-slate-500';
 
   if (!FLEET_MAPS_KEY) {
     return (
       <div
         className={`flex h-[420px] items-center justify-center p-8 text-center ${
           isDark
-            ? 'rounded-lg border border-[#434656] bg-[#171f33]'
+            ? 'rounded-lg border border-edge bg-panel'
             : 'rounded-xl bg-white shadow-sm ring-1 ring-slate-200/60'
         }`}
       >
@@ -74,14 +74,14 @@ export function FleetMap({
           <p
             className={
               isDark
-                ? 'font-medium text-[#dae2fd]'
+                ? 'font-medium text-ink'
                 : 'font-medium text-slate-800'
             }
           >
             Map unavailable
           </p>
           <p
-            className={`mt-2 text-sm ${isDark ? 'text-[#8e90a2]' : 'text-slate-500'}`}
+            className={`mt-2 text-sm ${isDark ? 'text-ink-dim' : 'text-slate-500'}`}
           >
             Set <code className="text-xs">GOOGLE_MAPS_API_KEY</code> in{' '}
             <code className="text-xs">.env.local</code>
@@ -103,7 +103,7 @@ export function FleetMap({
           </p>
         </div>
         <div
-          className={`flex gap-3 text-xs ${isDark ? 'text-[#8e90a2]' : 'text-slate-500'}`}
+          className={`flex gap-3 text-xs ${isDark ? 'text-ink-dim' : 'text-slate-500'}`}
         >
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-emerald-500" /> Online

@@ -53,23 +53,23 @@ function Pagination({
 }) {
   if (totalPages <= 1) return null;
   return (
-    <div className="flex items-center justify-between border-t border-[#434656] bg-[#0b1326] px-6 py-3">
+    <div className="flex items-center justify-between border-t border-edge bg-canvas px-6 py-3">
       <button
         type="button"
         disabled={page <= 1}
         onClick={() => onPage(page - 1)}
-        className="rounded-lg border border-[#434656] px-3 py-1 text-xs disabled:opacity-40"
+        className="rounded-lg border border-edge px-3 py-1 text-xs disabled:opacity-40"
       >
         Previous
       </button>
-      <span className="text-xs text-[#8e90a2]">
+      <span className="text-xs text-ink-dim">
         Page {page} of {totalPages}
       </span>
       <button
         type="button"
         disabled={page >= totalPages}
         onClick={() => onPage(page + 1)}
-        className="rounded-lg border border-[#434656] px-3 py-1 text-xs disabled:opacity-40"
+        className="rounded-lg border border-edge px-3 py-1 text-xs disabled:opacity-40"
       >
         Next
       </button>
@@ -94,8 +94,8 @@ function TabButton({
       onClick={onClick}
       className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-3 text-xs font-medium transition-colors sm:text-sm ${
         active
-          ? 'border-[#b8c3ff] text-[#b8c3ff]'
-          : 'border-transparent text-[#8e90a2] hover:text-[#c4c5d9]'
+          ? 'border-brand text-brand'
+          : 'border-transparent text-ink-dim hover:text-ink-mid'
       }`}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -113,11 +113,11 @@ function SummaryCardsSkeleton({ columns }: { columns: 2 | 3 }) {
       {Array.from({ length: columns }).map((_, index) => (
         <div
           key={index}
-          className="rounded-lg border border-[#434656] bg-[#171f33] p-4"
+          className="rounded-lg border border-edge bg-panel p-4"
         >
-          <div className="h-3 w-24 animate-pulse rounded bg-[#2d3449]" />
-          <div className="mt-3 h-8 w-32 animate-pulse rounded bg-[#2d3449]" />
-          <div className="mt-2 h-3 w-40 animate-pulse rounded bg-[#2d3449]" />
+          <div className="h-3 w-24 animate-pulse rounded bg-divider" />
+          <div className="mt-3 h-8 w-32 animate-pulse rounded bg-divider" />
+          <div className="mt-2 h-3 w-40 animate-pulse rounded bg-divider" />
         </div>
       ))}
     </div>
@@ -142,8 +142,8 @@ export function ReceiptsPanel({
   const [activeTab, setActiveTab] = useState<ReceiptsTab>('station');
   const [showForm, setShowForm] = useState(false);
   const [vehicleId, setVehicleId] = useState(fleet[0]?.id ?? '');
-  const [declared, setDeclared] = useState('60');
-  const [merchant, setMerchant] = useState('TotalEnergies Ikeja');
+  const [declared, setDeclared] = useState('');
+  const [merchant, setMerchant] = useState('');
   const [receiptRef, setReceiptRef] = useState('');
   const [purchasedAtLocal, setPurchasedAtLocal] = useState(() => toDatetimeLocalValue());
   const [submitting, setSubmitting] = useState(false);
@@ -215,28 +215,28 @@ export function ReceiptsPanel({
       {activeTab === 'reconciled' &&
         (summary ? (
           <div className="grid min-h-[7.5rem] gap-4 sm:grid-cols-3">
-            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-              <p className="text-xs text-[#8e90a2]">Grand total (receipt cost)</p>
-              <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
+            <div className="rounded-lg border border-edge bg-panel p-4">
+              <p className="text-xs text-ink-dim">Grand total (receipt cost)</p>
+              <p className="mt-1 text-2xl font-bold text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
               </p>
-              <p className="mt-1 text-xs text-[#8e90a2]">
+              <p className="mt-1 text-xs text-ink-dim">
                 {summary.grand_total.receipt_count} receipts logged
               </p>
             </div>
-            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-              <p className="text-xs text-[#8e90a2]">Receipt liters (manual)</p>
-              <p className="mt-1 font-mono text-2xl font-bold text-[#b8c3ff]">
+            <div className="rounded-lg border border-edge bg-panel p-4">
+              <p className="text-xs text-ink-dim">Receipt liters (manual)</p>
+              <p className="mt-1 font-mono text-2xl font-bold text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </p>
-              <p className="mt-1 text-xs text-[#8e90a2]">Driver-entered at fuel station</p>
+              <p className="mt-1 text-xs text-ink-dim">Driver-entered at fuel station</p>
             </div>
-            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-              <p className="text-xs text-[#8e90a2]">OBD actual (FMC150)</p>
-              <p className="mt-1 font-mono text-2xl font-bold text-[#4edea3]">
+            <div className="rounded-lg border border-edge bg-panel p-4">
+              <p className="text-xs text-ink-dim">OBD actual (FMC150)</p>
+              <p className="mt-1 font-mono text-2xl font-bold text-good">
                 {summary.grand_total.total_obd_liters.toFixed(1)} L
               </p>
-              <p className="mt-1 text-xs text-[#ffb4ab]">
+              <p className="mt-1 text-xs text-bad">
                 {theftCount} flagged for review on this page
               </p>
             </div>
@@ -248,21 +248,21 @@ export function ReceiptsPanel({
       {activeTab === 'station' &&
         (summary ? (
           <div className="grid min-h-[7.5rem] gap-4 sm:grid-cols-2">
-            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-              <p className="text-xs text-[#8e90a2]">Total logged at fuel stations</p>
-              <p className="mt-1 text-2xl font-bold text-[#dae2fd]">
+            <div className="rounded-lg border border-edge bg-panel p-4">
+              <p className="text-xs text-ink-dim">Total logged at fuel stations</p>
+              <p className="mt-1 text-2xl font-bold text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
               </p>
-              <p className="mt-1 text-xs text-[#8e90a2]">
+              <p className="mt-1 text-xs text-ink-dim">
                 {summary.grand_total.receipt_count} receipts · as entered by drivers
               </p>
             </div>
-            <div className="rounded-lg border border-[#434656] bg-[#171f33] p-4">
-              <p className="text-xs text-[#8e90a2]">Receipt liters (manual)</p>
-              <p className="mt-1 font-mono text-2xl font-bold text-[#b8c3ff]">
+            <div className="rounded-lg border border-edge bg-panel p-4">
+              <p className="text-xs text-ink-dim">Receipt liters (manual)</p>
+              <p className="mt-1 font-mono text-2xl font-bold text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </p>
-              <p className="mt-1 text-xs text-[#8e90a2]">
+              <p className="mt-1 text-xs text-ink-dim">
                 Switch to Reconciled to compare against FMC150 OBD
               </p>
             </div>
@@ -271,13 +271,13 @@ export function ReceiptsPanel({
           <SummaryCardsSkeleton columns={2} />
         ))}
 
-      <div className="overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#434656] px-6 py-4">
+      <div className="overflow-hidden rounded-lg border border-edge bg-panel">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-edge px-6 py-4">
           <div>
-            <h2 className="flex items-center gap-2 font-semibold text-[#dae2fd]">
+            <h2 className="flex items-center gap-2 font-semibold text-ink">
               <Receipt className="h-4 w-4" /> Receipts
             </h2>
-            <p className="mt-1 text-xs text-[#8e90a2]">
+            <p className="mt-1 text-xs text-ink-dim">
               {activeTab === 'station'
                 ? 'Exact pump purchase times — when the driver paid and logged liters at the station'
                 : 'Timestamp reconciliation — use View event for pump, OBD, and ignition timeline'}
@@ -286,13 +286,13 @@ export function ReceiptsPanel({
           <button
             type="button"
             onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-[#2e5bff] px-3 py-2 text-xs font-medium text-white"
+            className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white"
           >
             Log receipt
           </button>
         </div>
 
-        <div className="flex border-b border-[#434656] px-2 sm:px-4">
+        <div className="flex border-b border-edge px-2 sm:px-4">
           <TabButton
             active={activeTab === 'station'}
             onClick={() => setActiveTab('station')}
@@ -308,14 +308,14 @@ export function ReceiptsPanel({
         </div>
 
         {showForm && (
-          <div className="border-b border-[#434656] bg-[#0b1326] px-6 py-4">
+          <div className="border-b border-edge bg-canvas px-6 py-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <label className="text-xs text-[#8e90a2]">
+              <label className="text-xs text-ink-dim">
                 Vehicle
                 <select
                   value={vehicleId}
                   onChange={(e) => setVehicleId(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-[#434656] bg-[#171f33] px-2 py-2 text-sm text-[#dae2fd]"
+                  className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
                 >
                   {fleet.map((v) => (
                     <option key={v.id} value={v.id}>
@@ -324,38 +324,38 @@ export function ReceiptsPanel({
                   ))}
                 </select>
               </label>
-              <label className="text-xs text-[#8e90a2]">
+              <label className="text-xs text-ink-dim">
                 Purchase time (exact)
                 <input
                   type="datetime-local"
                   value={purchasedAtLocal}
                   onChange={(e) => setPurchasedAtLocal(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-[#434656] bg-[#171f33] px-2 py-2 text-sm text-[#dae2fd]"
+                  className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
                 />
               </label>
-              <label className="text-xs text-[#8e90a2]">
+              <label className="text-xs text-ink-dim">
                 Receipt liters
                 <input
                   type="number"
                   value={declared}
                   onChange={(e) => setDeclared(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-[#434656] bg-[#171f33] px-2 py-2 text-sm text-[#dae2fd]"
+                  className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
                 />
               </label>
-              <label className="text-xs text-[#8e90a2]">
+              <label className="text-xs text-ink-dim">
                 Merchant
                 <input
                   value={merchant}
                   onChange={(e) => setMerchant(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-[#434656] bg-[#171f33] px-2 py-2 text-sm text-[#dae2fd]"
+                  className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
                 />
               </label>
-              <label className="text-xs text-[#8e90a2]">
+              <label className="text-xs text-ink-dim">
                 Receipt #
                 <input
                   value={receiptRef}
                   onChange={(e) => setReceiptRef(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-[#434656] bg-[#171f33] px-2 py-2 text-sm text-[#dae2fd]"
+                  className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
                 />
               </label>
             </div>
@@ -363,28 +363,28 @@ export function ReceiptsPanel({
               type="button"
               disabled={submitting}
               onClick={submitReceipt}
-              className="mt-3 rounded-lg bg-[#4edea3] px-4 py-2 text-xs font-medium text-[#0b1326]"
+              className="mt-3 rounded-lg bg-good px-4 py-2 text-xs font-medium text-canvas"
             >
               {submitting ? 'Saving…' : 'Save receipt — match OBD actual'}
             </button>
           </div>
         )}
 
-        {message && <p className="px-6 py-2 text-xs text-[#b8c3ff]">{message}</p>}
+        {message && <p className="px-6 py-2 text-xs text-brand">{message}</p>}
 
         {data === null ? (
           <div className="min-h-[18rem] animate-pulse px-6 py-8">
-            <div className="mb-4 h-4 w-40 rounded bg-[#2d3449]" />
+            <div className="mb-4 h-4 w-40 rounded bg-divider" />
             <div className="space-y-3">
               {Array.from({ length: 6 }).map((_, index) => (
-                <div key={index} className="h-10 rounded bg-[#2d3449]/70" />
+                <div key={index} className="h-10 rounded bg-divider/70" />
               ))}
             </div>
           </div>
         ) : purchases.length === 0 ? (
-          <p className="p-6 text-sm text-[#8e90a2]">
+          <p className="p-6 text-sm text-ink-dim">
             No receipts yet. Run{' '}
-            <code className="text-[#b8c3ff]">npm run seed-fuel-purchases</code> or log a receipt
+            <code className="text-brand">npm run seed-fuel-purchases</code> or log a receipt
             above.
           </p>
         ) : activeTab === 'station' ? (
@@ -428,7 +428,7 @@ function StationReceiptsTable({
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="bg-[#0b1326] text-xs uppercase tracking-wider text-[#8e90a2]">
+        <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
           <tr>
             <th className="px-6 py-3">Date</th>
             <th className="px-6 py-3">Purchase time</th>
@@ -441,7 +441,7 @@ function StationReceiptsTable({
             <th className="px-6 py-3" />
           </tr>
         </thead>
-        <tbody className="divide-y divide-[#2d3449] text-[#c4c5d9]">
+        <tbody className="divide-y divide-divider text-ink-mid">
           {groupedByDate.map(([dayKey, dayPurchases]) => {
             const dayLabel = formatReceiptDate(dayPurchases[0].timestamp);
             const dayTotals = dailyTotalsByDate.get(dayKey) ?? [];
@@ -460,18 +460,18 @@ function StationReceiptsTable({
           })}
         </tbody>
         {summary && (
-          <tfoot className="border-t-2 border-[#434656] bg-[#0b1326] text-sm">
+          <tfoot className="border-t-2 border-edge bg-canvas text-sm">
             <tr>
-              <td colSpan={4} className="px-6 py-4 font-semibold text-[#dae2fd]">
+              <td colSpan={4} className="px-6 py-4 font-semibold text-ink">
                 Grand total (fuel station)
               </td>
-              <td className="px-6 py-4 font-mono font-semibold text-[#b8c3ff]">
+              <td className="px-6 py-4 font-mono font-semibold text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </td>
-              <td className="px-6 py-4 font-mono font-bold text-[#dae2fd]">
+              <td className="px-6 py-4 font-mono font-bold text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
               </td>
-              <td colSpan={3} className="px-6 py-4 text-xs text-[#8e90a2]">
+              <td colSpan={3} className="px-6 py-4 text-xs text-ink-dim">
                 {summary.grand_total.receipt_count} receipts
               </td>
             </tr>
@@ -499,7 +499,7 @@ function ReconciledReceiptsTable({
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[920px] text-left text-sm">
-        <thead className="bg-[#0b1326] text-xs uppercase tracking-wider text-[#8e90a2]">
+        <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
           <tr>
             <th className="px-6 py-3">Date</th>
             <th className="px-6 py-3">Purchase time</th>
@@ -514,7 +514,7 @@ function ReconciledReceiptsTable({
             <th className="px-6 py-3" />
           </tr>
         </thead>
-        <tbody className="divide-y divide-[#2d3449] text-[#c4c5d9]">
+        <tbody className="divide-y divide-divider text-ink-mid">
           {groupedByDate.map(([dayKey, dayPurchases]) => {
             const dayLabel = formatReceiptDate(dayPurchases[0].timestamp);
             const dayTotals = dailyTotalsByDate.get(dayKey) ?? [];
@@ -531,18 +531,18 @@ function ReconciledReceiptsTable({
           })}
         </tbody>
         {summary && (
-          <tfoot className="border-t-2 border-[#434656] bg-[#0b1326] text-sm">
+          <tfoot className="border-t-2 border-edge bg-canvas text-sm">
             <tr>
-              <td colSpan={5} className="px-6 py-4 font-semibold text-[#dae2fd]">
+              <td colSpan={5} className="px-6 py-4 font-semibold text-ink">
                 Grand total (reconciled)
               </td>
-              <td className="px-6 py-4 font-mono font-semibold text-[#b8c3ff]">
+              <td className="px-6 py-4 font-mono font-semibold text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </td>
-              <td className="px-6 py-4 font-mono font-semibold text-[#4edea3]">
+              <td className="px-6 py-4 font-mono font-semibold text-good">
                 {summary.grand_total.total_obd_liters.toFixed(1)} L
               </td>
-              <td className="px-6 py-4 font-mono text-[#ffb4ab]">
+              <td className="px-6 py-4 font-mono text-bad">
                 −
                 {Math.max(
                   0,
@@ -554,10 +554,10 @@ function ReconciledReceiptsTable({
                 )}{' '}
                 L
               </td>
-              <td className="px-6 py-4 font-mono font-bold text-[#dae2fd]">
+              <td className="px-6 py-4 font-mono font-bold text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
               </td>
-              <td colSpan={2} className="px-6 py-4 text-xs text-[#8e90a2]">
+              <td colSpan={2} className="px-6 py-4 text-xs text-ink-dim">
                 {summary.grand_total.receipt_count} receipts
               </td>
             </tr>
@@ -573,7 +573,7 @@ function ViewEventButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="whitespace-nowrap rounded-lg border border-[#2e5bff]/40 bg-[#2e5bff]/15 px-2.5 py-1.5 text-xs font-medium text-[#b8c3ff] hover:bg-[#2e5bff]/25"
+      className="whitespace-nowrap rounded-lg border border-accent/40 bg-accent/15 px-2.5 py-1.5 text-xs font-medium text-brand hover:bg-accent/25"
     >
       View event
     </button>
@@ -600,11 +600,11 @@ function StationDateGroup({
 }) {
   return (
     <>
-      <tr className="bg-[#222a3d]/60">
-        <td colSpan={9} className="px-6 py-2 text-xs font-semibold uppercase tracking-wider text-[#b8c3ff]">
+      <tr className="bg-panel-hover/60">
+        <td colSpan={9} className="px-6 py-2 text-xs font-semibold uppercase tracking-wider text-brand">
           {dayLabel}
           {dayCost > 0 && (
-            <span className="ml-3 font-mono normal-case text-[#8e90a2]">
+            <span className="ml-3 font-mono normal-case text-ink-dim">
               Day total {formatNgn(dayCost)}
             </span>
           )}
@@ -614,17 +614,17 @@ function StationDateGroup({
         <StationReceiptRow key={purchase.id} purchase={purchase} onViewEvent={onViewEvent} />
       ))}
       {dayTotals.map((row) => (
-        <tr key={`${dayLabel}-${row.driver_name}-station`} className="bg-[#0b1326]/80">
-          <td colSpan={4} className="px-6 py-2 text-xs text-[#8e90a2]">
+        <tr key={`${dayLabel}-${row.driver_name}-station`} className="bg-canvas/80">
+          <td colSpan={4} className="px-6 py-2 text-xs text-ink-dim">
             Daily total · {row.driver_name}
           </td>
-          <td className="px-6 py-2 text-xs text-[#8e90a2]">
+          <td className="px-6 py-2 text-xs text-ink-dim">
             {row.receipt_count} receipt{row.receipt_count === 1 ? '' : 's'}
           </td>
-          <td className="px-6 py-2 font-mono text-xs text-[#b8c3ff]">
+          <td className="px-6 py-2 font-mono text-xs text-brand">
             {row.total_receipt_liters.toFixed(1)} L
           </td>
-          <td className="px-6 py-2 font-mono text-xs font-semibold text-[#dae2fd]">
+          <td className="px-6 py-2 font-mono text-xs font-semibold text-ink">
             {formatNgn(row.total_cost_ngn)}
           </td>
           <td colSpan={2} />
@@ -655,11 +655,11 @@ function ReconciledDateGroup({
 
   return (
     <>
-      <tr className="bg-[#222a3d]/60">
-        <td colSpan={11} className="px-6 py-2 text-xs font-semibold uppercase tracking-wider text-[#b8c3ff]">
+      <tr className="bg-panel-hover/60">
+        <td colSpan={11} className="px-6 py-2 text-xs font-semibold uppercase tracking-wider text-brand">
           {dayLabel}
           {dayCost > 0 && (
-            <span className="ml-3 font-mono normal-case text-[#8e90a2]">
+            <span className="ml-3 font-mono normal-case text-ink-dim">
               Day total {formatNgn(dayCost)}
             </span>
           )}
@@ -669,20 +669,20 @@ function ReconciledDateGroup({
         <ReconciledReceiptRow key={purchase.id} purchase={purchase} onViewEvent={onViewEvent} />
       ))}
       {dayTotals.map((row) => (
-        <tr key={`${dayLabel}-${row.driver_name}-reconciled`} className="bg-[#0b1326]/80">
-          <td colSpan={5} className="px-6 py-2 text-xs text-[#8e90a2]">
+        <tr key={`${dayLabel}-${row.driver_name}-reconciled`} className="bg-canvas/80">
+          <td colSpan={5} className="px-6 py-2 text-xs text-ink-dim">
             Daily total · {row.driver_name}
           </td>
-          <td className="px-6 py-2 font-mono text-xs text-[#b8c3ff]">
+          <td className="px-6 py-2 font-mono text-xs text-brand">
             {row.total_receipt_liters.toFixed(1)} L
           </td>
-          <td className="px-6 py-2 font-mono text-xs text-[#4edea3]">
+          <td className="px-6 py-2 font-mono text-xs text-good">
             {row.total_obd_liters.toFixed(1)} L
           </td>
-          <td className="px-6 py-2 font-mono text-xs text-[#ffb4ab]">
+          <td className="px-6 py-2 font-mono text-xs text-bad">
             −{Math.max(0, Math.round((row.total_receipt_liters - row.total_obd_liters) * 10) / 10)} L
           </td>
-          <td className="px-6 py-2 font-mono text-xs font-semibold text-[#dae2fd]">
+          <td className="px-6 py-2 font-mono text-xs font-semibold text-ink">
             {formatNgn(row.total_cost_ngn)}
           </td>
           <td colSpan={2} />
@@ -703,13 +703,13 @@ function StationReceiptRow({
   return (
     <tr>
       <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
-      <td className="px-6 py-3 font-mono text-xs text-[#b8c3ff]">{formatReceiptTime(purchaseTime)}</td>
-      <td className="px-6 py-3 font-medium text-[#dae2fd]">{purchase.license_plate}</td>
-      <td className="px-6 py-3 text-[#8e90a2]">{purchase.driver_name ?? '—'}</td>
+      <td className="px-6 py-3 font-mono text-xs text-brand">{formatReceiptTime(purchaseTime)}</td>
+      <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
+      <td className="px-6 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
       <td className="px-6 py-3">{purchase.merchant}</td>
-      <td className="px-6 py-3 font-mono text-[#b8c3ff]">{purchase.liters_declared} L</td>
+      <td className="px-6 py-3 font-mono text-brand">{purchase.liters_declared} L</td>
       <td className="px-6 py-3 font-mono">{formatNgn(purchase.total_cost_ngn)}</td>
-      <td className="px-6 py-3 font-mono text-xs text-[#8e90a2]">
+      <td className="px-6 py-3 font-mono text-xs text-ink-dim">
         {purchase.receipt_reference ?? '—'}
       </td>
       <td className="px-6 py-3">
@@ -740,28 +740,28 @@ function ReconciledReceiptRow({
 
   if (compact) {
     return (
-      <tr className={isTheft ? 'bg-[#93000a]/5' : undefined}>
+      <tr className={isTheft ? 'bg-bad-deep/5' : undefined}>
         <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
-        <td className="px-6 py-3 font-medium text-[#dae2fd]">{purchase.license_plate}</td>
+        <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
         <td className="px-6 py-3 font-mono">{purchase.liters_declared} L</td>
-        <td className={`px-6 py-3 font-mono ${isPending ? 'text-[#ffb95f]' : 'text-[#4edea3]'}`}>
+        <td className={`px-6 py-3 font-mono ${isPending ? 'text-warn' : 'text-good'}`}>
           {obdDisplay}
         </td>
         <td
-          className={`px-6 py-3 font-mono ${isTheft ? 'font-bold text-[#ffb4ab]' : purchase.difference_liters > 0 ? 'text-[#ffb4ab]' : 'text-[#4edea3]'}`}
+          className={`px-6 py-3 font-mono ${isTheft ? 'font-bold text-bad' : purchase.difference_liters > 0 ? 'text-bad' : 'text-good'}`}
         >
           {purchase.difference_liters > 0 ? `−${purchase.difference_liters} L` : '0 L'}
         </td>
         <td className="px-6 py-3 font-mono">{formatNgn(purchase.total_cost_ngn)}</td>
         <td className="px-6 py-3">
           {isTheft ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-[#93000a]/20 px-2 py-1 text-xs text-[#ffb4ab]">
+            <span className="inline-flex items-center gap-1 rounded-full bg-bad-deep/20 px-2 py-1 text-xs text-bad">
               <AlertTriangle className="h-3 w-3" /> Review
             </span>
           ) : isPending ? (
-            <span className="text-xs text-[#ffb95f]">Pending</span>
+            <span className="text-xs text-warn">Pending</span>
           ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-[#4edea3]/20 px-2 py-1 text-xs text-[#4edea3]">
+            <span className="inline-flex items-center gap-1 rounded-full bg-good/20 px-2 py-1 text-xs text-good">
               <Shield className="h-3 w-3" /> Verified
             </span>
           )}
@@ -774,31 +774,31 @@ function ReconciledReceiptRow({
   }
 
   return (
-    <tr className={isTheft ? 'bg-[#93000a]/5' : undefined}>
+    <tr className={isTheft ? 'bg-bad-deep/5' : undefined}>
       <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
-      <td className="px-6 py-3 font-mono text-xs text-[#b8c3ff]">{formatReceiptTime(purchaseTime)}</td>
-      <td className="px-6 py-3 font-medium text-[#dae2fd]">{purchase.license_plate}</td>
-      <td className="px-6 py-3 text-[#8e90a2]">{purchase.driver_name ?? '—'}</td>
+      <td className="px-6 py-3 font-mono text-xs text-brand">{formatReceiptTime(purchaseTime)}</td>
+      <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
+      <td className="px-6 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
       <td className="px-6 py-3">{purchase.merchant}</td>
       <td className="px-6 py-3 font-mono">{purchase.liters_declared} L</td>
-      <td className={`px-6 py-3 font-mono ${isPending ? 'text-[#ffb95f]' : 'text-[#4edea3]'}`}>
+      <td className={`px-6 py-3 font-mono ${isPending ? 'text-warn' : 'text-good'}`}>
         {obdDisplay}
       </td>
       <td
-        className={`px-6 py-3 font-mono ${isTheft ? 'font-bold text-[#ffb4ab]' : purchase.difference_liters > 0 ? 'text-[#ffb4ab]' : 'text-[#4edea3]'}`}
+        className={`px-6 py-3 font-mono ${isTheft ? 'font-bold text-bad' : purchase.difference_liters > 0 ? 'text-bad' : 'text-good'}`}
       >
         {purchase.difference_liters > 0 ? `−${purchase.difference_liters} L` : '0 L'}
       </td>
       <td className="px-6 py-3 font-mono">{formatNgn(purchase.total_cost_ngn)}</td>
       <td className="px-6 py-3">
         {isTheft ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[#93000a]/20 px-2 py-1 text-xs text-[#ffb4ab]">
+          <span className="inline-flex items-center gap-1 rounded-full bg-bad-deep/20 px-2 py-1 text-xs text-bad">
             <AlertTriangle className="h-3 w-3" /> Theft
           </span>
         ) : isPending ? (
-          <span className="text-xs text-[#ffb95f]">Pending</span>
+          <span className="text-xs text-warn">Pending</span>
         ) : (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[#4edea3]/20 px-2 py-1 text-xs text-[#4edea3]">
+          <span className="inline-flex items-center gap-1 rounded-full bg-good/20 px-2 py-1 text-xs text-good">
             <Shield className="h-3 w-3" /> Verified
           </span>
         )}
@@ -826,16 +826,16 @@ export function FuelPurchaseTable({
   const [selectedPurchase, setSelectedPurchase] = useState<FuelPurchase | null>(null);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-[#434656] bg-[#171f33]">
+    <div className="overflow-hidden rounded-lg border border-edge bg-panel">
       {selectedPurchase && (
         <ReceiptEventModal purchase={selectedPurchase} onClose={() => setSelectedPurchase(null)} />
       )}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#434656] px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-6 py-4">
         <div>
-          <h2 className="flex items-center gap-2 font-semibold text-[#dae2fd]">
+          <h2 className="flex items-center gap-2 font-semibold text-ink">
             <Receipt className="h-4 w-4" /> Fuel purchase reconciliation
           </h2>
-          <p className="mt-1 text-xs text-[#8e90a2]">
+          <p className="mt-1 text-xs text-ink-dim">
             Receipt liters (manual) vs actual liters from FMC150 OBD fuel sensor at refuel time
           </p>
         </div>
@@ -843,18 +843,18 @@ export function FuelPurchaseTable({
           <button
             type="button"
             onClick={onOpenReceipts}
-            className="rounded-lg border border-[#2e5bff]/40 bg-[#2e5bff]/15 px-3 py-2 text-xs font-medium text-[#b8c3ff]"
+            className="rounded-lg border border-accent/40 bg-accent/15 px-3 py-2 text-xs font-medium text-brand"
           >
             Open Receipts →
           </button>
         )}
       </div>
       {purchases.length === 0 ? (
-        <p className="p-6 text-sm text-[#8e90a2]">No fuel purchases yet.</p>
+        <p className="p-6 text-sm text-ink-dim">No fuel purchases yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[880px] text-left text-sm">
-            <thead className="bg-[#0b1326] text-xs uppercase tracking-wider text-[#8e90a2]">
+            <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
               <tr>
                 <th className="px-6 py-3">Date</th>
                 <th className="px-6 py-3">Vehicle</th>
@@ -866,7 +866,7 @@ export function FuelPurchaseTable({
                 <th className="px-6 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2d3449] text-[#c4c5d9]">
+            <tbody className="divide-y divide-divider text-ink-mid">
               {purchases.slice(0, 5).map((purchase) => (
                 <ReconciledReceiptRow
                   key={purchase.id}
@@ -880,11 +880,11 @@ export function FuelPurchaseTable({
         </div>
       )}
       {onOpenReceipts && purchases.length > 0 && (
-        <div className="border-t border-[#434656] px-6 py-3">
+        <div className="border-t border-edge px-6 py-3">
           <button
             type="button"
             onClick={onOpenReceipts}
-            className="text-xs text-[#b8c3ff] hover:underline"
+            className="text-xs text-brand hover:underline"
           >
             View all {data?.total ?? purchases.length} receipts with daily totals →
           </button>
