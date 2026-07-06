@@ -11,6 +11,7 @@ import {
   fuelUsedForDistanceKm,
   kmLToMpg,
   DEFAULT_FUEL_PRICE_NGN_LITER,
+  IDLE_BURN_LITERS_PER_HOUR,
 } from '../lib/fuel-metrics';
 import { withCache, cacheKey } from '../lib/redis';
 
@@ -135,7 +136,8 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
           license_plate,
           model,
           driver_name,
-          COALESCE(SUM(dist_delta), 0)::numeric AS distance_km
+          COALESCE(SUM(dist_delta), 0)::numeric AS distance_km,
+          COALESCE(SUM(idle_delta_s), 0)::numeric AS idle_seconds
         FROM deltas
         GROUP BY recorded_at::date, vehicle_id, license_plate, model, driver_name
         ORDER BY activity_date DESC, license_plate ASC
@@ -149,6 +151,9 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
         distance_km: number;
         efficiency_km_l: number;
         efficiency_mpg: number | null;
+        idle_hours: number;
+        moving_fuel_liters: number;
+        idle_fuel_liters: number;
         estimated_fuel_liters: number;
         estimated_cost_ngn: number;
       }
@@ -170,12 +175,16 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
       for (const r of dailyResult.rows || []) {
         const row = r as Record<string, unknown>;
         const rawKm = Number(row.distance_km) || 0;
-        // parked-day GPS jitter — exclude everywhere so groups and totals agree
-        if (rawKm < 0.05) continue;
+        const idleHours = (Number(row.idle_seconds) || 0) / 3600;
+        // skip days with neither movement nor meaningful engine-on time
+        // (parked-day GPS jitter) so groups and totals agree
+        if (rawKm < 0.05 && idleHours < 0.05) continue;
 
         const efficiencyKmL = baselineEfficiencyKmL(String(row.model ?? ''));
         const distanceKm = round1(rawKm);
-        const liters = round1(fuelUsedForDistanceKm(distanceKm, efficiencyKmL));
+        const movingLiters = round1(fuelUsedForDistanceKm(distanceKm, efficiencyKmL));
+        const idleLiters = round1(idleHours * IDLE_BURN_LITERS_PER_HOUR);
+        const liters = round1(movingLiters + idleLiters);
         const dayRow: EstimateRow = {
           vehicle_id: row.vehicle_id,
           license_plate: row.license_plate,
@@ -184,6 +193,9 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
           distance_km: distanceKm,
           efficiency_km_l: round2(efficiencyKmL),
           efficiency_mpg: kmLToMpg(efficiencyKmL),
+          idle_hours: round1(idleHours),
+          moving_fuel_liters: movingLiters,
+          idle_fuel_liters: idleLiters,
           estimated_fuel_liters: liters,
           estimated_cost_ngn: Math.round(liters * pricePerLiter),
         };
@@ -203,10 +215,21 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
 
         const vid = String(row.vehicle_id);
         if (!vehicleMap.has(vid)) {
-          vehicleMap.set(vid, { ...dayRow, distance_km: 0, estimated_fuel_liters: 0, estimated_cost_ngn: 0 });
+          vehicleMap.set(vid, {
+            ...dayRow,
+            distance_km: 0,
+            idle_hours: 0,
+            moving_fuel_liters: 0,
+            idle_fuel_liters: 0,
+            estimated_fuel_liters: 0,
+            estimated_cost_ngn: 0,
+          });
         }
         const period = vehicleMap.get(vid)!;
         period.distance_km = round1(period.distance_km + dayRow.distance_km);
+        period.idle_hours = round1(period.idle_hours + dayRow.idle_hours);
+        period.moving_fuel_liters = round1(period.moving_fuel_liters + dayRow.moving_fuel_liters);
+        period.idle_fuel_liters = round1(period.idle_fuel_liters + dayRow.idle_fuel_liters);
         period.estimated_fuel_liters = round1(
           period.estimated_fuel_liters + dayRow.estimated_fuel_liters
         );
@@ -217,13 +240,35 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
         String(a.license_plate).localeCompare(String(b.license_plate))
       );
 
+      // Fuel bought in the same window — shown beside the estimate so
+      // "I bought ₦X" has context (bought ≠ burned; the rest is in the tank).
+      const purchaseResult = await db.execute(sql`
+        SELECT
+          COUNT(*) AS purchase_count,
+          COALESCE(SUM(liters_declared::numeric), 0) AS liters,
+          COALESCE(
+            SUM(liters_declared::numeric * COALESCE(cost_per_liter_ngn, ${pricePerLiter})),
+            0
+          ) AS cost_ngn
+        FROM fuel_purchases
+        WHERE customer_id = ${customerId}
+          AND purchased_at > NOW() - (${days} || ' days')::INTERVAL
+      `);
+      const purchaseRow = (purchaseResult.rows[0] ?? {}) as Record<string, unknown>;
+
       return {
         period_days: days,
         price_per_liter_ngn: pricePerLiter,
-        basis: 'distance_over_baseline_efficiency',
+        basis: 'distance_over_baseline_plus_idle_burn',
+        idle_burn_liters_per_hour: IDLE_BURN_LITERS_PER_HOUR,
         vehicles,
         daily: Array.from(dayMap.values()),
         totals,
+        purchases: {
+          count: Number(purchaseRow.purchase_count) || 0,
+          liters: round1(Number(purchaseRow.liters) || 0),
+          cost_ngn: Math.round(Number(purchaseRow.cost_ngn) || 0),
+        },
       };
     });
 

@@ -61,7 +61,9 @@ function VehicleRow({ row }: { row: EstimatedConsumptionRow }) {
       <td className="px-6 py-2.5 font-mono">{row.distance_km.toLocaleString()} km</td>
       <td className="px-6 py-2.5 font-mono">{row.efficiency_km_l.toFixed(1)}</td>
       <td className="px-6 py-2.5 font-mono">
-        {row.efficiency_mpg != null ? row.efficiency_mpg.toFixed(1) : '—'}
+        {(row.idle_hours ?? 0) > 0
+          ? `${row.idle_hours.toFixed(1)} h · ${row.idle_fuel_liters.toFixed(1)} L`
+          : '—'}
       </td>
       <td className="px-6 py-2.5 font-mono text-good">
         {row.estimated_fuel_liters.toFixed(1)} L
@@ -119,8 +121,8 @@ export function EstimatedConsumptionTableView({
             <Gauge className="h-4 w-4" /> Estimated fuel consumed
           </h2>
           <p className="mt-1 text-xs text-ink-dim">
-            Distance covered ÷ model baseline efficiency — estimate only, no fuel-level sensor
-            required
+            Driving (distance ÷ baseline efficiency) + engine-idle burn — estimate only, no
+            fuel-level sensor required
           </p>
         </div>
         <div className="flex gap-1">
@@ -158,7 +160,7 @@ export function EstimatedConsumptionTableView({
                 <th className="px-6 py-3">Driver</th>
                 <th className="px-6 py-3">Distance</th>
                 <th className="px-6 py-3">Baseline km/L</th>
-                <th className="px-6 py-3">MPG</th>
+                <th className="px-6 py-3">Idle</th>
                 <th className="px-6 py-3">Est. fuel used</th>
                 <th className="px-6 py-3">Est. cost</th>
               </tr>

@@ -22,6 +22,7 @@ export function distanceDeltasCte({ customerId, days }: TelemetryDeltasParams): 
         t.latitude::double precision AS latitude,
         t.longitude::double precision AS longitude,
         t.speed_kph,
+        t.ignition_on,
         t.recorded_at
       FROM telemetry t
       JOIN vehicles v ON v.id = t.vehicle_id
@@ -47,6 +48,14 @@ export function distanceDeltasCte({ customerId, days }: TelemetryDeltasParams): 
         driver_name,
         recorded_at,
         speed_kph,
+        ignition_on,
+        -- engine on but not moving = idle burn; cap the gap so device
+        -- offline periods don't count as one giant idle stretch
+        CASE
+          WHEN COALESCE(ignition_on, false) AND COALESCE(speed_kph, 0) < 2
+            THEN LEAST(EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at)), 600)
+          ELSE 0
+        END AS idle_delta_s,
         CASE
           WHEN odometer_km IS NOT NULL AND prev_odometer IS NOT NULL
             AND odometer_km >= prev_odometer
@@ -82,6 +91,7 @@ export function distanceDeltasCte({ customerId, days }: TelemetryDeltasParams): 
         model,
         driver_name,
         recorded_at,
+        idle_delta_s,
         CASE
           WHEN odo_km IS NOT NULL THEN LEAST(odo_km, cap_km)
           -- ignore stationary GPS jitter

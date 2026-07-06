@@ -6,7 +6,7 @@ import { AlertTriangle, Fuel, Gauge as GaugeIcon, MapPin, Radio, User } from 'lu
 import { FleetVehicle, formatNgn } from '@/lib/api';
 import { useEstimatedConsumption } from './EstimatedConsumptionTable';
 
-const Truck3D = dynamic(() => import('./Truck3D').then((m) => m.Truck3D), {
+const Vehicle3D = dynamic(() => import('./Vehicle3D').then((m) => m.Vehicle3D), {
   ssr: false,
   loading: () => (
     <div className="flex h-[420px] items-center justify-center text-sm text-ink-dim">
@@ -300,7 +300,7 @@ export function VehicleShowcase({
             className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_38%,color-mix(in_srgb,var(--good)_7%,transparent),transparent_70%)]"
           />
           <div className="relative h-[420px] cursor-grab active:cursor-grabbing">
-            <Truck3D plate={vehicle.license_plate} model={vehicle.model} />
+            <Vehicle3D plate={vehicle.license_plate} model={vehicle.model} />
             <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-wider text-ink-dim">
               Drag to rotate · scroll to zoom
             </p>

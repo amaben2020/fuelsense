@@ -172,6 +172,9 @@ export interface EstimatedConsumptionRow {
   distance_km: number;
   efficiency_km_l: number;
   efficiency_mpg: number | null;
+  idle_hours: number;
+  moving_fuel_liters: number;
+  idle_fuel_liters: number;
   estimated_fuel_liters: number;
   estimated_cost_ngn: number;
 }
@@ -192,9 +195,15 @@ export interface EstimatedConsumptionResponse {
   period_days: number;
   price_per_liter_ngn: number;
   basis: string;
+  idle_burn_liters_per_hour: number;
   vehicles: EstimatedConsumptionRow[];
   daily: EstimatedConsumptionDay[];
   totals: EstimatedConsumptionTotals;
+  purchases: {
+    count: number;
+    liters: number;
+    cost_ngn: number;
+  };
 }
 
 export interface FuelAnomaly {

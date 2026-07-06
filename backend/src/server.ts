@@ -47,15 +47,27 @@ app.use(
   }),
 );
 
+// Generous global cap — the dashboard legitimately polls many endpoints, so this
+// only guards against runaway abuse. Brute-force protection lives on /api/auth.
 const globalLimiter = rateLimit({
   windowMs: 60_000,
-  max: 300,
+  max: 900,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
 });
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later.' },
+});
+
 app.use(globalLimiter);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
 app.use(express.json({ limit: '10mb' }));
 
 app.get('/api/health', (_req: Request, res: Response) => {

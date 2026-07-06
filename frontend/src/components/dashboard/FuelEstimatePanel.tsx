@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Fuel, Route, Wallet } from 'lucide-react';
+import { Fuel, Receipt, Route, Wallet } from 'lucide-react';
 import { formatNgn } from '@/lib/api';
 import {
   ESTIMATE_PERIOD_OPTIONS,
@@ -51,13 +51,14 @@ export function FuelEstimatePanel() {
               We use distance covered to estimate fuel
             </h2>
             <p className="mt-2 text-sm text-ink-mid">
-              Your trackers report GPS position and speed even when no fuel-level sensor is
-              connected. We sum the distance each vehicle actually covered, then divide it by the
-              vehicle model&apos;s baseline efficiency to estimate litres burned and what that fuel
-              cost.
+              Your trackers report GPS position, speed and ignition even when no fuel-level
+              sensor is connected. We sum the distance each vehicle actually covered, divide it
+              by the model&apos;s baseline efficiency, then add fuel burned while the engine
+              idled (running but not moving) — traffic, AC, waiting.
             </p>
             <p className="mt-2 text-xs text-ink-dim">
-              Estimated fuel = distance covered ÷ baseline km/L
+              Estimated fuel = distance ÷ baseline km/L + idle hours ×{' '}
+              {data?.idle_burn_liters_per_hour ?? 0.9} L/h
               {data ? ` · priced at ${formatNgn(data.price_per_liter_ngn)}/L` : ''}
             </p>
           </div>
@@ -81,7 +82,7 @@ export function FuelEstimatePanel() {
 
         {error && <p className="mt-4 text-sm text-bad">{error}</p>}
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <HeroStat
             icon={Route}
             label="Distance covered"
@@ -92,11 +93,11 @@ export function FuelEstimatePanel() {
           />
           <HeroStat
             icon={Fuel}
-            label="Estimated fuel"
+            label="Estimated fuel burned"
             value={
               loading && !totals ? '…' : `${(totals?.estimated_fuel_liters ?? 0).toFixed(1)} L`
             }
-            detail="From distance ÷ baseline efficiency"
+            detail="Driving + engine-idle burn"
             accent
           />
           <HeroStat
@@ -104,6 +105,16 @@ export function FuelEstimatePanel() {
             label="Estimated cost"
             value={loading && !totals ? '…' : formatNgn(totals?.estimated_cost_ngn ?? 0)}
             detail={data ? `At ${formatNgn(data.price_per_liter_ngn)} per litre` : ''}
+          />
+          <HeroStat
+            icon={Receipt}
+            label="Fuel purchased"
+            value={loading && !data ? '…' : formatNgn(data?.purchases.cost_ngn ?? 0)}
+            detail={
+              data && data.purchases.count > 0
+                ? `${data.purchases.liters.toFixed(0)} L across ${data.purchases.count} receipt${data.purchases.count === 1 ? '' : 's'} — bought ≠ burned, the rest is still in the tank`
+                : `No receipts recorded ${periodLabel}`
+            }
           />
         </div>
       </div>

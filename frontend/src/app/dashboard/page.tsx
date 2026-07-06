@@ -59,8 +59,10 @@ import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTa
 import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
 import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 
-const REFRESH_MS = 3000;
-const LIVE_REFRESH_MS = 2000;
+// Full dashboard reload cadence. Keep this modest — each cycle fires ~10 API
+// calls, and aggressive polling trips the backend rate limiter (self-DoS).
+const REFRESH_MS = 15000;
+const LIVE_REFRESH_MS = 3000;
 
 type DashboardView =
   | 'overview'
@@ -270,14 +272,18 @@ export default function DashboardPage() {
     }
 
     loadDashboard();
-    const interval = setInterval(loadDashboard, REFRESH_MS);
+    const interval = setInterval(() => {
+      if (!document.hidden) loadDashboard();
+    }, REFRESH_MS);
     return () => clearInterval(interval);
   }, [router]);
 
   useEffect(() => {
     if (activeView !== 'live' || !getToken()) return;
     loadLiveTracks();
-    const interval = setInterval(loadLiveTracks, LIVE_REFRESH_MS);
+    const interval = setInterval(() => {
+      if (!document.hidden) loadLiveTracks();
+    }, LIVE_REFRESH_MS);
     return () => clearInterval(interval);
   }, [activeView, loadLiveTracks]);
 
