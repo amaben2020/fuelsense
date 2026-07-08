@@ -1,4 +1,4 @@
-import type { FleetVehicle, TrackPoint, VehicleTrack } from './api';
+import type { FleetVehicle, TrackPoint, TrackTrip, VehicleTrack } from './api';
 import { car3dSvgDataUrl, ROUTE_PRIMARY } from './fleet-map-theme';
 
 export function parseCoord(value: string | number | null | undefined): number | null {
@@ -61,60 +61,92 @@ export function routeColor(index: number) {
   return ROUTE_COLORS[index % ROUTE_COLORS.length];
 }
 
+/** Distinct colour per trip so consecutive journeys never blur together. */
+export function tripColor(index: number) {
+  return ROUTE_COLORS[index % ROUTE_COLORS.length];
+}
+
 export function carSvgDataUrl(color: string, heading: number, selected: boolean) {
   return car3dSvgDataUrl(heading, selected, color || ROUTE_PRIMARY);
 }
 
-// FMC150 IO-239 (ignition) can toggle false for 2-30 s due to alternator load spikes
-// or a noisy ignition wire, while the vehicle is clearly still moving. We bridge any
-// inactive gap shorter than STOP_GAP_MS before declaring a new trip segment.
-const STOP_GAP_MS = 5 * 60 * 1000; // 5 minutes
+// A trip ends when the vehicle sits with the ignition off (or the tracker goes
+// silent) for at least this long. Shorter stops — red lights, quick errands,
+// noisy ignition-wire toggles — stay inside the same trip.
+export const TRIP_BREAK_MS = 30 * 60 * 1000; // 30 minutes
 
-function computeTripDistanceKm(vehiclePoints: TrackPoint[]): number {
-  if (vehiclePoints.length === 0) return 0;
+// Trips shorter than this are parked-GPS jitter, not journeys.
+const MIN_TRIP_KM = 0.3;
 
-  // "active" = ignition on, or speed > 0 (catches legacy rows where speed wasn't zeroed)
+/**
+ * Splits a vehicle's chronological track points into trips.
+ * New trip when: recording gap ≥ 30 min, or a continuous ignition-off /
+ * stationary stretch ≥ 30 min.
+ */
+function segmentTrips(vehiclePoints: TrackPoint[]): TrackTrip[] {
   const active = (pt: TrackPoint) =>
     pt.ignition_on === true || (pt.speed_kph != null && pt.speed_kph > 0);
 
-  // Walk forward finding the LAST continuous active segment (debounced).
-  // When we see a gap >= STOP_GAP_MS of inactivity, the previous segment ends
-  // and we look for the next one. The final segment is the current/last trip.
-  let segStart = -1;
-  let lastActiveIdx = -1;
+  const trips: TrackTrip[] = [];
+  let segment: TrackPoint[] = [];
+  let lastActiveAt: number | null = null;
+
+  const closeSegment = () => {
+    if (segment.length < 2) {
+      segment = [];
+      lastActiveAt = null;
+      return;
+    }
+    let km = 0;
+    const path: { lat: number; lng: number }[] = [];
+    for (const pt of segment) {
+      const lat = parseCoord(pt.latitude);
+      const lng = parseCoord(pt.longitude);
+      if (lat == null || lng == null) continue;
+      if (path.length > 0) {
+        km += haversineKm(path[path.length - 1].lat, path[path.length - 1].lng, lat, lng);
+      }
+      path.push({ lat, lng });
+    }
+    if (km >= MIN_TRIP_KM && path.length >= 2) {
+      trips.push({
+        path,
+        distanceKm: Math.round(km * 10) / 10,
+        startAt: segment[0].recorded_at,
+        endAt: segment[segment.length - 1].recorded_at,
+      });
+    }
+    segment = [];
+    lastActiveAt = null;
+  };
 
   for (let i = 0; i < vehiclePoints.length; i++) {
-    if (active(vehiclePoints[i])) {
-      if (segStart === -1) segStart = i;
-      lastActiveIdx = i;
-    } else if (segStart !== -1) {
-      const gapMs =
-        new Date(vehiclePoints[i].recorded_at).getTime() -
-        new Date(vehiclePoints[lastActiveIdx].recorded_at).getTime();
-      if (gapMs >= STOP_GAP_MS) {
-        // Genuine stop — the old segment is done; reset for the next one
-        segStart = -1;
-        lastActiveIdx = -1;
+    const pt = vehiclePoints[i];
+    const t = new Date(pt.recorded_at).getTime();
+
+    if (segment.length > 0) {
+      const prevT = new Date(segment[segment.length - 1].recorded_at).getTime();
+      const recordingGap = t - prevT;
+      const inactiveFor = lastActiveAt != null ? t - lastActiveAt : 0;
+      if (recordingGap >= TRIP_BREAK_MS || inactiveFor >= TRIP_BREAK_MS) {
+        closeSegment();
       }
-      // gap < STOP_GAP_MS → noise or red-light stop, keep the segment open
     }
-  }
 
-  if (segStart === -1 || lastActiveIdx <= segStart) return 0;
-
-  let km = 0;
-  for (let i = segStart + 1; i <= lastActiveIdx; i++) {
-    const a = vehiclePoints[i - 1];
-    const b = vehiclePoints[i];
-    const aLat = parseCoord(a.latitude);
-    const aLng = parseCoord(a.longitude);
-    const bLat = parseCoord(b.latitude);
-    const bLng = parseCoord(b.longitude);
-    if (aLat != null && aLng != null && bLat != null && bLng != null) {
-      km += haversineKm(aLat, aLng, bLat, bLng);
+    if (segment.length === 0) {
+      // a trip only starts once the vehicle is actually doing something
+      if (!active(pt)) continue;
+      lastActiveAt = t;
+      segment.push(pt);
+      continue;
     }
+
+    segment.push(pt);
+    if (active(pt)) lastActiveAt = t;
   }
-  return Math.round(km * 10) / 10;
+  closeSegment();
+
+  return trips;
 }
 
 export function buildVehicleTracks(points: TrackPoint[], colorOffset = 0): VehicleTrack[] {
@@ -147,7 +179,8 @@ export function buildVehicleTracks(points: TrackPoint[], colorOffset = 0): Vehic
     const prev = path.length > 1 ? path[path.length - 2] : path[0];
     const lastPoint = vehiclePoints[vehiclePoints.length - 1];
 
-    const tripDistanceKm = computeTripDistanceKm(vehiclePoints);
+    const trips = segmentTrips(vehiclePoints);
+    const lastTrip = trips[trips.length - 1];
 
     tracks.push({
       vehicleId: lastPoint.vehicle_id,
@@ -157,8 +190,9 @@ export function buildVehicleTracks(points: TrackPoint[], colorOffset = 0): Vehic
       model: lastPoint.model,
       color: routeColor(colorIndex++),
       path,
+      trips,
       heading: bearingDeg(prev.lat, prev.lng, last.lat, last.lng),
-      tripDistanceKm: Math.round(tripDistanceKm * 10) / 10,
+      tripDistanceKm: lastTrip?.distanceKm ?? 0,
       current: {
         lat: last.lat,
         lng: last.lng,

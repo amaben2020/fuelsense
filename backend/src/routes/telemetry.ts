@@ -5,6 +5,7 @@ import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { fleetEfficiencyAggSql } from '../lib/fleet-efficiency-sql';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
 import { buildDailyActivityReplay } from '../lib/event-replay';
+import { segmentTrips, TelemetryTripPoint } from '../lib/trip-segmentation';
 import {
   CO2_KG_PER_LITER,
   round1,
@@ -15,6 +16,7 @@ import {
   efficiencyDeviationPercentL100km,
   REFUEL_THRESHOLD_LITERS,
   DEFAULT_FUEL_PRICE_NGN_LITER,
+  IDLE_BURN_LITERS_PER_HOUR,
 } from '../lib/fuel-metrics';
 import {
   dailyDistanceThreshold,
@@ -175,6 +177,141 @@ router.get('/tracks', async (req: Request, res: Response) => {
 
     res.setHeader('X-Track-Source', cached.source);
     res.json(cached.rows);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Server-side trip segmentation — no point cap, simplified paths.
+// A trip ends after 30+ minutes of ignition-off / tracker silence.
+router.get('/trips', async (req: Request, res: Response) => {
+  const minutes = Math.min(Number(req.query.minutes) || 1440, 43200); // up to 30 days
+  const customerId = req.user.customerId;
+  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
+
+  try {
+    const key = cacheKey(customerId, 'trips', String(minutes));
+    const cached = await withCache(key, 15, async () => {
+      const tripColumns = sql`
+        t.vehicle_id,
+        v.license_plate,
+        v.model,
+        COALESCE(dr.full_name, v.driver_name) AS driver_name,
+        t.latitude::double precision AS lat,
+        t.longitude::double precision AS lng,
+        t.speed_kph,
+        t.ignition_on,
+        t.recorded_at
+      `;
+      const tripValidGps = sql`
+        t.latitude IS NOT NULL AND t.longitude IS NOT NULL
+        AND (t.latitude::numeric != 0 OR t.longitude::numeric != 0)
+      `;
+
+      const result = await db.execute(sql`
+        SELECT ${tripColumns}
+        FROM telemetry t
+        JOIN vehicles v ON v.id = t.vehicle_id
+        LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
+        WHERE t.customer_id = ${customerId}
+          AND t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL
+          AND ${tripValidGps}
+        ORDER BY t.vehicle_id ASC, t.recorded_at ASC
+      `);
+
+      let rows = result.rows;
+      let source = 'live';
+
+      // Same fallback the /tracks trail uses: when the window is empty
+      // (vehicle parked for days), show the most recent journeys instead
+      // of an empty panel next to a visible historical trail.
+      if (rows.length === 0) {
+        const historical = await db.execute(sql`
+          WITH ranked AS (
+            SELECT ${tripColumns},
+              ROW_NUMBER() OVER (PARTITION BY t.vehicle_id ORDER BY t.recorded_at DESC) AS rn
+            FROM telemetry t
+            JOIN vehicles v ON v.id = t.vehicle_id
+            LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
+            WHERE t.customer_id = ${customerId}
+              AND t.recorded_at > NOW() - INTERVAL '30 days'
+              AND ${tripValidGps}
+          )
+          SELECT vehicle_id, license_plate, model, driver_name,
+                 lat, lng, speed_kph, ignition_on, recorded_at
+          FROM ranked WHERE rn <= 15000
+          ORDER BY vehicle_id ASC, recorded_at ASC
+        `);
+        rows = historical.rows;
+        if (rows.length > 0) source = 'historical';
+      }
+
+      const byVehicle = new Map<
+        string,
+        {
+          license_plate: string;
+          model: string | null;
+          driver_name: string | null;
+          points: TelemetryTripPoint[];
+        }
+      >();
+      for (const r of rows) {
+        const row = r as Record<string, unknown>;
+        const vid = String(row.vehicle_id);
+        if (!byVehicle.has(vid)) {
+          byVehicle.set(vid, {
+            license_plate: String(row.license_plate),
+            model: row.model != null ? String(row.model) : null,
+            driver_name: row.driver_name != null ? String(row.driver_name) : null,
+            points: [],
+          });
+        }
+        byVehicle.get(vid)!.points.push({
+          lat: Number(row.lat),
+          lng: Number(row.lng),
+          speedKph: row.speed_kph != null ? Number(row.speed_kph) : null,
+          ignitionOn: row.ignition_on == null ? null : Boolean(row.ignition_on),
+          recordedAt: new Date(row.recorded_at as string),
+        });
+      }
+
+      const nowMs = Date.now();
+      const vehicleTrips = Array.from(byVehicle.entries()).map(([vehicleId, v]) => {
+        const efficiencyKmL = baselineEfficiencyKmL(v.model ?? '');
+        // Same methodology as the fuel estimate: driving + engine-idle burn
+        const trips = segmentTrips(v.points, nowMs).map((trip) => {
+          const fuel = round1(
+            trip.distance_km / efficiencyKmL +
+              (trip.idle_minutes / 60) * IDLE_BURN_LITERS_PER_HOUR
+          );
+          return {
+            ...trip,
+            estimated_fuel_liters: fuel,
+            estimated_cost_ngn: Math.round(fuel * pricePerLiter),
+          };
+        });
+        return {
+          vehicle_id: vehicleId,
+          license_plate: v.license_plate,
+          model: v.model,
+          driver_name: v.driver_name,
+          trips,
+          total_distance_km:
+            Math.round(trips.reduce((s, t) => s + t.distance_km, 0) * 10) / 10,
+          total_fuel_liters: round1(trips.reduce((s, t) => s + t.estimated_fuel_liters, 0)),
+          total_cost_ngn: trips.reduce((s, t) => s + t.estimated_cost_ngn, 0),
+        };
+      });
+
+      return {
+        period_minutes: minutes,
+        source,
+        price_per_liter_ngn: pricePerLiter,
+        vehicles: vehicleTrips,
+      };
+    });
+
+    res.json(cached);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

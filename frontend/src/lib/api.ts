@@ -590,6 +590,45 @@ export interface TrackPoint {
   recorded_at: string;
 }
 
+export interface ServerTrip {
+  start_at: string;
+  end_at: string;
+  duration_minutes: number;
+  distance_km: number;
+  avg_speed_kph: number;
+  max_speed_kph: number;
+  idle_minutes: number;
+  active: boolean;
+  estimated_fuel_liters: number;
+  estimated_cost_ngn: number;
+  path: [number, number][];
+}
+
+export interface TripsVehicle {
+  vehicle_id: string;
+  license_plate: string;
+  model: string | null;
+  driver_name: string | null;
+  trips: ServerTrip[];
+  total_distance_km: number;
+  total_fuel_liters: number;
+  total_cost_ngn: number;
+}
+
+export interface TripsResponse {
+  period_minutes: number;
+  source: 'live' | 'historical';
+  price_per_liter_ngn: number;
+  vehicles: TripsVehicle[];
+}
+
+export interface TrackTrip {
+  path: { lat: number; lng: number }[];
+  distanceKm: number;
+  startAt: string;
+  endAt: string;
+}
+
 export interface VehicleTrack {
   vehicleId: string;
   licensePlate: string;
@@ -598,6 +637,7 @@ export interface VehicleTrack {
   model: string | null;
   color: string;
   path: { lat: number; lng: number }[];
+  trips: TrackTrip[];
   heading: number;
   tripDistanceKm: number;
   current: {

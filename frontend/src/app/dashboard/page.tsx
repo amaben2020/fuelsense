@@ -9,6 +9,7 @@ import {
   Fuel,
   Gauge,
   Menu,
+  Route,
   Truck,
   Play,
   Plus,
@@ -33,6 +34,7 @@ import {
   FuelPurchasesResponse,
   getToken,
   TrackPoint,
+  TripsResponse,
 } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { buildVehicleTracks } from '@/lib/map-utils';
@@ -45,6 +47,7 @@ import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
 import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
 import { VehicleShowcase } from '@/components/dashboard/VehicleShowcase';
+import { TripHistoryPanel } from '@/components/dashboard/TripHistoryPanel';
 import { FleetEfficiencyReport } from '@/components/dashboard/FleetEfficiencyReport';
 import { SavingsDashboard } from '@/components/dashboard/SavingsDashboard';
 import { SiphonEventsSidebar } from '@/components/dashboard/SiphonEventsSidebar';
@@ -68,6 +71,7 @@ type DashboardView =
   | 'overview'
   | 'live'
   | 'vehicle'
+  | 'trips'
   | 'fuel'
   | 'estimate'
   | 'receipts'
@@ -79,6 +83,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'overview', label: 'Operations', hash: 'overview' },
   { id: 'live', label: 'Live monitoring', hash: 'live' },
   { id: 'vehicle', label: 'Vehicle view', hash: 'vehicle' },
+  { id: 'trips', label: 'Trip history', hash: 'trips' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
@@ -104,6 +109,11 @@ export default function DashboardPage() {
   const [liveTracks, setLiveTracks] = useState(
     () => buildVehicleTracks([] as TrackPoint[])
   );
+  const [trips, setTrips] = useState<TripsResponse | null>(null);
+  const [pendingTripFocus, setPendingTripFocus] = useState<{
+    vehicleId: string;
+    startAt: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [efficiencyError, setEfficiencyError] = useState<string | null>(null);
@@ -152,14 +162,25 @@ export default function DashboardPage() {
     }
   };
 
+  // Live positions only need a short tail — trip trails come from /trips,
+  // which is segmented and downsampled server-side (no 2000-point cap).
   const loadLiveTracks = useCallback(async () => {
     try {
-      const trackPoints = await api<TrackPoint[]>(
-        `/telemetry/tracks?minutes=${trailMinutesRef.current}`,
-      );
+      const trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=15');
       setLiveTracks(buildVehicleTracks(trackPoints));
     } catch {
       // no-op — keep existing tracks on error
+    }
+  }, []);
+
+  const loadTrips = useCallback(async () => {
+    try {
+      const data = await api<TripsResponse>(
+        `/telemetry/trips?minutes=${trailMinutesRef.current}`,
+      );
+      setTrips(data);
+    } catch {
+      // no-op — keep existing trips on error
     }
   }, []);
 
@@ -227,9 +248,7 @@ export default function DashboardPage() {
 
       let trackPoints: TrackPoint[] = [];
       try {
-        trackPoints = await api<TrackPoint[]>(
-          `/telemetry/tracks?minutes=${trailMinutesRef.current}`,
-        );
+        trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=15');
       } catch {
         trackPoints = [];
       }
@@ -281,15 +300,23 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeView !== 'live' || !getToken()) return;
     loadLiveTracks();
+    loadTrips();
     const interval = setInterval(() => {
       if (!document.hidden) loadLiveTracks();
     }, LIVE_REFRESH_MS);
-    return () => clearInterval(interval);
-  }, [activeView, loadLiveTracks]);
+    // Trips change slowly — refresh on a relaxed cadence
+    const tripsInterval = setInterval(() => {
+      if (!document.hidden) loadTrips();
+    }, 30000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(tripsInterval);
+    };
+  }, [activeView, loadLiveTracks, loadTrips]);
 
   // Re-fetch immediately when the user changes trail duration
   useEffect(() => {
-    if (activeView === 'live' && getToken()) loadLiveTracks();
+    if (activeView === 'live' && getToken()) loadTrips();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trailMinutes]);
 
@@ -354,6 +381,7 @@ export default function DashboardPage() {
     overview: 'Operations',
     live: 'Live monitoring',
     vehicle: 'Vehicle view',
+    trips: 'Trip history',
     fuel: 'Fuel analytics',
     estimate: 'Fuel estimate',
     receipts: 'Receipts',
@@ -397,6 +425,12 @@ export default function DashboardPage() {
           label="Vehicle view"
           active={activeView === 'vehicle'}
           onClick={() => switchView('vehicle')}
+        />
+        <NavItem
+          icon={Route}
+          label="Trip history"
+          active={activeView === 'trips'}
+          onClick={() => switchView('trips')}
         />
         <NavItem
           icon={Fuel}
@@ -595,7 +629,10 @@ export default function DashboardPage() {
             <div className="min-h-0 flex-1 overflow-hidden">
               <LiveMonitoringMap
                 tracks={liveTracks}
+                trips={trips}
                 fleet={fleet}
+                initialFocus={pendingTripFocus}
+                onFocusConsumed={() => setPendingTripFocus(null)}
                 selectedVehicleId={selectedVehicleId}
                 onSelectVehicle={setSelectedVehicleId}
                 followSelected={followVehicle}
@@ -647,6 +684,17 @@ export default function DashboardPage() {
                 onOpenReceipts={() => switchView('receipts')}
               />
             </div>
+          )}
+
+          {activeView === 'trips' && (
+            <TripHistoryPanel
+              onViewTrip={(vehicleId, tripStartAt) => {
+                setSelectedVehicleId(vehicleId);
+                setPendingTripFocus({ vehicleId, startAt: tripStartAt });
+                setFollowVehicle(false);
+                switchView('live');
+              }}
+            />
           )}
 
           {activeView === 'vehicle' && (

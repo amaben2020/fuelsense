@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
-import { lerp, timeAgo } from '@/lib/map-utils';
-import { FleetVehicle, VehicleTrack } from '@/lib/api';
+import { lerp, timeAgo, tripColor } from '@/lib/map-utils';
+import { FleetVehicle, ServerTrip, TripsResponse, VehicleTrack } from '@/lib/api';
 import {
   FLEET_MAPS_KEY,
   LAGOS_CENTER,
@@ -12,6 +12,7 @@ import {
 import {
   EmphasizedRoute,
   MapResizeFix,
+  TripBadgeMarker,
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
 
@@ -50,6 +51,37 @@ function MapCameraFollow({
   return null;
 }
 
+function tripPath(trip: ServerTrip): google.maps.LatLngLiteral[] {
+  return trip.path.map(([lat, lng]) => ({ lat, lng }));
+}
+
+function formatTripTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatTripDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/** Zooms the camera to a trip's bounds when the user picks one from the list. */
+function TripFocusCamera({ trip }: { trip: ServerTrip | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map || !trip || trip.path.length === 0) return;
+    const bounds = new google.maps.LatLngBounds();
+    for (const [lat, lng] of trip.path) bounds.extend({ lat, lng });
+    map.fitBounds(bounds, 90);
+  }, [map, trip]);
+
+  return null;
+}
+
 function MapInteractionGuard({ onUserInteract }: { onUserInteract: () => void }) {
   const map = useMap();
 
@@ -68,6 +100,7 @@ function MapInteractionGuard({ onUserInteract }: { onUserInteract: () => void })
 
 export function LiveMonitoringMap({
   tracks,
+  trips,
   fleet,
   selectedVehicleId,
   onSelectVehicle,
@@ -75,8 +108,11 @@ export function LiveMonitoringMap({
   onUserPan,
   trailMinutes,
   onTrailMinutesChange,
+  initialFocus,
+  onFocusConsumed,
 }: {
   tracks: VehicleTrack[];
+  trips: TripsResponse | null;
   fleet: FleetVehicle[];
   selectedVehicleId: string | null;
   onSelectVehicle: (id: string) => void;
@@ -84,9 +120,14 @@ export function LiveMonitoringMap({
   onUserPan?: () => void;
   trailMinutes: number;
   onTrailMinutesChange: (m: number) => void;
+  initialFocus?: { vehicleId: string; startAt: string } | null;
+  onFocusConsumed?: () => void;
 }) {
   const [animated, setAnimated] = useState<AnimatedTrack[]>([]);
   const [showPoi, setShowPoi] = useState(true);
+  const [focusedTrip, setFocusedTrip] = useState<{ vehicleId: string; index: number } | null>(
+    null
+  );
   const prevRef = useRef(
     new globalThis.Map<string, { lat: number; lng: number; heading: number }>(),
   );
@@ -153,6 +194,46 @@ export function LiveMonitoringMap({
   const selectedTrack =
     animated.find((t) => t.vehicleId === selectedVehicleId) ?? animated[0] ?? null;
 
+  const tripsByVehicle = useMemo(
+    () =>
+      new globalThis.Map((trips?.vehicles ?? []).map((v) => [v.vehicle_id, v])),
+    [trips],
+  );
+  const selectedTrips = selectedTrack
+    ? tripsByVehicle.get(selectedTrack.vehicleId)?.trips ?? []
+    : [];
+  const focusedTripData =
+    focusedTrip && focusedTrip.vehicleId === selectedTrack?.vehicleId
+      ? selectedTrips[focusedTrip.index] ?? null
+      : null;
+
+  // A focused trip belongs to one vehicle+window — reset when either changes
+  useEffect(() => {
+    setFocusedTrip(null);
+  }, [selectedVehicleId, trailMinutes]);
+
+  // "View on map" from Trip history: focus the requested trip once data lands
+  useEffect(() => {
+    if (!initialFocus || !trips) return;
+    const vehicle = trips.vehicles.find((v) => v.vehicle_id === initialFocus.vehicleId);
+    if (!vehicle) return;
+    const index = vehicle.trips.findIndex((t) => t.start_at === initialFocus.startAt);
+    if (index >= 0) setFocusedTrip({ vehicleId: initialFocus.vehicleId, index });
+    onFocusConsumed?.();
+  }, [initialFocus, trips, onFocusConsumed]);
+
+  const handleFocusTrip = useCallback(
+    (vehicleId: string, index: number) => {
+      setFocusedTrip((prev) =>
+        prev?.vehicleId === vehicleId && prev.index === index
+          ? null
+          : { vehicleId, index }
+      );
+      onUserPan?.(); // stop camera-follow so fitBounds isn't fought
+    },
+    [onUserPan],
+  );
+
   const fleetStatus = useMemo(
     () => new globalThis.Map(fleet.map((v) => [v.id, v.connection_status])),
     [fleet],
@@ -218,23 +299,51 @@ export function LiveMonitoringMap({
               enabled={followSelected && !!selectedTrack}
             />
 
-            {animated.map((track) => {
-              const animatedPath =
-                track.path.length > 0
-                  ? [
-                      ...track.path.slice(0, -1),
-                      { lat: track.displayLat, lng: track.displayLng },
-                    ]
-                  : track.path;
-              return (
-                <EmphasizedRoute
-                  key={`route-${track.vehicleId}`}
-                  path={animatedPath}
-                  color={track.color}
-                  emphasized={track.vehicleId === selectedVehicleId}
-                />
-              );
+            <TripFocusCamera trip={focusedTripData} />
+
+            {/* One polyline per server-segmented trip — trails don't connect
+                across 30+ minute stops, so separate journeys read separately. */}
+            {animated.flatMap((track) => {
+              const vehicleTrips = tripsByVehicle.get(track.vehicleId)?.trips ?? [];
+              return vehicleTrips.map((trip, i) => {
+                let path = tripPath(trip);
+                // in-progress trip follows the live animated position
+                if (trip.active && i === vehicleTrips.length - 1 && path.length > 0) {
+                  path = [...path, { lat: track.displayLat, lng: track.displayLng }];
+                }
+                const isFocused =
+                  focusedTrip?.vehicleId === track.vehicleId && focusedTrip.index === i;
+                const emphasized = focusedTripData
+                  ? isFocused
+                  : track.vehicleId === selectedVehicleId;
+                return (
+                  <EmphasizedRoute
+                    key={`route-${track.vehicleId}-${i}`}
+                    path={path}
+                    color={tripColor(i)}
+                    emphasized={emphasized}
+                  />
+                );
+              });
             })}
+
+            {/* Numbered, clickable trip-start badges for the selected vehicle */}
+            {selectedTrack &&
+              selectedTrips.map((trip, i) => (
+                <TripBadgeMarker
+                  key={`trip-start-${selectedTrack.vehicleId}-${i}`}
+                  lat={trip.path[0][0]}
+                  lng={trip.path[0][1]}
+                  label={String(i + 1)}
+                  color={tripColor(i)}
+                  focused={
+                    focusedTrip?.vehicleId === selectedTrack.vehicleId &&
+                    focusedTrip.index === i
+                  }
+                  title={`Trip ${i + 1} · ${trip.distance_km} km · ${formatDuration(trip.duration_minutes)}`}
+                  onClick={() => handleFocusTrip(selectedTrack.vehicleId, i)}
+                />
+              ))}
 
             {animated.map((track) => (
               <VehicleCarMarker
@@ -375,13 +484,97 @@ export function LiveMonitoringMap({
               </p>
             </div>
             <div className="rounded-lg bg-canvas p-2">
-              <p className="text-ink-dim">Trip dist</p>
+              <p className="text-ink-dim">Last trip</p>
               <p className="font-mono text-lg text-warn">
-                {selectedTrack.tripDistanceKm > 0
-                  ? `${selectedTrack.tripDistanceKm} km`
+                {selectedTrips.length > 0
+                  ? `${selectedTrips[selectedTrips.length - 1].distance_km} km`
                   : '—'}
               </p>
             </div>
+          </div>
+
+          {/* Trips in the visible window */}
+          <div className="pointer-events-auto mt-3 border-t border-divider pt-3">
+            <div className="flex items-center justify-between text-xs">
+              <p className="font-medium text-ink">Trips ({selectedTrips.length})</p>
+              {selectedTrips.length > 0 && (
+                <p className="font-mono text-ink-dim">
+                  {tripsByVehicle.get(selectedTrack.vehicleId)?.total_distance_km ?? 0} km ·{' '}
+                  <span className="text-good">
+                    {tripsByVehicle.get(selectedTrack.vehicleId)?.total_fuel_liters ?? 0} L
+                  </span>
+                </p>
+              )}
+            </div>
+            {trips?.source === 'historical' && (
+              <p className="mt-1 text-[10px] text-warn">
+                Parked for a while — showing the most recent journeys instead.
+              </p>
+            )}
+            {selectedTrips.length === 0 ? (
+              <p className="mt-1 text-[10px] text-ink-dim">
+                No trips in this window — vehicle stayed parked.
+              </p>
+            ) : (
+              <ul className="mt-1.5 max-h-44 space-y-1 overflow-y-auto pr-1">
+                {selectedTrips
+                  .map((trip, i) => ({ trip, i }))
+                  .reverse()
+                  .map(({ trip, i }) => {
+                    const isFocused =
+                      focusedTrip?.vehicleId === selectedTrack.vehicleId &&
+                      focusedTrip.index === i;
+                    return (
+                      <li key={i}>
+                        <button
+                          type="button"
+                          onClick={() => handleFocusTrip(selectedTrack.vehicleId, i)}
+                          className={`w-full rounded-lg border px-2 py-1.5 text-left transition-colors ${
+                            isFocused
+                              ? 'border-brand bg-brand/10'
+                              : 'border-transparent hover:bg-panel-hover'
+                          }`}
+                        >
+                          <span className="flex items-center justify-between text-[11px]">
+                            <span className="flex items-center gap-1.5 text-ink-mid">
+                              <span
+                                className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold"
+                                style={{
+                                  backgroundColor: tripColor(i),
+                                  color: '#0b0e13',
+                                }}
+                              >
+                                {i + 1}
+                              </span>
+                              {formatTripDay(trip.start_at)} · {formatTripTime(trip.start_at)}–
+                              {formatTripTime(trip.end_at)}
+                              {trip.active && (
+                                <span className="flex items-center gap-1 text-good">
+                                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-good" />
+                                  live
+                                </span>
+                              )}
+                            </span>
+                            <span className="font-mono font-semibold text-ink">
+                              {trip.distance_km} km ·{' '}
+                              <span className="text-good">{trip.estimated_fuel_liters} L</span>
+                            </span>
+                          </span>
+                          <span className="mt-0.5 block pl-[22px] text-[10px] text-ink-dim">
+                            {formatDuration(trip.duration_minutes)} · avg {trip.avg_speed_kph}{' '}
+                            km/h · top {trip.max_speed_kph} km/h
+                            {trip.idle_minutes > 0 ? ` · idle ${trip.idle_minutes}m` : ''}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+            )}
+            <p className="mt-2 text-[10px] leading-snug text-ink-dim">
+              A new trip starts after the ignition has been off for 30+ minutes. Tap a trip to
+              zoom to it — numbered dots mark where each trip began.
+            </p>
           </div>
         </div>
       )}

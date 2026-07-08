@@ -88,6 +88,59 @@ export const EmphasizedRoute = memo(function EmphasizedRoute({
   );
 });
 
+function tripBadgeSvgDataUrl(label: string, color: string, focused: boolean): string {
+  const bg = focused ? color : '#0b0e13';
+  const fg = focused ? '#0b0e13' : '#e8ecf4';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">
+    <circle cx="13" cy="13" r="11" fill="${bg}" stroke="${color}" stroke-width="2.5"/>
+    <text x="13" y="17" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="${fg}">${label}</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+/** Numbered trip-start badge — classic Marker, works without a cloud Map ID. */
+export const TripBadgeMarker = memo(function TripBadgeMarker({
+  lat,
+  lng,
+  label,
+  color,
+  focused = false,
+  title,
+  onClick,
+}: {
+  lat: number;
+  lng: number;
+  label: string;
+  color: string;
+  focused?: boolean;
+  title?: string;
+  onClick?: () => void;
+}) {
+  const maps = useMapsLibrary('core');
+
+  const icon = useMemo(() => {
+    if (!maps) return undefined;
+    const size = focused ? 30 : 24;
+    return {
+      url: tripBadgeSvgDataUrl(label, color, focused),
+      scaledSize: new maps.Size(size, size),
+      anchor: new maps.Point(size / 2, size / 2),
+    };
+  }, [maps, label, color, focused]);
+
+  if (!icon) return null;
+
+  return (
+    <Marker
+      position={{ lat, lng }}
+      icon={icon}
+      zIndex={focused ? 900 : 300}
+      title={title}
+      onClick={onClick}
+    />
+  );
+});
+
 export const VehicleCarMarker = memo(function VehicleCarMarker({
   lat,
   lng,
