@@ -25,7 +25,7 @@ const IDLE_EMA_ALPHA = 0.1;
 // absolute floor) for IDLE_WASTE_MIN_MINUTES raises an operational-waste alert
 const IDLE_WASTE_RATE_FLOOR_LPH = 1.2;
 const IDLE_WASTE_RATE_FACTOR = 1.5;
-const IDLE_WASTE_MIN_MINUTES = 10;
+const IDLE_WASTE_MIN_MINUTES = 5;
 const LOW_FUEL_PERCENT = 15;
 
 export interface VirtualTankState {

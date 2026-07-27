@@ -41,6 +41,14 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    // A dead/rotated JWT makes every panel error out — clear it and send the
+    // user through login once instead.
+    if (response.status === 401 && options.auth !== false && typeof window !== 'undefined') {
+      clearToken();
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+    }
     throw new Error(data.error || `Request failed (${response.status})`);
   }
 

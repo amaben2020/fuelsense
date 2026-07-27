@@ -35,6 +35,9 @@ if (ALLOWED_ORIGINS.length === 0) {
 }
 
 const app = express();
+// EC2 sits behind Caddy (:80 → 127.0.0.1:5001); trust its X-Forwarded-For so
+// express-rate-limit keys on the real client IP instead of throwing.
+app.set('trust proxy', 1);
 
 app.use(helmet({ contentSecurityPolicy: false }));
 
