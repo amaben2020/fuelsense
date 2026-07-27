@@ -262,6 +262,27 @@ export const initDatabase = async (): Promise<void> => {
     `);
   }
 
+  await ensureColumn('telemetry', 'fuel_source', 'VARCHAR(12)');
+  await ensureColumn('telemetry', 'fuel_used_gps_ml', 'BIGINT');
+  await ensureColumn('telemetry', 'fuel_rate_lph', 'DECIMAL(8,2)');
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS virtual_tanks (
+      vehicle_id UUID PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      capacity_liters DECIMAL(10,2) NOT NULL,
+      level_ml BIGINT NOT NULL,
+      last_fuel_used_ml BIGINT,
+      last_reading_at TIMESTAMP,
+      calibrated_at TIMESTAMP,
+      calibration_source VARCHAR(30),
+      consumed_since_calibration_ml BIGINT NOT NULL DEFAULT 0,
+      learned_idle_lph DECIMAL(6,3),
+      confidence INTEGER NOT NULL DEFAULT 30,
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   await ensureColumn('alerts', 'is_resolved', 'BOOLEAN DEFAULT false');
   await ensureColumn('alerts', 'resolved_at', 'TIMESTAMP');
   await ensureColumn('alerts', 'latitude', 'DECIMAL(10,8)');
@@ -312,6 +333,37 @@ export const initDatabase = async (): Promise<void> => {
   `);
 
   await ensureColumn('device_orders', 'quantity', 'INTEGER NOT NULL DEFAULT 1');
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS device_events (
+      id BIGSERIAL PRIMARY KEY,
+      imei VARCHAR(20) REFERENCES devices(imei),
+      customer_id UUID REFERENCES customers(id),
+      vehicle_id UUID REFERENCES vehicles(id),
+      event_type VARCHAR(40) NOT NULL,
+      severity VARCHAR(10) NOT NULL DEFAULT 'info',
+      value DECIMAL(12,3),
+      unit VARCHAR(12),
+      speed_kph INTEGER,
+      latitude DECIMAL(10,8),
+      longitude DECIMAL(11,8),
+      occurred_at TIMESTAMP NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_device_events_customer_occurred
+      ON device_events (customer_id, occurred_at DESC)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_device_events_vehicle_occurred
+      ON device_events (vehicle_id, occurred_at DESC)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_device_events_type
+      ON device_events (customer_id, event_type, occurred_at DESC)
+  `);
 
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_telemetry_customer_recorded

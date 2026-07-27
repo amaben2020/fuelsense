@@ -5,6 +5,8 @@ import dynamic from 'next/dynamic';
 import { AlertTriangle, Fuel, Gauge as GaugeIcon, MapPin, Radio, User } from 'lucide-react';
 import { FleetVehicle, formatNgn } from '@/lib/api';
 import { useEstimatedConsumption } from './EstimatedConsumptionTable';
+import { VirtualFuelGauge } from './VirtualFuelGauge';
+import { FuelLevelChart } from './FuelLevelChart';
 
 const Vehicle3D = dynamic(() => import('./Vehicle3D').then((m) => m.Vehicle3D), {
   ssr: false,
@@ -274,12 +276,21 @@ export function VehicleShowcase({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <SpeedGauge speedKph={Number(vehicle.speed_kph ?? 0)} />
-            <FuelGauge
-              fuelLiters={vehicle.fuel_level_liters != null ? Number(vehicle.fuel_level_liters) : null}
-              tankLiters={vehicle.tank_capacity_liters}
-              estimatedUsedLiters={estimateRow?.estimated_fuel_liters ?? null}
-              estimatedCostNgn={estimateRow?.estimated_cost_ngn ?? null}
-            />
+            {vehicle.fuel_source === 'virtual' || vehicle.virtual_tank_liters != null ? (
+              <div className="rounded-lg border border-edge bg-panel-deep p-4">
+                <p className="text-xs uppercase tracking-wider text-ink-dim">Fuel level</p>
+                <div className="mt-2">
+                  <VirtualFuelGauge vehicle={vehicle} />
+                </div>
+              </div>
+            ) : (
+              <FuelGauge
+                fuelLiters={vehicle.fuel_level_liters != null ? Number(vehicle.fuel_level_liters) : null}
+                tankLiters={vehicle.tank_capacity_liters}
+                estimatedUsedLiters={estimateRow?.estimated_fuel_liters ?? null}
+                estimatedCostNgn={estimateRow?.estimated_cost_ngn ?? null}
+              />
+            )}
           </div>
 
           {!online && vehicle.connection_status !== 'no_device' && (
@@ -333,6 +344,32 @@ export function VehicleShowcase({
               </span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-edge bg-panel p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-ink">Fuel telemetry</h3>
+          <p className="text-xs text-ink-dim">
+            {vehicle.fuel_source === 'virtual'
+              ? 'Virtual tank curve from GPS fuel-burn data'
+              : 'Fuel level over time'}{' '}
+            · shaded = engine idling
+          </p>
+        </div>
+        <div className="mt-3">
+          <FuelLevelChart
+            key={vehicle.id}
+            vehicleId={vehicle.id}
+            capacityLiters={
+              vehicle.tank_capacity_liters != null
+                ? Number(vehicle.tank_capacity_liters)
+                : vehicle.virtual_tank_capacity_liters != null
+                  ? Number(vehicle.virtual_tank_capacity_liters)
+                  : null
+            }
+            refreshKey={vehicle.last_telemetry_at ?? 0}
+          />
         </div>
       </div>
     </div>

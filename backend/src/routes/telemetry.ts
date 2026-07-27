@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
-import { db, telemetry, vehicles, fuelPurchases, eq, desc, sql } from '../lib/db-helpers';
+import { db, telemetry, vehicles, fuelPurchases, eq, and, desc, sql } from '../lib/db-helpers';
 import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { fleetEfficiencyAggSql } from '../lib/fleet-efficiency-sql';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
@@ -28,6 +28,7 @@ import {
   DAILY_DISTANCE_BY_MODEL,
 } from '../lib/activity-thresholds';
 import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../lib/receipt-reconciliation';
+import { creditRefuel } from '../lib/virtual-tank';
 
 const router = express.Router();
 
@@ -65,6 +66,7 @@ router.get('/latest', async (req: Request, res: Response) => {
 
 router.get('/history', async (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query.limit) || 100, 500);
+  const vehicleId = typeof req.query.vehicle_id === 'string' ? req.query.vehicle_id : null;
 
   try {
     const rows = await db
@@ -75,6 +77,8 @@ router.get('/history', async (req: Request, res: Response) => {
         vehicle_id: telemetry.vehicleId,
         recorded_at: telemetry.recordedAt,
         fuel_level_liters: telemetry.fuelLevelLiters,
+        fuel_source: telemetry.fuelSource,
+        fuel_rate_lph: telemetry.fuelRateLph,
         odometer_km: telemetry.odometerKm,
         latitude: telemetry.latitude,
         longitude: telemetry.longitude,
@@ -85,7 +89,11 @@ router.get('/history', async (req: Request, res: Response) => {
       })
       .from(telemetry)
       .leftJoin(vehicles, eq(telemetry.vehicleId, vehicles.id))
-      .where(eq(telemetry.customerId, req.user.customerId))
+      .where(
+        vehicleId
+          ? and(eq(telemetry.customerId, req.user.customerId), eq(telemetry.vehicleId, vehicleId))
+          : eq(telemetry.customerId, req.user.customerId)
+      )
       .orderBy(desc(telemetry.recordedAt))
       .limit(limit);
 
@@ -208,7 +216,69 @@ router.get('/trips', async (req: Request, res: Response) => {
         AND (t.latitude::numeric != 0 OR t.longitude::numeric != 0)
       `;
 
-      const result = await db.execute(sql`
+      type TripRow = Record<string, unknown>;
+
+      // Groups raw points by vehicle, segments them into trips, and prices
+      // each trip using the same methodology as the fuel estimate (driving +
+      // engine-idle burn). Shared by both the live-window and historical query.
+      const buildVehicleTrips = (rows: TripRow[]) => {
+        const byVehicle = new Map<
+          string,
+          {
+            license_plate: string;
+            model: string | null;
+            driver_name: string | null;
+            points: TelemetryTripPoint[];
+          }
+        >();
+        for (const row of rows) {
+          const vid = String(row.vehicle_id);
+          if (!byVehicle.has(vid)) {
+            byVehicle.set(vid, {
+              license_plate: String(row.license_plate),
+              model: row.model != null ? String(row.model) : null,
+              driver_name: row.driver_name != null ? String(row.driver_name) : null,
+              points: [],
+            });
+          }
+          byVehicle.get(vid)!.points.push({
+            lat: Number(row.lat),
+            lng: Number(row.lng),
+            speedKph: row.speed_kph != null ? Number(row.speed_kph) : null,
+            ignitionOn: row.ignition_on == null ? null : Boolean(row.ignition_on),
+            recordedAt: new Date(row.recorded_at as string),
+          });
+        }
+
+        const nowMs = Date.now();
+        return Array.from(byVehicle.entries()).map(([vehicleId, v]) => {
+          const efficiencyKmL = baselineEfficiencyKmL(v.model ?? '');
+          const trips = segmentTrips(v.points, nowMs).map((trip) => {
+            const fuel = round1(
+              trip.distance_km / efficiencyKmL +
+                (trip.idle_minutes / 60) * IDLE_BURN_LITERS_PER_HOUR
+            );
+            return {
+              ...trip,
+              estimated_fuel_liters: fuel,
+              estimated_cost_ngn: Math.round(fuel * pricePerLiter),
+            };
+          });
+          return {
+            vehicle_id: vehicleId,
+            license_plate: v.license_plate,
+            model: v.model,
+            driver_name: v.driver_name,
+            trips,
+            total_distance_km:
+              Math.round(trips.reduce((s, t) => s + t.distance_km, 0) * 10) / 10,
+            total_fuel_liters: round1(trips.reduce((s, t) => s + t.estimated_fuel_liters, 0)),
+            total_cost_ngn: trips.reduce((s, t) => s + t.estimated_cost_ngn, 0),
+          };
+        });
+      };
+
+      const liveResult = await db.execute(sql`
         SELECT ${tripColumns}
         FROM telemetry t
         JOIN vehicles v ON v.id = t.vehicle_id
@@ -219,13 +289,14 @@ router.get('/trips', async (req: Request, res: Response) => {
         ORDER BY t.vehicle_id ASC, t.recorded_at ASC
       `);
 
-      let rows = result.rows;
       let source = 'live';
+      let vehicleTrips = buildVehicleTrips(liveResult.rows as TripRow[]);
+      const liveTripCount = vehicleTrips.reduce((s, v) => s + v.trips.length, 0);
 
-      // Same fallback the /tracks trail uses: when the window is empty
-      // (vehicle parked for days), show the most recent journeys instead
-      // of an empty panel next to a visible historical trail.
-      if (rows.length === 0) {
+      // The live window can be non-empty (parked heartbeat pings) yet contain
+      // zero actual trips. Fall back to the most recent real journeys — up to
+      // 30 days back — instead of showing an empty trail next to "0 trips".
+      if (liveTripCount === 0) {
         const historical = await db.execute(sql`
           WITH ranked AS (
             SELECT ${tripColumns},
@@ -242,66 +313,14 @@ router.get('/trips', async (req: Request, res: Response) => {
           FROM ranked WHERE rn <= 15000
           ORDER BY vehicle_id ASC, recorded_at ASC
         `);
-        rows = historical.rows;
-        if (rows.length > 0) source = 'historical';
-      }
-
-      const byVehicle = new Map<
-        string,
-        {
-          license_plate: string;
-          model: string | null;
-          driver_name: string | null;
-          points: TelemetryTripPoint[];
+        const historicalTrips = buildVehicleTrips(historical.rows as TripRow[]);
+        const historicalTripCount = historicalTrips.reduce((s, v) => s + v.trips.length, 0);
+        if (historicalTripCount > 0) {
+          vehicleTrips = historicalTrips;
+          source = 'historical';
         }
-      >();
-      for (const r of rows) {
-        const row = r as Record<string, unknown>;
-        const vid = String(row.vehicle_id);
-        if (!byVehicle.has(vid)) {
-          byVehicle.set(vid, {
-            license_plate: String(row.license_plate),
-            model: row.model != null ? String(row.model) : null,
-            driver_name: row.driver_name != null ? String(row.driver_name) : null,
-            points: [],
-          });
-        }
-        byVehicle.get(vid)!.points.push({
-          lat: Number(row.lat),
-          lng: Number(row.lng),
-          speedKph: row.speed_kph != null ? Number(row.speed_kph) : null,
-          ignitionOn: row.ignition_on == null ? null : Boolean(row.ignition_on),
-          recordedAt: new Date(row.recorded_at as string),
-        });
+        // else: truly never driven in 30 days — keep the (empty-trip) live result
       }
-
-      const nowMs = Date.now();
-      const vehicleTrips = Array.from(byVehicle.entries()).map(([vehicleId, v]) => {
-        const efficiencyKmL = baselineEfficiencyKmL(v.model ?? '');
-        // Same methodology as the fuel estimate: driving + engine-idle burn
-        const trips = segmentTrips(v.points, nowMs).map((trip) => {
-          const fuel = round1(
-            trip.distance_km / efficiencyKmL +
-              (trip.idle_minutes / 60) * IDLE_BURN_LITERS_PER_HOUR
-          );
-          return {
-            ...trip,
-            estimated_fuel_liters: fuel,
-            estimated_cost_ngn: Math.round(fuel * pricePerLiter),
-          };
-        });
-        return {
-          vehicle_id: vehicleId,
-          license_plate: v.license_plate,
-          model: v.model,
-          driver_name: v.driver_name,
-          trips,
-          total_distance_km:
-            Math.round(trips.reduce((s, t) => s + t.distance_km, 0) * 10) / 10,
-          total_fuel_liters: round1(trips.reduce((s, t) => s + t.estimated_fuel_liters, 0)),
-          total_cost_ngn: trips.reduce((s, t) => s + t.estimated_cost_ngn, 0),
-        };
-      });
 
       return {
         period_minutes: minutes,
@@ -861,6 +880,15 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
         source: 'receipt_upload',
       })
       .returning({ id: fuelPurchases.id });
+
+    // Credit the virtual tank — the receipt is the only refuel signal we have
+    // on vehicles without a fuel sensor. Prefer the OBD-matched volume when a
+    // sensor exists; otherwise trust the declared litres (reconciliation flags
+    // inflated receipts separately).
+    await creditRefuel(vehicleId, customerId, litersActual ?? declared).catch((err) =>
+      console.error('[virtual_tank] refuel credit failed:', err)
+    );
+    await invalidate(customerId, 'fleet', 'summary');
 
     res.status(201).json({
       id: row.id,

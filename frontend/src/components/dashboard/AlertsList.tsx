@@ -35,6 +35,23 @@ export function AlertsList({
               {alert.alert_type === 'fuel_theft' && (
                 <p className="mt-0.5 text-xs text-ink-dim">{alert.message}</p>
               )}
+              {alert.alert_type === 'fuel_theft' &&
+                alert.fuel_level_liters != null &&
+                alert.fuel_drop_liters != null && (
+                  <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-canvas px-2.5 py-1.5 font-mono text-xs">
+                    <span className="text-ink-mid">
+                      {(
+                        Number(alert.fuel_level_liters) + Number(alert.fuel_drop_liters)
+                      ).toFixed(1)}{' '}
+                      L
+                    </span>
+                    <span className="text-ink-dim">→</span>
+                    <span className="font-semibold text-bad">
+                      {Number(alert.fuel_level_liters).toFixed(1)} L
+                    </span>
+                    <span className="text-ink-dim">before / after</span>
+                  </div>
+                )}
               <p className="mt-1 text-xs text-ink-dim">
                 {new Date(alert.created_at).toLocaleString()}
                 {alert.fuel_drop_liters != null && (

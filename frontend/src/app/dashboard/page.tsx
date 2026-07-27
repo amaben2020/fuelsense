@@ -16,6 +16,7 @@ import {
   Radio,
   Receipt,
   Settings,
+  ShieldAlert,
   X,
 } from 'lucide-react';
 import {
@@ -60,6 +61,7 @@ import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
 import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
+import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
 import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 
 // Full dashboard reload cadence. Keep this modest — each cycle fires ~10 API
@@ -72,6 +74,7 @@ type DashboardView =
   | 'live'
   | 'vehicle'
   | 'trips'
+  | 'behavior'
   | 'fuel'
   | 'estimate'
   | 'receipts'
@@ -84,6 +87,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'live', label: 'Live monitoring', hash: 'live' },
   { id: 'vehicle', label: 'Vehicle view', hash: 'vehicle' },
   { id: 'trips', label: 'Trip history', hash: 'trips' },
+  { id: 'behavior', label: 'Driving behavior', hash: 'behavior' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
@@ -382,6 +386,7 @@ export default function DashboardPage() {
     live: 'Live monitoring',
     vehicle: 'Vehicle view',
     trips: 'Trip history',
+    behavior: 'Driving behavior',
     fuel: 'Fuel analytics',
     estimate: 'Fuel estimate',
     receipts: 'Receipts',
@@ -431,6 +436,12 @@ export default function DashboardPage() {
           label="Trip history"
           active={activeView === 'trips'}
           onClick={() => switchView('trips')}
+        />
+        <NavItem
+          icon={ShieldAlert}
+          label="Driving behavior"
+          active={activeView === 'behavior'}
+          onClick={() => switchView('behavior')}
         />
         <NavItem
           icon={Fuel}
@@ -692,6 +703,15 @@ export default function DashboardPage() {
                 setSelectedVehicleId(vehicleId);
                 setPendingTripFocus({ vehicleId, startAt: tripStartAt });
                 setFollowVehicle(false);
+                switchView('live');
+              }}
+            />
+          )}
+
+          {activeView === 'behavior' && (
+            <DrivingBehaviorPanel
+              onViewOnMap={(vehicleId) => {
+                setSelectedVehicleId(vehicleId);
                 switchView('live');
               }}
             />

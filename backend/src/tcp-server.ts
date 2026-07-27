@@ -6,6 +6,14 @@ import {
 import { db, devices, telemetry, deviceFrames, vehicles, eq, and } from './lib/db-helpers';
 import { detectAnomalies } from './lib/anomaly-detector';
 import { invalidate } from './lib/redis';
+import { getIoValue, serializeIo } from './lib/avl-io';
+import { decodeScenarioEvent, recordDeviceEvent, resolveClosedAlert } from './lib/device-event-decoder';
+import {
+  FUEL_USED_GPS_AVL_ID,
+  FUEL_RATE_GPS_AVL_ID,
+  FUEL_RATE_GPS_DIVISOR,
+  processFuelGpsReading,
+} from './lib/virtual-tank';
 
 const REAL_DEVICE_IMEI = process.env.REAL_DEVICE_IMEI || '862129084847783';
 
@@ -44,44 +52,6 @@ const tcpServer = new TeltonikaTCPServer({
     gprs: TeltonikaGPRSCodec.Codec12,
   },
 });
-
-const readIoNumber = (buffer: Buffer | null | undefined): number | null => {
-  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return null;
-  if (buffer.length === 1) return buffer.readUInt8(0);
-  if (buffer.length === 2) return buffer.readUInt16BE(0);
-  if (buffer.length === 4) return buffer.readUInt32BE(0);
-  if (buffer.length === 8) return Number(buffer.readBigUInt64BE(0));
-  return null;
-};
-
-const getIoValue = (io: Record<string | number, unknown> | undefined | null, avlId: number | string): number | null => {
-  if (!io) return null;
-  const value = io[avlId];
-  if (value == null) return null;
-  if (Buffer.isBuffer(value)) return readIoNumber(value);
-  if (typeof value === 'object' && (value as Record<string, unknown>).value != null) {
-    return Number((value as Record<string, unknown>).value);
-  }
-  return Number(value);
-};
-
-// Serialises an AVL IO map to a plain object safe for JSONB storage.
-// Buffer values (multi-byte AVL elements) are stored as {hex, dec} so you
-// can see both the raw bytes and the interpreted integer in one glance.
-const serializeIo = (io: Record<string | number, unknown> | undefined | null): Record<string, unknown> | null => {
-  if (!io) return null;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(io)) {
-    if (Buffer.isBuffer(value)) {
-      out[key] = { hex: value.toString('hex'), dec: readIoNumber(value) };
-    } else if (value != null && typeof value === 'object' && 'value' in (value as object)) {
-      out[key] = (value as Record<string, unknown>).value;
-    } else {
-      out[key] = value;
-    }
-  }
-  return out;
-};
 
 const isRealDevice = (imei: string): boolean => imei === REAL_DEVICE_IMEI;
 
@@ -157,22 +127,6 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
 
     const TANK_CAPACITY_LITERS = Number(process.env.REAL_DEVICE_TANK_LITERS || 60);
 
-    // Fuel sources in priority order:
-    //   390/270/30 — OEM/CAN fuel level (litres × 100, matches our mock encoder)
-    //   48/89      — OBD fuel level as % of tank (standard OBD element on FMx003)
-    const fuelCanRaw =
-      getIoValue(record.io, 390) ?? getIoValue(record.io, 270) ?? getIoValue(record.io, 30);
-    const fuelObdPct = getIoValue(record.io, 48) ?? getIoValue(record.io, 89);
-
-    const fuelLevelLiters =
-      fuelCanRaw != null
-        ? Number((fuelCanRaw / 100).toFixed(2))
-        : fuelObdPct != null
-          ? Number(((fuelObdPct / 100) * TANK_CAPACITY_LITERS).toFixed(2))
-          : null;
-
-    const fuelSource = fuelCanRaw != null ? 'CAN' : fuelObdPct != null ? 'OBD%' : 'none';
-
     // Mileage sources in priority order:
     //   389 — OBD OEM total mileage (km, FMx003 reads the dashboard odometer)
     //   16  — total odometer (metres, GPS-based, standard Teltonika element)
@@ -195,11 +149,70 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     const rawSpeedKph = record.gps?.speed != null ? Math.round(record.gps.speed) : null;
     const speedKph = !ignitionOn ? 0 : rawSpeedKph;
 
+    const [vehicleRow] = await db
+      .select({ license_plate: vehicles.licensePlate })
+      .from(vehicles)
+      .where(eq(vehicles.id, device.vehicleId!))
+      .limit(1);
+
+    // Fuel sources in priority order:
+    //   390/270/30 — OEM/CAN fuel level (litres × 100, matches our mock encoder)
+    //   48/89      — OBD fuel level as % of tank (standard OBD element on FMx003)
+    //   12         — Fuel Used GPS accumulator (ml) feeding the virtual tank model,
+    //                for vehicles that expose no fuel level over CAN/OBD
+    const fuelCanRaw =
+      getIoValue(record.io, 390) ?? getIoValue(record.io, 270) ?? getIoValue(record.io, 30);
+    const fuelObdPct = getIoValue(record.io, 48) ?? getIoValue(record.io, 89);
+    const fuelUsedGpsMl = getIoValue(record.io, FUEL_USED_GPS_AVL_ID);
+    const fuelRateGpsRaw = getIoValue(record.io, FUEL_RATE_GPS_AVL_ID);
+    const fuelRateLph =
+      fuelRateGpsRaw != null ? Number((fuelRateGpsRaw / FUEL_RATE_GPS_DIVISOR).toFixed(2)) : null;
+
+    let fuelLevelLiters =
+      fuelCanRaw != null
+        ? Number((fuelCanRaw / 100).toFixed(2))
+        : fuelObdPct != null
+          ? Number(((fuelObdPct / 100) * TANK_CAPACITY_LITERS).toFixed(2))
+          : null;
+    let fuelSource = fuelCanRaw != null ? 'CAN' : fuelObdPct != null ? 'OBD%' : 'none';
+
+    if (fuelLevelLiters == null && fuelUsedGpsMl != null) {
+      try {
+        const virtual = await processFuelGpsReading(
+          device.imei,
+          device.vehicleId!,
+          device.customerId!,
+          {
+            fuelUsedMl: fuelUsedGpsMl,
+            fuelRateLph,
+            ignitionOn,
+            speedKph,
+            recordedAt,
+          },
+          {
+            latitude: validGps ? rawLat!.toString() : null,
+            longitude: validGps ? rawLng!.toString() : null,
+            licensePlate: vehicleRow?.license_plate ?? undefined,
+          }
+        );
+        fuelLevelLiters = Number(virtual.levelLiters.toFixed(2));
+        fuelSource = 'virtual';
+        if (virtual.accumulatorReset) {
+          logReal(device.imei, `fuel accumulator reset detected (power cycle), delta=${virtual.deltaMl}ml`);
+        }
+      } catch (err) {
+        console.error(`[virtual_tank] failed for ${device.imei}:`, err);
+      }
+    }
+
     const telemetryRow = {
       imei: device.imei,
       customerId: device.customerId!,
       vehicleId: device.vehicleId!,
       fuelLevelLiters: fuelLevelLiters?.toString() ?? null,
+      fuelSource,
+      fuelUsedGpsMl,
+      fuelRateLph: fuelRateLph?.toString() ?? null,
       odometerKm:
         obdMileageKm != null
           ? Math.round(obdMileageKm)
@@ -221,6 +234,8 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
         fuelLevelLiters,
         fuelCanRaw,
         fuelObdPct,
+        fuelUsedGpsMl,
+        fuelRateLph,
         obdMileageKm,
         odometerMeters,
         ignitionOn,
@@ -265,11 +280,33 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       .set({ lastSeenAt: new Date() })
       .where(eq(devices.imei, device.imei));
 
-    const [vehicleRow] = await db
-      .select({ license_plate: vehicles.licensePlate })
-      .from(vehicles)
-      .where(eq(vehicles.id, device.vehicleId!))
-      .limit(1);
+    // FMC150 scenario events (green driving, overspeed, towing, crash, jamming,
+    // unplug, idling, trip, geofence) arrive as eventful records where the AVL
+    // event field names the triggering IO element.
+    if (record.event) {
+      try {
+        const decoded = decodeScenarioEvent(record.event, {
+          io: record.io,
+          speedKph: telemetryRow.speedKph,
+          licensePlate: vehicleRow?.license_plate ?? undefined,
+        });
+        if (decoded) {
+          await recordDeviceEvent(decoded, {
+            imei: device.imei,
+            customerId: device.customerId!,
+            vehicleId: device.vehicleId!,
+            latitude: telemetryRow.latitude,
+            longitude: telemetryRow.longitude,
+            speedKph: telemetryRow.speedKph,
+            occurredAt: recordedAt,
+          });
+          await resolveClosedAlert(decoded.eventType, device.customerId!, device.vehicleId!);
+          logReal(device.imei, `scenario event ${decoded.eventType}`, decoded.value ?? '');
+        }
+      } catch (err) {
+        console.error(`[device_events] failed for ${device.imei}:`, err);
+      }
+    }
 
     await detectAnomalies(
       { imei: device.imei, customerId: device.customerId!, vehicleId: device.vehicleId! },

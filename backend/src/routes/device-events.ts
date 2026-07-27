@@ -1,0 +1,204 @@
+import express, { Request, Response } from 'express';
+import { authenticateCustomer } from '../middleware/auth';
+import { db, sql } from '../lib/db-helpers';
+
+const router = express.Router();
+
+router.use(authenticateCustomer);
+
+// Driving-behavior penalty weights, applied per event and normalised per
+// 100 km so a vehicle that drives more isn't punished for exposure.
+const SCORE_WEIGHTS: Record<string, number> = {
+  crash: 30,
+  overspeeding: 4,
+  harsh_braking: 3,
+  harsh_acceleration: 2,
+  harsh_cornering: 2,
+  idling_start: 1,
+};
+
+const SECURITY_EVENT_TYPES = [
+  'towing',
+  'crash',
+  'jamming_start',
+  'power_unplug',
+  'geofence_exit',
+];
+
+const gradeForScore = (score: number): string => {
+  if (score >= 90) return 'A';
+  if (score >= 80) return 'B';
+  if (score >= 65) return 'C';
+  if (score >= 50) return 'D';
+  return 'F';
+};
+
+router.get('/', async (req: Request, res: Response) => {
+  const days = Math.min(Number(req.query.days) || 7, 90);
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+  const type = String(req.query.type || '').trim();
+  const vehicleId = String(req.query.vehicle_id || '').trim();
+  const customerId = req.user.customerId;
+
+  try {
+    const filters = [
+      sql`e.customer_id = ${customerId}`,
+      sql`e.occurred_at > NOW() - (${days} || ' days')::INTERVAL`,
+    ];
+    if (type === 'security') {
+      filters.push(
+        sql`e.event_type IN (${sql.join(
+          SECURITY_EVENT_TYPES.map((t) => sql`${t}`),
+          sql`, `
+        )})`
+      );
+    } else if (type) {
+      filters.push(sql`e.event_type = ${type}`);
+    }
+    if (vehicleId) filters.push(sql`e.vehicle_id = ${vehicleId}::uuid`);
+
+    const result = await db.execute(sql`
+      SELECT
+        e.id,
+        e.vehicle_id,
+        v.license_plate,
+        COALESCE(dr.full_name, v.driver_name) AS driver_name,
+        e.event_type,
+        e.severity,
+        e.value,
+        e.unit,
+        e.speed_kph,
+        e.latitude,
+        e.longitude,
+        e.occurred_at
+      FROM device_events e
+      LEFT JOIN vehicles v ON v.id = e.vehicle_id
+      LEFT JOIN drivers dr ON dr.id = v.driver_id
+      WHERE ${sql.join(filters, sql` AND `)}
+      ORDER BY e.occurred_at DESC
+      LIMIT ${limit}
+    `);
+
+    res.json({ period_days: days, events: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+router.get('/summary', async (req: Request, res: Response) => {
+  const days = Math.min(Number(req.query.days) || 7, 90);
+  const customerId = req.user.customerId;
+
+  try {
+    const [countsResult, distanceResult, vehiclesResult] = await Promise.all([
+      db.execute(sql`
+        SELECT vehicle_id, event_type, COUNT(*)::int AS count,
+               MAX(occurred_at) AS last_at
+        FROM device_events
+        WHERE customer_id = ${customerId}
+          AND occurred_at > NOW() - (${days} || ' days')::INTERVAL
+        GROUP BY vehicle_id, event_type
+      `),
+      db.execute(sql`
+        SELECT vehicle_id,
+               (MAX(odometer_km) - MIN(odometer_km))::int AS distance_km
+        FROM telemetry
+        WHERE customer_id = ${customerId}
+          AND odometer_km IS NOT NULL
+          AND recorded_at > NOW() - (${days} || ' days')::INTERVAL
+        GROUP BY vehicle_id
+      `),
+      db.execute(sql`
+        SELECT v.id AS vehicle_id, v.license_plate, v.model,
+               COALESCE(dr.full_name, v.driver_name) AS driver_name
+        FROM vehicles v
+        LEFT JOIN drivers dr ON dr.id = v.driver_id
+        WHERE v.customer_id = ${customerId}
+      `),
+    ]);
+
+    const distanceByVehicle = new Map<string, number>();
+    for (const row of distanceResult.rows) {
+      const r = row as Record<string, unknown>;
+      distanceByVehicle.set(String(r.vehicle_id), Math.max(0, Number(r.distance_km) || 0));
+    }
+
+    const countsByVehicle = new Map<string, Record<string, number>>();
+    const lastEventByVehicle = new Map<string, string>();
+    const fleetCounts: Record<string, number> = {};
+    for (const row of countsResult.rows) {
+      const r = row as Record<string, unknown>;
+      const vid = String(r.vehicle_id);
+      const eventType = String(r.event_type);
+      const count = Number(r.count) || 0;
+      if (!countsByVehicle.has(vid)) countsByVehicle.set(vid, {});
+      countsByVehicle.get(vid)![eventType] = count;
+      fleetCounts[eventType] = (fleetCounts[eventType] || 0) + count;
+      const lastAt = String(r.last_at);
+      const prev = lastEventByVehicle.get(vid);
+      if (!prev || lastAt > prev) lastEventByVehicle.set(vid, lastAt);
+    }
+
+    const vehicles = vehiclesResult.rows.map((row) => {
+      const r = row as Record<string, unknown>;
+      const vid = String(r.vehicle_id);
+      const counts = countsByVehicle.get(vid) ?? {};
+      const distanceKm = distanceByVehicle.get(vid) ?? 0;
+
+      let penalty = 0;
+      for (const [eventType, weight] of Object.entries(SCORE_WEIGHTS)) {
+        penalty += (counts[eventType] || 0) * weight;
+      }
+      // Floor the divisor so a single short trip with one harsh brake
+      // doesn't produce a catastrophic score.
+      const penaltyPer100km = (penalty * 100) / Math.max(distanceKm, 20);
+      const score = Math.round(Math.min(100, Math.max(0, 100 - penaltyPer100km)));
+
+      const securityEvents = SECURITY_EVENT_TYPES.reduce(
+        (s, t) => s + (counts[t] || 0),
+        0
+      );
+      const totalEvents = Object.values(counts).reduce((s, c) => s + c, 0);
+
+      return {
+        vehicle_id: vid,
+        license_plate: r.license_plate,
+        driver_name: r.driver_name,
+        model: r.model,
+        distance_km: distanceKm,
+        score,
+        grade: gradeForScore(score),
+        total_events: totalEvents,
+        security_events: securityEvents,
+        counts,
+        last_event_at: lastEventByVehicle.get(vid) ?? null,
+      };
+    });
+
+    // Vehicles with worse behavior first; untouched vehicles at the end
+    vehicles.sort((a, b) => a.score - b.score || b.total_events - a.total_events);
+
+    const scored = vehicles.filter((v) => v.total_events > 0 || v.distance_km > 0);
+    const avgScore = scored.length
+      ? Math.round(scored.reduce((s, v) => s + v.score, 0) / scored.length)
+      : null;
+
+    res.json({
+      period_days: days,
+      fleet: {
+        avg_score: avgScore,
+        total_events: Object.values(fleetCounts).reduce((s, c) => s + c, 0),
+        security_events: SECURITY_EVENT_TYPES.reduce(
+          (s, t) => s + (fleetCounts[t] || 0),
+          0
+        ),
+        counts_by_type: fleetCounts,
+      },
+      vehicles,
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+export default router;

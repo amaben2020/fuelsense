@@ -18,6 +18,7 @@ import { parseReceiptText } from '../lib/receipt-parser';
 import { scanReceiptImage as ocrScanReceiptImage } from '../lib/receipt-ocr';
 import { buildPurchaseValuesFromReceipt } from '../lib/driver-receipt-sync';
 import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
+import { creditRefuel } from '../lib/virtual-tank';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
 
 const router = express.Router();
@@ -458,6 +459,14 @@ router.post('/receipts', async (req: Request, res: Response) => {
 
       return [insertedReceipt];
     });
+
+    // Credit the virtual tank with the refuel (OBD-verified volume when
+    // available, declared litres otherwise) so the modelled level steps up.
+    await creditRefuel(
+      vehicleId,
+      req.driver.customerId,
+      reconciliation.obdLitersActual ?? declared
+    ).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
 
     if (reconciliation.reconciliationStatus === 'flagged_theft') {
       const diff = reconciliation.differenceLiters ?? 0;

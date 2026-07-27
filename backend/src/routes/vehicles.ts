@@ -15,6 +15,7 @@ import {
   sql,
 } from '../lib/db-helpers';
 import { withCache, invalidate, cacheKey } from '../lib/redis';
+import { getVirtualTank, calibrateTank } from '../lib/virtual-tank';
 
 const router = express.Router();
 
@@ -49,6 +50,78 @@ router.get('/', async (req: Request, res: Response) => {
       .orderBy(desc(vehicles.createdAt));
 
     res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+const serializeTank = (tank: NonNullable<Awaited<ReturnType<typeof getVirtualTank>>>) => ({
+  vehicle_id: tank.vehicleId,
+  capacity_liters: tank.capacityLiters,
+  level_liters: Number((tank.levelMl / 1000).toFixed(2)),
+  level_percent:
+    tank.capacityLiters > 0
+      ? Math.round((tank.levelMl / 1000 / tank.capacityLiters) * 100)
+      : null,
+  confidence: tank.confidence,
+  calibrated_at: tank.calibratedAt,
+  calibration_source: tank.calibrationSource,
+  consumed_since_calibration_liters: Number(
+    (tank.consumedSinceCalibrationMl / 1000).toFixed(2)
+  ),
+  learned_idle_lph: tank.learnedIdleLph,
+  last_reading_at: tank.lastReadingAt,
+});
+
+const ownedVehicle = async (vehicleId: string, customerId: string) => {
+  const [row] = await db
+    .select({ id: vehicles.id })
+    .from(vehicles)
+    .where(and(eq(vehicles.id, vehicleId), eq(vehicles.customerId, customerId)))
+    .limit(1);
+  return row ?? null;
+};
+
+router.get('/:id/virtual-tank', async (req: Request, res: Response) => {
+  const vehicleId = String(req.params.id);
+  try {
+    if (!(await ownedVehicle(vehicleId, req.user.customerId))) {
+      res.status(404).json({ error: 'Vehicle not found' });
+      return;
+    }
+    const tank = await getVirtualTank(vehicleId);
+    res.json(tank ? serializeTank(tank) : null);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Anchor the virtual tank to a known level. Body: { liters?: number } —
+// omitted/null means "driver filled the tank" (level = capacity).
+router.post('/:id/virtual-tank/calibrate', async (req: Request, res: Response) => {
+  const { liters } = req.body as { liters?: number | null };
+
+  if (liters != null && (!Number.isFinite(Number(liters)) || Number(liters) < 0)) {
+    res.status(400).json({ error: 'liters must be a non-negative number' });
+    return;
+  }
+
+  const vehicleId = String(req.params.id);
+  try {
+    if (!(await ownedVehicle(vehicleId, req.user.customerId))) {
+      res.status(404).json({ error: 'Vehicle not found' });
+      return;
+    }
+
+    const tank = await calibrateTank(
+      vehicleId,
+      req.user.customerId,
+      liters != null ? Number(liters) : null,
+      liters != null ? 'manual_partial' : 'manual_full'
+    );
+
+    await invalidate(req.user.customerId, 'fleet', 'summary');
+    res.json({ success: true, tank: serializeTank(tank) });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

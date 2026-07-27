@@ -165,12 +165,46 @@ export const telemetry = pgTable('telemetry', {
   vehicleId: uuid('vehicle_id').references(() => vehicles.id),
   recordedAt: timestamp('recorded_at').notNull().defaultNow(),
   fuelLevelLiters: numeric('fuel_level_liters', { precision: 10, scale: 2 }),
+  // Provenance of fuel_level_liters: CAN | OBD% | virtual | none
+  fuelSource: varchar('fuel_source', { length: 12 }),
+  // AVL ID 12 — firmware fuel-used accumulator in ml (GPS-derived, survives trips,
+  // resets to 0 on device power cycle)
+  fuelUsedGpsMl: bigint('fuel_used_gps_ml', { mode: 'number' }),
+  // AVL ID 13 — instantaneous burn rate; device sends l/h ×100, stored as l/h
+  fuelRateLph: numeric('fuel_rate_lph', { precision: 8, scale: 2 }),
   odometerKm: integer('odometer_km'),
   latitude: numeric('latitude', { precision: 10, scale: 8 }),
   longitude: numeric('longitude', { precision: 11, scale: 8 }),
   speedKph: integer('speed_kph'),
   ignitionOn: boolean('ignition_on'),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Software-modelled fuel tank for vehicles without CAN/OBD fuel data.
+// Level is decremented by Fuel Used GPS (AVL 12) deltas and credited by
+// verified fuel receipts; the manager anchors it via calibration.
+export const virtualTanks = pgTable('virtual_tanks', {
+  vehicleId: uuid('vehicle_id')
+    .primaryKey()
+    .references(() => vehicles.id, { onDelete: 'cascade' }),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id, { onDelete: 'cascade' }),
+  capacityLiters: numeric('capacity_liters', { precision: 10, scale: 2 }).notNull(),
+  levelMl: bigint('level_ml', { mode: 'number' }).notNull(),
+  // Last seen value of the device's Fuel Used GPS accumulator — the baseline
+  // for delta computation. A reading below this means the accumulator reset.
+  lastFuelUsedMl: bigint('last_fuel_used_ml', { mode: 'number' }),
+  lastReadingAt: timestamp('last_reading_at'),
+  calibratedAt: timestamp('calibrated_at'),
+  calibrationSource: varchar('calibration_source', { length: 30 }),
+  consumedSinceCalibrationMl: bigint('consumed_since_calibration_ml', { mode: 'number' })
+    .notNull()
+    .default(0),
+  // EMA of Fuel Rate GPS while stationary — the vehicle's real idle burn (l/h)
+  learnedIdleLph: numeric('learned_idle_lph', { precision: 6, scale: 3 }),
+  confidence: integer('confidence').notNull().default(30),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 export const alerts = pgTable('alerts', {
@@ -231,6 +265,26 @@ export const deviceOrders = pgTable('device_orders', {
   quantity: integer('quantity').notNull().default(1),
   totalAmountNgn: integer('total_amount_ngn').notNull(),
   shippingAddress: text('shipping_address'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Scenario events decoded from FMC150 GNSS/accelerometer AVL elements —
+// green driving (harsh accel/brake/cornering), overspeeding, towing, crash,
+// jamming, unplug, idling, trip start/stop, geofence transitions.
+export const deviceEvents = pgTable('device_events', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  imei: varchar('imei', { length: 20 }).references(() => devices.imei),
+  customerId: uuid('customer_id').references(() => customers.id),
+  vehicleId: uuid('vehicle_id').references(() => vehicles.id),
+  eventType: varchar('event_type', { length: 40 }).notNull(),
+  severity: varchar('severity', { length: 10 }).notNull().default('info'),
+  // Scenario magnitude — g-force for green driving, km/h for overspeeding
+  value: numeric('value', { precision: 12, scale: 3 }),
+  unit: varchar('unit', { length: 12 }),
+  speedKph: integer('speed_kph'),
+  latitude: numeric('latitude', { precision: 10, scale: 8 }),
+  longitude: numeric('longitude', { precision: 11, scale: 8 }),
+  occurredAt: timestamp('occurred_at').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

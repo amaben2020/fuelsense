@@ -19,12 +19,19 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       d.last_seen_at,
       d.is_active AS device_active,
       t.fuel_level_liters,
+      t.fuel_source,
+      t.fuel_rate_lph,
       t.odometer_km,
       t.ignition_on,
       t.latitude,
       t.longitude,
       t.speed_kph,
       t.recorded_at AS last_telemetry_at,
+      vt.capacity_liters AS virtual_tank_capacity_liters,
+      ROUND(vt.level_ml / 1000.0, 2) AS virtual_tank_liters,
+      vt.confidence AS virtual_tank_confidence,
+      vt.calibrated_at AS virtual_tank_calibrated_at,
+      vt.learned_idle_lph,
       CASE
         WHEN d.imei IS NULL THEN 'no_device'
         WHEN d.last_seen_at > NOW() - INTERVAL '15 minutes' THEN 'online'
@@ -33,8 +40,9 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
     FROM vehicles v
     LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
     LEFT JOIN devices d ON d.vehicle_id = v.id AND d.customer_id = v.customer_id
+    LEFT JOIN virtual_tanks vt ON vt.vehicle_id = v.id
     LEFT JOIN LATERAL (
-      SELECT fuel_level_liters, odometer_km, ignition_on, latitude, longitude, speed_kph, recorded_at
+      SELECT fuel_level_liters, fuel_source, fuel_rate_lph, odometer_km, ignition_on, latitude, longitude, speed_kph, recorded_at
       FROM telemetry
       WHERE vehicle_id = v.id AND customer_id = v.customer_id
       ORDER BY recorded_at DESC

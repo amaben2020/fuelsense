@@ -86,6 +86,8 @@ export interface FleetVehicle {
   last_seen_at: string | null;
   device_active: boolean | null;
   fuel_level_liters: number | null;
+  fuel_source?: 'CAN' | 'OBD%' | 'virtual' | 'none' | null;
+  fuel_rate_lph?: number | string | null;
   odometer_km: number | null;
   ignition_on: boolean | null;
   latitude: string | number | null;
@@ -93,6 +95,34 @@ export interface FleetVehicle {
   speed_kph: number | null;
   last_telemetry_at: string | null;
   connection_status: 'online' | 'offline' | 'no_device';
+  virtual_tank_capacity_liters?: number | string | null;
+  virtual_tank_liters?: number | string | null;
+  virtual_tank_confidence?: number | null;
+  virtual_tank_calibrated_at?: string | null;
+  learned_idle_lph?: number | string | null;
+}
+
+export interface VirtualTank {
+  vehicle_id: string;
+  capacity_liters: number;
+  level_liters: number;
+  level_percent: number | null;
+  confidence: number;
+  calibrated_at: string | null;
+  calibration_source: string | null;
+  consumed_since_calibration_liters: number;
+  learned_idle_lph: number | string | null;
+  last_reading_at: string | null;
+}
+
+export async function calibrateVirtualTank(
+  vehicleId: string,
+  liters?: number | null
+): Promise<{ success: boolean; tank: VirtualTank }> {
+  return api(`/vehicles/${vehicleId}/virtual-tank/calibrate`, {
+    method: 'POST',
+    body: JSON.stringify(liters != null ? { liters } : {}),
+  });
 }
 
 export function fleetMetrics(fleet: FleetVehicle[]) {
@@ -567,6 +597,27 @@ export interface TelemetryReading {
   longitude: string | number | null;
 }
 
+export interface FuelHistoryPoint {
+  id: string;
+  vehicle_id: string;
+  recorded_at: string;
+  fuel_level_liters: string | number | null;
+  fuel_source: 'CAN' | 'OBD%' | 'virtual' | 'none' | null;
+  fuel_rate_lph: string | number | null;
+  odometer_km: string | number | null;
+  speed_kph: number | null;
+  ignition_on: boolean | null;
+}
+
+export async function getFuelHistory(
+  vehicleId: string,
+  limit = 300
+): Promise<FuelHistoryPoint[]> {
+  return api<FuelHistoryPoint[]>(
+    `/telemetry/history?vehicle_id=${vehicleId}&limit=${limit}`
+  );
+}
+
 export interface TelemetryReadingsResponse {
   page: number;
   limit: number;
@@ -748,4 +799,50 @@ export function formatNgn(amount: number) {
 /** Always NGN — never use $ or other currencies in the UI */
 export function formatFuelPricePerLiter(amount: number) {
   return `${formatNgn(amount)}/L`;
+}
+
+// FMC150 scenario events decoded from GNSS + accelerometer AVL elements
+export interface DeviceEvent {
+  id: number;
+  vehicle_id: string | null;
+  license_plate: string | null;
+  driver_name: string | null;
+  event_type: string;
+  severity: 'info' | 'warning' | 'critical';
+  value: string | number | null;
+  unit: string | null;
+  speed_kph: number | null;
+  latitude: string | number | null;
+  longitude: string | number | null;
+  occurred_at: string;
+}
+
+export interface DeviceEventsResponse {
+  period_days: number;
+  events: DeviceEvent[];
+}
+
+export interface BehaviorVehicle {
+  vehicle_id: string;
+  license_plate: string | null;
+  driver_name: string | null;
+  model: string | null;
+  distance_km: number;
+  score: number;
+  grade: string;
+  total_events: number;
+  security_events: number;
+  counts: Record<string, number>;
+  last_event_at: string | null;
+}
+
+export interface DeviceEventsSummary {
+  period_days: number;
+  fleet: {
+    avg_score: number | null;
+    total_events: number;
+    security_events: number;
+    counts_by_type: Record<string, number>;
+  };
+  vehicles: BehaviorVehicle[];
 }

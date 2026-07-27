@@ -32,6 +32,65 @@ class VehicleSimulator {
     this.efficiencyKmL =
       profile.efficiencyKmL ?? sampleEfficiencyKmL(profile.model ?? 'Hiace');
     this.imei = profile.imei;
+    this.prevIgnition = this.ignitionOn;
+    this.prevIdle = false;
+    this.pendingEvents = [];
+    this.securityEventsFired = new Set();
+  }
+
+  // FMC150 scenario events ride on eventful records: the AVL event field names
+  // the triggering IO element. One event per record, so extras queue up.
+  _queueEvent(eventId, ioElements) {
+    this.pendingEvents.push({ eventId, ioElements });
+  }
+
+  _generateScenarioEvents() {
+    // Trip start/stop on ignition transitions (AVL 250)
+    if (this.ignitionOn !== this.prevIgnition) {
+      this._queueEvent(250, [{ id: 250, size: 1, value: this.ignitionOn ? 1 : 0 }]);
+    }
+
+    // Excessive idling start/end (AVL 251)
+    const isIdle = this.ignitionOn && this.phase === 'idle';
+    if (isIdle !== this.prevIdle) {
+      this._queueEvent(251, [{ id: 251, size: 1, value: isIdle ? 1 : 0 }]);
+    }
+
+    if (this.phase === 'driving' && this.ignitionOn) {
+      // Occasional green-driving violations (AVL 253 type + 254 g×100)
+      if (Math.random() < 0.04) {
+        const type = 1 + Math.floor(Math.random() * 3);
+        const gTimes100 = 25 + Math.floor(Math.random() * 40);
+        this._queueEvent(253, [
+          { id: 253, size: 1, value: type },
+          { id: 254, size: 1, value: gTimes100 },
+        ]);
+      }
+
+      // Occasional overspeed burst (AVL 255 carries the speed)
+      if (Math.random() < 0.03) {
+        this.speedKph = 92 + Math.floor(Math.random() * 18);
+        this._queueEvent(255, [{ id: 255, size: 2, value: this.speedKph }]);
+      }
+    }
+
+    // Scripted security incidents for demo profiles
+    if (this.profile.securityDemo) {
+      const fireOnce = (key, tick, eventId, ioElements) => {
+        if (this.tick >= tick && !this.securityEventsFired.has(key)) {
+          this.securityEventsFired.add(key);
+          this._queueEvent(eventId, ioElements);
+        }
+      };
+      fireOnce('towing', 30, 246, [{ id: 246, size: 1, value: 1 }]);
+      fireOnce('jam_on', 60, 249, [{ id: 249, size: 1, value: 1 }]);
+      fireOnce('jam_off', 63, 249, [{ id: 249, size: 1, value: 0 }]);
+      fireOnce('unplug', 90, 252, [{ id: 252, size: 1, value: 1 }]);
+      fireOnce('replug', 94, 252, [{ id: 252, size: 1, value: 0 }]);
+    }
+
+    this.prevIgnition = this.ignitionOn;
+    this.prevIdle = isIdle;
   }
 
   _moveTowardWaypoint(distanceKm) {
@@ -102,6 +161,9 @@ class VehicleSimulator {
       return null;
     }
 
+    this._generateScenarioEvents();
+    const scenarioEvent = this.pendingEvents.shift() ?? null;
+
     return buildCodecRecord({
       fuelLevel: this.fuelLevel,
       odometerKm: Math.round(this.odometerKm),
@@ -110,7 +172,9 @@ class VehicleSimulator {
       speedKph: this.speedKph,
       ignitionOn: this.ignitionOn,
       headingDeg: (this.heading * 180) / Math.PI,
-      meta: { theftSimulated },
+      eventId: scenarioEvent?.eventId ?? 0,
+      extraIo: scenarioEvent?.ioElements ?? [],
+      meta: { theftSimulated, scenarioEventId: scenarioEvent?.eventId },
     });
   }
 
@@ -166,17 +230,21 @@ const buildCodecRecord = ({
   speedKph,
   ignitionOn,
   headingDeg = 0,
+  eventId = 0,
+  extraIo = [],
   meta = {},
 }) => {
   const ioElements = [
     { id: 239, size: 1, value: ignitionOn ? 1 : 0 },
     { id: 112, size: 4, value: odometerKm * 1000 },
     { id: 390, size: 4, value: Math.round(fuelLevel * 100) },
+    ...extraIo,
   ];
 
   return {
     timestamp: Date.now(),
     priority: 0,
+    eventId,
     gps: {
       latitude: lat,
       longitude: lng,
@@ -259,6 +327,7 @@ const DEFAULT_FLEET_PROFILES = [
     theftAfterTicks: 8,
     theftDropLiters: 22,
     driveCycleTicks: 16,
+    securityDemo: true,
   },
 ];
 
