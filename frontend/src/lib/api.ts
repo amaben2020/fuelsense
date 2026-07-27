@@ -796,6 +796,14 @@ export interface BulkVehiclesResponse {
 
 export const PRICE_PER_TRACKER_NGN = 120_000;
 
+export const KM_TO_MILES = 0.621371;
+
+/** Odometer display convention: miles (values are stored/transported in km). */
+export function formatOdometerMiles(km: number | string | null | undefined): string {
+  if (km == null) return '—';
+  return `${Math.round(Number(km) * KM_TO_MILES).toLocaleString()} mi`;
+}
+
 export function formatNgn(amount: number) {
   return new Intl.NumberFormat('en-NG', {
     style: 'currency',

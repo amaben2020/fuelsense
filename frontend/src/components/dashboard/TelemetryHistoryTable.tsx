@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { History } from 'lucide-react';
-import { api, TelemetryReadingsResponse } from '@/lib/api';
+import { api, TelemetryReadingsResponse, formatOdometerMiles } from '@/lib/api';
 
 function Pagination({
   page,
@@ -118,7 +118,7 @@ export function TelemetryHistoryTable() {
                   <td className="px-6 py-2.5 font-mono">{row.speed_kph ?? 0} km/h</td>
                   <td className="px-6 py-2.5 font-mono">
                     {row.odometer_km != null
-                      ? `${Number(row.odometer_km).toLocaleString()} km`
+                      ? formatOdometerMiles(row.odometer_km)
                       : '—'}
                   </td>
                   <td className="px-6 py-2.5">

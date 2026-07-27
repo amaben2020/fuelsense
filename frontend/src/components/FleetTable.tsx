@@ -1,4 +1,4 @@
-import { FleetVehicle } from '@/lib/api';
+import { FleetVehicle, formatOdometerMiles } from '@/lib/api';
 
 function fuelDisplay(row: FleetVehicle) {
   if (row.fuel_level_liters == null) return '—';
@@ -75,7 +75,7 @@ export function FleetTable({
               <td className="px-4 py-3">{fuelDisplay(row)}</td>
               <td className="px-4 py-3">
                 {row.odometer_km != null
-                  ? `${Number(row.odometer_km).toLocaleString()} km`
+                  ? formatOdometerMiles(row.odometer_km)
                   : '—'}
               </td>
               <td className="px-4 py-3">{statusBadge(row.connection_status)}</td>

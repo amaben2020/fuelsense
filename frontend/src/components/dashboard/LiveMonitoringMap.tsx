@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import { lerp, timeAgo, tripColor } from '@/lib/map-utils';
-import { FleetVehicle, ServerTrip, TripsResponse, VehicleTrack } from '@/lib/api';
+import { FleetVehicle, ServerTrip, TripsResponse, VehicleTrack, formatOdometerMiles } from '@/lib/api';
 import {
   FLEET_MAPS_KEY,
   LAGOS_CENTER,
@@ -78,6 +78,29 @@ function TripFocusCamera({ trip }: { trip: ServerTrip | null }) {
     for (const [lat, lng] of trip.path) bounds.extend({ lat, lng });
     map.fitBounds(bounds, 90);
   }, [map, trip]);
+
+  return null;
+}
+
+/** One-time pan to the fleet's freshest GPS fix once it loads, so the map
+ * opens where the vehicles actually are instead of the hardcoded fallback. */
+function MapInitialRecenter({
+  target,
+  userInteractedRef,
+  hasSelectedTrack,
+}: {
+  target: google.maps.LatLngLiteral | null;
+  userInteractedRef: React.RefObject<boolean>;
+  hasSelectedTrack: boolean;
+}) {
+  const map = useMap();
+  const done = useRef(false);
+
+  useEffect(() => {
+    if (!map || !target || done.current || userInteractedRef.current || hasSelectedTrack) return;
+    done.current = true;
+    map.panTo(target);
+  }, [map, target, userInteractedRef, hasSelectedTrack]);
 
   return null;
 }
@@ -259,7 +282,24 @@ export function LiveMonitoringMap({
     [showPoi],
   );
 
-  const handleUserInteract = useCallback(() => onUserPan?.(), [onUserPan]);
+  // Freshest GPS fix across the fleet — the map's real origin. LAGOS_CENTER
+  // is only the last-resort fallback when no vehicle has ever reported.
+  const latestFix = useMemo(() => {
+    const withGps = fleet.filter((v) => v.latitude != null && v.longitude != null);
+    if (withGps.length === 0) return null;
+    const freshest = withGps.reduce((a, b) =>
+      new Date(b.last_telemetry_at ?? 0).getTime() > new Date(a.last_telemetry_at ?? 0).getTime()
+        ? b
+        : a
+    );
+    return { lat: Number(freshest.latitude), lng: Number(freshest.longitude) };
+  }, [fleet]);
+
+  const userInteractedRef = useRef(false);
+  const handleUserInteract = useCallback(() => {
+    userInteractedRef.current = true;
+    onUserPan?.();
+  }, [onUserPan]);
   const handleSelectVehicle = useCallback(
     (id: string) => onSelectVehicle(id),
     [onSelectVehicle],
@@ -288,11 +328,16 @@ export function LiveMonitoringMap({
         <APIProvider apiKey={FLEET_MAPS_KEY}>
           <Map
             {...mapOptions}
-            defaultCenter={initialCenter ?? LAGOS_CENTER}
+            defaultCenter={initialCenter ?? latestFix ?? LAGOS_CENTER}
             defaultZoom={13}
             style={{ width: '100%', height: '100%' }}
           >
             <MapResizeFix />
+            <MapInitialRecenter
+              target={latestFix}
+              userInteractedRef={userInteractedRef}
+              hasSelectedTrack={!!selectedTrack}
+            />
             <MapInteractionGuard onUserInteract={handleUserInteract} />
             <MapCameraFollow
               track={selectedTrack}
@@ -479,7 +524,7 @@ export function LiveMonitoringMap({
               <p className="text-ink-dim">Odometer</p>
               <p className="font-mono text-lg text-ink">
                 {fleetMeta.get(selectedTrack.vehicleId)?.odometer != null
-                  ? `${Number(fleetMeta.get(selectedTrack.vehicleId)?.odometer).toLocaleString()} km`
+                  ? formatOdometerMiles(fleetMeta.get(selectedTrack.vehicleId)?.odometer)
                   : '—'}
               </p>
             </div>

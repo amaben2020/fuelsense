@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { AlertTriangle, Fuel, Gauge as GaugeIcon, MapPin, Radio, User } from 'lucide-react';
-import { FleetVehicle, formatNgn } from '@/lib/api';
+import { FleetVehicle, formatNgn, formatOdometerMiles } from '@/lib/api';
 import { useEstimatedConsumption } from './EstimatedConsumptionTable';
 import { VirtualFuelGauge } from './VirtualFuelGauge';
 import { FuelLevelChart } from './FuelLevelChart';
@@ -333,7 +333,7 @@ export function VehicleShowcase({
               <span className="flex items-center gap-1.5">
                 <GaugeIcon className="h-3.5 w-3.5" />
                 {vehicle.odometer_km != null
-                  ? `${Number(vehicle.odometer_km).toLocaleString()} km odo`
+                  ? `${formatOdometerMiles(vehicle.odometer_km)} odo`
                   : 'odometer n/a'}
               </span>
               <span className="flex items-center gap-1.5">

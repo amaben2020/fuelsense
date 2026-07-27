@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Fuel, Gauge, Loader2, MapPin, Navigation } from 'lucide-react';
 import { DriverVehicleStatus, fetchDriverVehicleStatus } from '@/lib/driver-api';
+import { formatOdometerMiles } from '@/lib/api';
 
 export function DriverVehicleScreen() {
   const [status, setStatus] = useState<DriverVehicleStatus | null>(null);
@@ -96,7 +97,7 @@ export function DriverVehicleScreen() {
             label="Odometer"
             value={
               status.odometer_km != null
-                ? `${status.odometer_km.toLocaleString()} km`
+                ? formatOdometerMiles(status.odometer_km)
                 : '—'
             }
             accent="text-ink"

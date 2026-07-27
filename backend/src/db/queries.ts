@@ -18,7 +18,11 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       d.device_model,
       d.last_seen_at,
       d.is_active AS device_active,
-      t.fuel_level_liters,
+      CASE
+        WHEN vt.vehicle_id IS NOT NULL AND (t.fuel_source = 'virtual' OR t.fuel_source IS NULL OR t.fuel_level_liters IS NULL)
+          THEN ROUND(vt.level_ml / 1000.0, 2)
+        ELSE t.fuel_level_liters
+      END AS fuel_level_liters,
       t.fuel_source,
       t.fuel_rate_lph,
       t.odometer_km,

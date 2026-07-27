@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Calendar, Loader2, Route } from 'lucide-react';
 import { DriverTripsResponse, fetchDriverTrips } from '@/lib/driver-api';
+import { formatOdometerMiles } from '@/lib/api';
 
 export function DriverTripsScreen() {
   const [data, setData] = useState<DriverTripsResponse | null>(null);
@@ -108,7 +109,7 @@ export function DriverTripsScreen() {
                   </p>
                   {trip.odometer_km != null && (
                     <p className="text-xs text-ink-dim">
-                      Odometer {trip.odometer_km.toLocaleString()} km
+                      Odometer {formatOdometerMiles(trip.odometer_km)}
                     </p>
                   )}
                 </div>
