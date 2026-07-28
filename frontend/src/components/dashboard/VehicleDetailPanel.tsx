@@ -84,7 +84,7 @@ export function VehicleDetailPanel({
             }
           />
           <Stat
-            label="GPS"
+            label={vehicle.gps_stale ? 'GPS (last known)' : 'GPS'}
             value={
               vehicle.latitude && vehicle.longitude
                 ? `${Number(vehicle.latitude).toFixed(4)}, ${Number(vehicle.longitude).toFixed(4)}`

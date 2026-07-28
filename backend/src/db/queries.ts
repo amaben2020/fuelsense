@@ -27,8 +27,13 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       t.fuel_rate_lph,
       t.odometer_km,
       t.ignition_on,
-      t.latitude,
-      t.longitude,
+      -- A parked vehicle indoors reports 0 satellites, so its newest rows carry
+      -- no fix. Fall back to the last known position rather than dropping the
+      -- vehicle off the map entirely.
+      COALESCE(t.latitude, lastfix.latitude) AS latitude,
+      COALESCE(t.longitude, lastfix.longitude) AS longitude,
+      lastfix.recorded_at AS last_gps_fix_at,
+      (t.latitude IS NULL AND lastfix.latitude IS NOT NULL) AS gps_stale,
       t.speed_kph,
       t.recorded_at AS last_telemetry_at,
       vt.capacity_liters AS virtual_tank_capacity_liters,
@@ -52,6 +57,13 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       ORDER BY recorded_at DESC
       LIMIT 1
     ) t ON true
+    LEFT JOIN LATERAL (
+      SELECT latitude, longitude, recorded_at
+      FROM telemetry
+      WHERE vehicle_id = v.id AND customer_id = v.customer_id AND latitude IS NOT NULL
+      ORDER BY recorded_at DESC
+      LIMIT 1
+    ) lastfix ON true
     WHERE v.customer_id = ${customerId}
     ORDER BY v.license_plate ASC
   `);

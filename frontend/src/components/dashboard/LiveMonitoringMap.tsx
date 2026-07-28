@@ -82,25 +82,26 @@ function TripFocusCamera({ trip }: { trip: ServerTrip | null }) {
   return null;
 }
 
-/** One-time pan to the fleet's freshest GPS fix once it loads, so the map
- * opens where the vehicles actually are instead of the hardcoded fallback. */
+/** One-time pan onto real vehicle position once data arrives. The map mounts
+ * before the fleet loads, so `defaultCenter` is often still the fallback city;
+ * this corrects it. It must run whether or not camera-follow is enabled —
+ * MapCameraFollow only pans when following, which used to leave the map
+ * stranded on the fallback whenever follow was off. */
 function MapInitialRecenter({
   target,
   userInteractedRef,
-  hasSelectedTrack,
 }: {
   target: google.maps.LatLngLiteral | null;
   userInteractedRef: React.RefObject<boolean>;
-  hasSelectedTrack: boolean;
 }) {
   const map = useMap();
   const done = useRef(false);
 
   useEffect(() => {
-    if (!map || !target || done.current || userInteractedRef.current || hasSelectedTrack) return;
+    if (!map || !target || done.current || userInteractedRef.current) return;
     done.current = true;
     map.panTo(target);
-  }, [map, target, userInteractedRef, hasSelectedTrack]);
+  }, [map, target, userInteractedRef]);
 
   return null;
 }
@@ -282,16 +283,16 @@ export function LiveMonitoringMap({
     [showPoi],
   );
 
-  // Freshest GPS fix across the fleet — the map's real origin. LAGOS_CENTER
-  // is only the last-resort fallback when no vehicle has ever reported.
+  // Most recent place any vehicle was actually seen — the map's real origin.
+  // Ranked by GPS fix time, not telemetry time, so a vehicle still pinging
+  // without a satellite lock doesn't outrank a fresher real position.
+  // LAGOS_CENTER is only the last-resort fallback when nothing has reported.
   const latestFix = useMemo(() => {
+    const fixTime = (v: FleetVehicle) =>
+      new Date(v.last_gps_fix_at ?? v.last_telemetry_at ?? 0).getTime();
     const withGps = fleet.filter((v) => v.latitude != null && v.longitude != null);
     if (withGps.length === 0) return null;
-    const freshest = withGps.reduce((a, b) =>
-      new Date(b.last_telemetry_at ?? 0).getTime() > new Date(a.last_telemetry_at ?? 0).getTime()
-        ? b
-        : a
-    );
+    const freshest = withGps.reduce((a, b) => (fixTime(b) > fixTime(a) ? b : a));
     return { lat: Number(freshest.latitude), lng: Number(freshest.longitude) };
   }, [fleet]);
 
@@ -334,9 +335,12 @@ export function LiveMonitoringMap({
           >
             <MapResizeFix />
             <MapInitialRecenter
-              target={latestFix}
+              target={
+                selectedTrack
+                  ? { lat: selectedTrack.displayLat, lng: selectedTrack.displayLng }
+                  : latestFix
+              }
               userInteractedRef={userInteractedRef}
-              hasSelectedTrack={!!selectedTrack}
             />
             <MapInteractionGuard onUserInteract={handleUserInteract} />
             <MapCameraFollow

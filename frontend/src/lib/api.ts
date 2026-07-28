@@ -100,6 +100,10 @@ export interface FleetVehicle {
   ignition_on: boolean | null;
   latitude: string | number | null;
   longitude: string | number | null;
+  /** Set when latitude/longitude come from an older fix because the newest
+   * telemetry had no satellite lock (vehicle parked indoors/underground). */
+  gps_stale?: boolean | null;
+  last_gps_fix_at?: string | null;
   speed_kph: number | null;
   last_telemetry_at: string | null;
   connection_status: 'online' | 'offline' | 'no_device';

@@ -17,6 +17,11 @@ export const FUEL_RATE_GPS_AVL_ID = 13;
 export const FUEL_RATE_GPS_DIVISOR = 100;
 
 const DEFAULT_CAPACITY_LITERS = 60;
+// A genuine power-cycle restarts the accumulator at zero, so a reset reading is
+// a tiny fraction of the last one. Anything above this fraction is device-side
+// jitter (the firmware recalculates and can tick down a few ml) — counting such
+// a dip as a reset would bill the whole accumulator as freshly burned fuel.
+const ACCUMULATOR_RESET_MAX_FRACTION = 0.1;
 // A burn-rate reading is only a plausible idle sample inside this band
 const IDLE_RATE_MIN_LPH = 0.2;
 const IDLE_RATE_MAX_LPH = 8;
@@ -223,18 +228,28 @@ export async function processFuelGpsReading(
 ): Promise<FuelGpsResult> {
   const state = (await getVirtualTank(vehicleId)) ?? (await initTank(vehicleId, customerId));
 
-  // Delta since last ping. The accumulator only grows while the engine runs;
-  // a smaller value than last time means the device power-cycled and restarted
-  // from 0 — everything it counted since boot is unseen burn.
+  // Delta since last ping. The accumulator only grows while the engine runs.
+  // Three cases when it doesn't: a real power-cycle (restarts near zero, so
+  // everything it has counted since boot is unseen burn), firmware jitter (a
+  // few ml backwards — re-baseline but consume nothing), and an implausible
+  // jump (clamped below, since no hop can burn more than a tankful).
   let deltaMl = 0;
   let accumulatorReset = false;
   if (state.lastFuelUsedMl != null) {
     if (reading.fuelUsedMl >= state.lastFuelUsedMl) {
       deltaMl = reading.fuelUsedMl - state.lastFuelUsedMl;
-    } else {
+    } else if (reading.fuelUsedMl <= state.lastFuelUsedMl * ACCUMULATOR_RESET_MAX_FRACTION) {
       accumulatorReset = true;
       deltaMl = reading.fuelUsedMl;
     }
+  }
+
+  const capacityMlLimit = Math.round(state.capacityLiters * 1000);
+  if (capacityMlLimit > 0 && deltaMl > capacityMlLimit) {
+    console.warn(
+      `[virtual_tank] ${imei}: implausible burn ${deltaMl}ml > tank ${capacityMlLimit}ml — clamped`
+    );
+    deltaMl = capacityMlLimit;
   }
 
   const levelMl = Math.max(0, state.levelMl - deltaMl);
@@ -320,6 +335,11 @@ export async function calibrateTank(
     .set({
       capacityLiters: capacity.toString(),
       levelMl,
+      // "The tank holds exactly this much now" — anything burned before this
+      // moment is already priced in. Dropping the accumulator pointer makes the
+      // next device reading re-baseline, so a stale pointer can never be billed
+      // as a phantom catch-up delta.
+      lastFuelUsedMl: null,
       calibratedAt: sql`NOW()`,
       calibrationSource: source,
       consumedSinceCalibrationMl: 0,
