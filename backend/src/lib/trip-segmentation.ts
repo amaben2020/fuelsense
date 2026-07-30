@@ -8,7 +8,16 @@
 
 export const TRIP_BREAK_MS = 30 * 60 * 1000;
 const MIN_TRIP_KM = 0.3;
-const MAX_HOP_KM = 2; // single hop above this is a GPS jump, not driving
+// A hop is judged by the speed it implies, not by raw length. A flat length cap
+// silently ate real distance whenever the tracker lost signal (tunnel, dead
+// zone) and the vehicle covered kilometres between fixes; implied speed accepts
+// that hop while still rejecting the instant teleports that GPS glitches make.
+const MAX_PLAUSIBLE_KPH = 200;
+const MAX_HOP_KM = 50; // absolute ceiling — beyond this it is not one drive hop
+// Sub-10 m wander reported while the vehicle is stopped is receiver noise, not
+// travel. Left in, it accumulates phantom kilometres over long idles.
+const JITTER_HOP_M = 10;
+const STOPPED_KPH = 3;
 const IDLE_HOP_CAP_S = 600;
 const SIMPLIFY_TOLERANCE_M = 15;
 const MAX_PATH_POINTS = 300;
@@ -21,6 +30,18 @@ export interface TelemetryTripPoint {
   recordedAt: Date;
 }
 
+/** Somewhere the vehicle actually sat still long enough to be worth asking
+ *  the driver about. Address/place details are attached later by place-lookup. */
+export interface TripStop {
+  lat: number;
+  lng: number;
+  arrived_at: string;
+  departed_at: string;
+  duration_minutes: number;
+  /** 'origin' and 'destination' bookend the trip; 'stop' is a mid-trip halt. */
+  kind: 'origin' | 'stop' | 'destination';
+}
+
 export interface Trip {
   start_at: string;
   end_at: string;
@@ -31,6 +52,7 @@ export interface Trip {
   idle_minutes: number;
   active: boolean;
   path: [number, number][];
+  stops: TripStop[];
 }
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -109,6 +131,67 @@ function downsamplePath(points: TelemetryTripPoint[]): [number, number][] {
 const isActive = (p: TelemetryTripPoint) =>
   p.ignitionOn === true || (p.speedKph != null && p.speedKph > 0);
 
+// A halt only counts as a stop once it lasts this long — shorter pauses are
+// traffic lights and junctions, which would bury the real visits in noise.
+const MIN_STOP_MINUTES = 3;
+// Points inside one halt wander a little; average them so the pin lands on the
+// place rather than on whichever fix happened to be last.
+function centroid(points: TelemetryTripPoint[]): { lat: number; lng: number } {
+  const lat = points.reduce((s, p) => s + p.lat, 0) / points.length;
+  const lng = points.reduce((s, p) => s + p.lng, 0) / points.length;
+  return { lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)) };
+}
+
+function findStops(segment: TelemetryTripPoint[]): TripStop[] {
+  const stops: TripStop[] = [];
+  const first = segment[0];
+  const last = segment[segment.length - 1];
+
+  stops.push({
+    ...centroid([first]),
+    arrived_at: first.recordedAt.toISOString(),
+    departed_at: first.recordedAt.toISOString(),
+    duration_minutes: 0,
+    kind: 'origin',
+  });
+
+  let run: TelemetryTripPoint[] = [];
+  const flush = () => {
+    if (run.length >= 2) {
+      const mins =
+        (run[run.length - 1].recordedAt.getTime() - run[0].recordedAt.getTime()) / 60000;
+      if (mins >= MIN_STOP_MINUTES) {
+        stops.push({
+          ...centroid(run),
+          arrived_at: run[0].recordedAt.toISOString(),
+          departed_at: run[run.length - 1].recordedAt.toISOString(),
+          duration_minutes: Math.round(mins),
+          kind: 'stop',
+        });
+      }
+    }
+    run = [];
+  };
+
+  // Skip the bookends — they are already reported as origin/destination
+  for (let i = 1; i < segment.length - 1; i++) {
+    const p = segment[i];
+    if ((p.speedKph ?? 0) < STOPPED_KPH) run.push(p);
+    else flush();
+  }
+  flush();
+
+  stops.push({
+    ...centroid([last]),
+    arrived_at: last.recordedAt.toISOString(),
+    departed_at: last.recordedAt.toISOString(),
+    duration_minutes: 0,
+    kind: 'destination',
+  });
+
+  return stops;
+}
+
 function buildTrip(segment: TelemetryTripPoint[], nowMs: number): Trip | null {
   if (segment.length < 2) return null;
 
@@ -119,10 +202,16 @@ function buildTrip(segment: TelemetryTripPoint[], nowMs: number): Trip | null {
     const a = segment[i - 1];
     const b = segment[i];
     const hop = haversineKm(a.lat, a.lng, b.lat, b.lng);
-    if (hop <= MAX_HOP_KM) distanceKm += hop;
+    const gapS = (b.recordedAt.getTime() - a.recordedAt.getTime()) / 1000;
+    const impliedKph = gapS > 0 ? (hop / gapS) * 3600 : Infinity;
+    const stopped = (a.speedKph ?? 0) < STOPPED_KPH && (b.speedKph ?? 0) < STOPPED_KPH;
+    const isJitter = stopped && hop * 1000 < JITTER_HOP_M;
+
+    if (!isJitter && hop <= MAX_HOP_KM && impliedKph <= MAX_PLAUSIBLE_KPH) {
+      distanceKm += hop;
+    }
     if (b.speedKph != null && b.speedKph > maxSpeed) maxSpeed = b.speedKph;
     if (b.ignitionOn === true && (b.speedKph ?? 0) < 2) {
-      const gapS = (b.recordedAt.getTime() - a.recordedAt.getTime()) / 1000;
       idleSeconds += Math.min(gapS, IDLE_HOP_CAP_S);
     }
   }
@@ -142,6 +231,7 @@ function buildTrip(segment: TelemetryTripPoint[], nowMs: number): Trip | null {
     idle_minutes: Math.round(idleSeconds / 60),
     active: nowMs - endMs < TRIP_BREAK_MS,
     path: downsamplePath(segment),
+    stops: findStops(segment),
   };
 }
 

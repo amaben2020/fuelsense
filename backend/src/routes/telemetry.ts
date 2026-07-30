@@ -29,6 +29,7 @@ import {
 } from '../lib/activity-thresholds';
 import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../lib/receipt-reconciliation';
 import { creditRefuel } from '../lib/virtual-tank';
+import { lookupPlace } from '../lib/place-lookup';
 
 const router = express.Router();
 
@@ -331,6 +332,25 @@ router.get('/trips', async (req: Request, res: Response) => {
     });
 
     res.json(cached);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Resolves one stop's address/venue. Called when the manager opens a stop —
+// not for every stop in the list, so we only pay Google for places actually
+// inspected. Repeat lookups are served from place_cache.
+router.get('/stop-place', async (req: Request, res: Response) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    res.status(400).json({ error: 'valid lat and lng are required' });
+    return;
+  }
+
+  try {
+    res.json(await lookupPlace(lat, lng));
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

@@ -332,9 +332,11 @@ export function VehicleShowcase({
             <div className="flex items-center gap-6 text-xs text-ink-dim">
               <span className="flex items-center gap-1.5">
                 <GaugeIcon className="h-3.5 w-3.5" />
-                {vehicle.odometer_km != null
-                  ? `${formatOdometerMiles(vehicle.odometer_km)} odo`
-                  : 'odometer n/a'}
+                {vehicle.total_odometer_km != null
+                  ? `${formatOdometerMiles(vehicle.total_odometer_km)} total`
+                  : vehicle.odometer_km != null
+                    ? `${formatOdometerMiles(vehicle.odometer_km)} since install`
+                    : 'odometer n/a'}
               </span>
               <span className="flex items-center gap-1.5">
                 <Radio className="h-3.5 w-3.5" />

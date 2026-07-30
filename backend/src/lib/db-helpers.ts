@@ -13,6 +13,7 @@ import {
   siphonEvents,
   payments,
   deviceOrders,
+  placeCache,
 } from '../db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { serializeForApi } from './serialize';
@@ -137,6 +138,7 @@ export {
   siphonEvents,
   payments,
   deviceOrders,
+  placeCache,
   eq,
   and,
   desc,

@@ -96,7 +96,12 @@ export interface FleetVehicle {
   fuel_level_liters: number | null;
   fuel_source?: 'CAN' | 'OBD%' | 'virtual' | 'none' | null;
   fuel_rate_lph?: number | string | null;
+  /** Distance the tracker has counted since it was fitted (AVL 16). */
   odometer_km: number | null;
+  /** True vehicle mileage — null until a dashboard baseline is anchored. */
+  total_odometer_km?: number | null;
+  odometer_baseline_km?: number | null;
+  odometer_baseline_at?: string | null;
   ignition_on: boolean | null;
   latitude: string | number | null;
   longitude: string | number | null;
@@ -653,6 +658,37 @@ export interface TrackPoint {
   recorded_at: string;
 }
 
+export interface TripStop {
+  lat: number;
+  lng: number;
+  arrived_at: string;
+  departed_at: string;
+  duration_minutes: number;
+  kind: 'origin' | 'stop' | 'destination';
+}
+
+export interface StopPlace {
+  latitude: number;
+  longitude: number;
+  formatted_address: string | null;
+  place_name: string | null;
+  place_id: string | null;
+  photo_url: string | null;
+}
+
+/** Resolved on demand when a stop is opened — not for every stop in the list,
+ *  so Google is only billed for places actually inspected. */
+export async function fetchStopPlace(lat: number, lng: number): Promise<StopPlace> {
+  return api<StopPlace>(`/telemetry/stop-place?lat=${lat}&lng=${lng}`);
+}
+
+/** Place photos stream through the backend, which holds the API key. */
+export function placePhotoSrc(photoUrl: string | null): string | null {
+  if (!photoUrl) return null;
+  const base = API_URL.replace(/\/api$/, '');
+  return photoUrl.startsWith('/api') ? `${base}${photoUrl}` : photoUrl;
+}
+
 export interface ServerTrip {
   start_at: string;
   end_at: string;
@@ -665,6 +701,7 @@ export interface ServerTrip {
   estimated_fuel_liters: number;
   estimated_cost_ngn: number;
   path: [number, number][];
+  stops: TripStop[];
 }
 
 export interface TripsVehicle {
@@ -799,6 +836,17 @@ export interface BulkVehiclesResponse {
 }
 
 export const PRICE_PER_TRACKER_NGN = 120_000;
+
+/** Anchor a vehicle's true mileage to its dashboard reading (in km). */
+export async function setVehicleOdometer(
+  vehicleId: string,
+  odometerKm: number
+): Promise<{ success: boolean; total_odometer_km: number }> {
+  return api(`/vehicles/${vehicleId}/odometer`, {
+    method: 'POST',
+    body: JSON.stringify({ odometerKm }),
+  });
+}
 
 export const KM_TO_MILES = 0.621371;
 

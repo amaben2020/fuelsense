@@ -15,6 +15,7 @@ import {
   TripBadgeMarker,
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
+import { TripDetailModal } from './TripDetailModal';
 
 const ANIMATION_MS = 1800;
 
@@ -149,6 +150,7 @@ export function LiveMonitoringMap({
 }) {
   const [animated, setAnimated] = useState<AnimatedTrack[]>([]);
   const [showPoi, setShowPoi] = useState(true);
+  const [showTripDetail, setShowTripDetail] = useState(false);
   const [focusedTrip, setFocusedTrip] = useState<{ vehicleId: string; index: number } | null>(
     null
   );
@@ -268,7 +270,12 @@ export function LiveMonitoringMap({
       new globalThis.Map(
         fleet.map((v) => [
           v.id,
-          { odometer: v.odometer_km, driver: v.driver_name, fuel: v.fuel_level_liters },
+          {
+            odometer: v.total_odometer_km ?? v.odometer_km,
+            odometerIsTotal: v.total_odometer_km != null,
+            driver: v.driver_name,
+            fuel: v.fuel_level_liters,
+          },
         ]),
       ),
     [fleet],
@@ -525,7 +532,11 @@ export function LiveMonitoringMap({
               </p>
             </div>
             <div className="rounded-lg bg-canvas p-2">
-              <p className="text-ink-dim">Odometer</p>
+              <p className="text-ink-dim">
+                {fleetMeta.get(selectedTrack.vehicleId)?.odometerIsTotal
+                  ? 'Odometer'
+                  : 'Odo (since install)'}
+              </p>
               <p className="font-mono text-lg text-ink">
                 {fleetMeta.get(selectedTrack.vehicleId)?.odometer != null
                   ? formatOdometerMiles(fleetMeta.get(selectedTrack.vehicleId)?.odometer)
@@ -545,7 +556,18 @@ export function LiveMonitoringMap({
           {/* Trips in the visible window */}
           <div className="pointer-events-auto mt-3 border-t border-divider pt-3">
             <div className="flex items-center justify-between text-xs">
-              <p className="font-medium text-ink">Trips ({selectedTrips.length})</p>
+              <div className="flex items-center gap-2">
+                <p className="font-medium text-ink">Trips ({selectedTrips.length})</p>
+                {selectedTrips.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowTripDetail(true)}
+                    className="font-medium text-brand hover:underline"
+                  >
+                    View all
+                  </button>
+                )}
+              </div>
               {selectedTrips.length > 0 && (
                 <p className="font-mono text-ink-dim">
                   {tripsByVehicle.get(selectedTrack.vehicleId)?.total_distance_km ?? 0} km ·{' '}
@@ -626,6 +648,23 @@ export function LiveMonitoringMap({
             </p>
           </div>
         </div>
+      )}
+
+      {showTripDetail && selectedTrack && (
+        <TripDetailModal
+          trips={selectedTrips}
+          licensePlate={selectedTrack.licensePlate}
+          driverName={fleetMeta.get(selectedTrack.vehicleId)?.driver}
+          totals={{
+            distance_km: tripsByVehicle.get(selectedTrack.vehicleId)?.total_distance_km ?? 0,
+            fuel_liters: tripsByVehicle.get(selectedTrack.vehicleId)?.total_fuel_liters ?? 0,
+            cost_ngn: tripsByVehicle.get(selectedTrack.vehicleId)?.total_cost_ngn ?? 0,
+          }}
+          onClose={() => setShowTripDetail(false)}
+          onFocusTrip={(index) =>
+            setFocusedTrip({ vehicleId: selectedTrack.vehicleId, index })
+          }
+        />
       )}
     </div>
   );

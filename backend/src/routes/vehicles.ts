@@ -5,6 +5,7 @@ import {
   db,
   customers,
   vehicles,
+  telemetry,
   IMEI_PATTERN,
   linkDevice,
   createVehicle,
@@ -122,6 +123,60 @@ router.post('/:id/virtual-tank/calibrate', async (req: Request, res: Response) =
 
     await invalidate(req.user.customerId, 'fleet', 'summary');
     res.json({ success: true, tank: serializeTank(tank) });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Anchor the vehicle's true mileage to the dashboard reading. The tracker only
+// counts distance since it was fitted, so we store the manager's reading plus
+// the device's counter at that instant and report the sum from then on.
+router.post('/:id/odometer', async (req: Request, res: Response) => {
+  const vehicleId = String(req.params.id);
+  const { odometerKm } = req.body as { odometerKm?: number };
+  const reading = Number(odometerKm);
+
+  if (!Number.isFinite(reading) || reading < 0) {
+    res.status(400).json({ error: 'odometerKm must be a non-negative number' });
+    return;
+  }
+
+  try {
+    if (!(await ownedVehicle(vehicleId, req.user.customerId))) {
+      res.status(404).json({ error: 'Vehicle not found' });
+      return;
+    }
+
+    const [latest] = await db
+      .select({ odometer_km: telemetry.odometerKm })
+      .from(telemetry)
+      .where(and(eq(telemetry.vehicleId, vehicleId), sql`odometer_km IS NOT NULL`))
+      .orderBy(desc(telemetry.recordedAt))
+      .limit(1);
+
+    const deviceKm = latest?.odometer_km ?? 0;
+
+    const [row] = await db
+      .update(vehicles)
+      .set({
+        odometerBaselineKm: Math.round(reading),
+        odometerBaselineDeviceKm: deviceKm,
+        odometerBaselineAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(vehicles.id, vehicleId))
+      .returning({
+        baseline_km: vehicles.odometerBaselineKm,
+        baseline_device_km: vehicles.odometerBaselineDeviceKm,
+      });
+
+    await invalidate(req.user.customerId, 'fleet', 'summary');
+    res.json({
+      success: true,
+      total_odometer_km: row.baseline_km,
+      baseline_km: row.baseline_km,
+      device_km_at_baseline: row.baseline_device_km,
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

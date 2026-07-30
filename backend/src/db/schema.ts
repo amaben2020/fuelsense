@@ -55,6 +55,13 @@ export const vehicles = pgTable(
     model: varchar('model', { length: 100 }),
     year: integer('year'),
     tankCapacityLiters: integer('tank_capacity_liters'),
+    // True dashboard odometer, anchored once by the fleet manager. The tracker
+    // only reports AVL 16 (distance accumulated since it was fitted), so the
+    // real total is this baseline plus whatever the device has counted since
+    // the moment the baseline was taken.
+    odometerBaselineKm: integer('odometer_baseline_km'),
+    odometerBaselineDeviceKm: integer('odometer_baseline_device_km'),
+    odometerBaselineAt: timestamp('odometer_baseline_at'),
     driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
     driverName: varchar('driver_name', { length: 255 }),
     createdAt: timestamp('created_at').defaultNow(),
@@ -286,6 +293,20 @@ export const deviceEvents = pgTable('device_events', {
   longitude: numeric('longitude', { precision: 11, scale: 8 }),
   occurredAt: timestamp('occurred_at').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Reverse-geocoded stop locations. Keyed by rounded coordinates so repeat
+// visits to the same place reuse one lookup — Google billing is per call and
+// a fleet revisits the same depots and markets constantly.
+export const placeCache = pgTable('place_cache', {
+  geoKey: varchar('geo_key', { length: 32 }).primaryKey(),
+  latitude: numeric('latitude', { precision: 10, scale: 6 }).notNull(),
+  longitude: numeric('longitude', { precision: 11, scale: 6 }).notNull(),
+  formattedAddress: text('formatted_address'),
+  placeName: varchar('place_name', { length: 255 }),
+  placeId: varchar('place_id', { length: 255 }),
+  photoReference: text('photo_reference'),
+  lookedUpAt: timestamp('looked_up_at').defaultNow(),
 });
 
 // Raw frames table — stores the full undecoded SDK record for every packet

@@ -140,12 +140,17 @@ export function decodeScenarioEvent(
       };
     }
     case 250: {
+      const started = state === 1;
       return {
-        eventType: state === 1 ? 'trip_start' : 'trip_stop',
+        eventType: started ? 'trip_start' : 'trip_stop',
         severity: 'info',
         value: null,
         unit: null,
-        alertMessage: null,
+        // Managers want to know the moment a vehicle is taken out — it is the
+        // one signal that a journey is beginning and can still be questioned.
+        alertMessage: started
+          ? `${plate} has started a trip. Ignition on and moving off.`
+          : null,
       };
     }
     case 175:
@@ -240,6 +245,9 @@ export async function recordDeviceEvent(
 const EVENT_CLOSERS: Record<string, string> = {
   jamming_end: 'jamming_start',
   power_restored: 'power_unplug',
+  // "Vehicle is out on a trip" stays open for the journey and closes when it
+  // ends — otherwise dedup would suppress every trip start after the first.
+  trip_stop: 'trip_start',
 };
 
 export async function resolveClosedAlert(

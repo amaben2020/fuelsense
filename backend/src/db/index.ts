@@ -262,6 +262,23 @@ export const initDatabase = async (): Promise<void> => {
     `);
   }
 
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS place_cache (
+      geo_key VARCHAR(32) PRIMARY KEY,
+      latitude DECIMAL(10,6) NOT NULL,
+      longitude DECIMAL(11,6) NOT NULL,
+      formatted_address TEXT,
+      place_name VARCHAR(255),
+      place_id VARCHAR(255),
+      photo_reference TEXT,
+      looked_up_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await ensureColumn('vehicles', 'odometer_baseline_km', 'INTEGER');
+  await ensureColumn('vehicles', 'odometer_baseline_device_km', 'INTEGER');
+  await ensureColumn('vehicles', 'odometer_baseline_at', 'TIMESTAMP');
+
   await ensureColumn('telemetry', 'fuel_source', 'VARCHAR(12)');
   await ensureColumn('telemetry', 'fuel_used_gps_ml', 'BIGINT');
   await ensureColumn('telemetry', 'fuel_rate_lph', 'DECIMAL(8,2)');

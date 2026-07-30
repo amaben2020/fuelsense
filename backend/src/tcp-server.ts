@@ -8,6 +8,7 @@ import { detectAnomalies } from './lib/anomaly-detector';
 import { invalidate } from './lib/redis';
 import { getIoValue, serializeIo } from './lib/avl-io';
 import { decodeScenarioEvent, recordDeviceEvent, resolveClosedAlert } from './lib/device-event-decoder';
+import { handleIgnitionForTripStart, closeTripStartAlert } from './lib/trip-notifier';
 import {
   FUEL_USED_GPS_AVL_ID,
   FUEL_RATE_GPS_AVL_ID,
@@ -273,6 +274,22 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     }
     if (record.event === 239 && !ignitionOn) {
       logReal(device.imei, 'ignition OFF');
+    }
+
+    try {
+      const started = await handleIgnitionForTripStart(ignitionOn, {
+        imei: device.imei,
+        customerId: device.customerId!,
+        vehicleId: device.vehicleId!,
+        latitude: telemetryRow.latitude,
+        longitude: telemetryRow.longitude,
+        occurredAt: recordedAt,
+        licensePlate: vehicleRow?.license_plate ?? undefined,
+      });
+      if (started) logReal(device.imei, 'trip start notified');
+      if (!ignitionOn) await closeTripStartAlert(device.customerId!, device.vehicleId!);
+    } catch (err) {
+      console.error(`[trip_notifier] failed for ${device.imei}:`, err);
     }
 
     await db

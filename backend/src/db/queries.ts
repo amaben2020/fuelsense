@@ -26,6 +26,16 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       t.fuel_source,
       t.fuel_rate_lph,
       t.odometer_km,
+      -- Device odometer counts only from when the tracker was fitted. Real
+      -- vehicle mileage = the manager's dashboard baseline + everything the
+      -- device has counted since that baseline was taken.
+      CASE
+        WHEN v.odometer_baseline_km IS NOT NULL
+          THEN v.odometer_baseline_km + GREATEST(0, COALESCE(t.odometer_km, 0) - COALESCE(v.odometer_baseline_device_km, 0))
+        ELSE NULL
+      END AS total_odometer_km,
+      v.odometer_baseline_km,
+      v.odometer_baseline_at,
       t.ignition_on,
       -- A parked vehicle indoors reports 0 satellites, so its newest rows carry
       -- no fix. Fall back to the last known position rather than dropping the
