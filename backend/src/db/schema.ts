@@ -306,6 +306,10 @@ export const placeCache = pgTable('place_cache', {
   placeName: varchar('place_name', { length: 255 }),
   placeId: varchar('place_id', { length: 255 }),
   photoReference: text('photo_reference'),
+  // Street View shows the actual kerbside the driver stopped at, which is more
+  // use than a stock photo of a nearby business. Null pano = no coverage there.
+  streetViewPanoId: varchar('street_view_pano_id', { length: 255 }),
+  streetViewDate: varchar('street_view_date', { length: 16 }),
   lookedUpAt: timestamp('looked_up_at').defaultNow(),
 });
 

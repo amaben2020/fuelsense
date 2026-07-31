@@ -112,15 +112,22 @@ export function StopDetailModal({
         </div>
 
         {photo && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={photo}
-            alt={place?.place_name ?? 'Stop location'}
-            className="h-44 w-full object-cover"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-            }}
-          />
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photo}
+              alt={place?.place_name ?? 'Stop location'}
+              className="h-44 w-full object-cover"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+            <span className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-0.5 text-[10px] text-white">
+              {place?.image_kind === 'street_view'
+                ? `Street View${place.street_view_date ? ` · ${place.street_view_date}` : ''}`
+                : 'Nearby place photo'}
+            </span>
+          </div>
         )}
 
         <div className="space-y-4 px-5 py-4">

@@ -23,6 +23,7 @@ const TRAIL_OPTIONS = [
   { label: '1h', value: 60 },
   { label: '6h', value: 360 },
   { label: '24h', value: 1440 },
+  { label: '7d', value: 10080 },
 ] as const;
 
 type AnimatedTrack = VehicleTrack & {

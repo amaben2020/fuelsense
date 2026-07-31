@@ -183,13 +183,14 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
 });
 
 router.post('/', async (req: Request, res: Response) => {
-  const { licensePlate, make, model, year, tankCapacityLiters, imei, deviceModel } =
+  const { licensePlate, make, model, year, tankCapacityLiters, odometerBaselineKm, imei, deviceModel } =
     req.body as {
       licensePlate?: string;
       make?: string;
       model?: string;
       year?: number;
       tankCapacityLiters?: number;
+      odometerBaselineKm?: number;
       imei?: string;
       deviceModel?: string;
     };
@@ -202,6 +203,7 @@ router.post('/', async (req: Request, res: Response) => {
         model,
         year,
         tankCapacityLiters,
+        odometerBaselineKm,
       });
 
       if (imei) {
@@ -247,6 +249,7 @@ router.post('/with-device', async (req: Request, res: Response) => {
     model,
     year,
     tankCapacityLiters,
+    odometerBaselineKm,
     imei,
     deviceModel,
   } = req.body as {
@@ -255,6 +258,7 @@ router.post('/with-device', async (req: Request, res: Response) => {
     model?: string;
     year?: number;
     tankCapacityLiters?: number;
+      odometerBaselineKm?: number;
     imei?: string;
     deviceModel?: string;
   };
@@ -272,6 +276,7 @@ router.post('/with-device', async (req: Request, res: Response) => {
         model,
         year,
         tankCapacityLiters,
+        odometerBaselineKm,
       });
 
       await linkDevice(tx, {
@@ -317,6 +322,7 @@ router.post('/bulk', async (req: Request, res: Response) => {
       model?: string;
       year?: number;
       tankCapacityLiters?: number;
+      odometerBaselineKm?: number;
       imei?: string;
       deviceModel?: string;
     }>;
@@ -343,6 +349,7 @@ router.post('/bulk', async (req: Request, res: Response) => {
           model: entry.model,
           year: entry.year,
           tankCapacityLiters: entry.tankCapacityLiters,
+          odometerBaselineKm: entry.odometerBaselineKm,
         });
 
         if (entry.imei) {

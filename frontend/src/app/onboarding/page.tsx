@@ -3,7 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, BulkVehiclesResponse, Customer, getToken } from '@/lib/api';
-import { emptyVehicle, VehicleDeviceFields, VehicleFormData } from '@/components/VehicleDeviceFields';
+import {
+  emptyVehicle,
+  odometerToKm,
+  VehicleDeviceFields,
+  VehicleFormData,
+} from '@/components/VehicleDeviceFields';
 
 type FleetSize = 'small' | 'medium' | 'large';
 type Step = 'size' | 'vehicles' | 'large-fleet' | 'done';
@@ -74,6 +79,7 @@ export default function OnboardingPage() {
             year: v.year,
             tankCapacityLiters: v.tankCapacityLiters,
             imei: v.imei,
+            odometerBaselineKm: odometerToKm(v),
           })),
         }),
       });

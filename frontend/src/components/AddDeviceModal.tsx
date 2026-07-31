@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from 'react';
 import { api, FleetVehicle, WithDeviceResponse } from '@/lib/api';
-import { emptyVehicle, VehicleDeviceFields } from '@/components/VehicleDeviceFields';
+import { emptyVehicle, odometerToKm, VehicleDeviceFields } from '@/components/VehicleDeviceFields';
 
 interface AddDeviceModalProps {
   isOpen: boolean;
@@ -32,6 +32,7 @@ export function AddDeviceModal({ isOpen, onClose, onAdded }: AddDeviceModalProps
           year: form.year,
           tankCapacityLiters: form.tankCapacityLiters,
           imei: form.imei,
+          odometerBaselineKm: odometerToKm(form),
           deviceModel: 'FMC150',
         }),
       });

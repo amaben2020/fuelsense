@@ -275,6 +275,9 @@ export const initDatabase = async (): Promise<void> => {
     )
   `);
 
+  await ensureColumn('place_cache', 'street_view_pano_id', 'VARCHAR(255)');
+  await ensureColumn('place_cache', 'street_view_date', 'VARCHAR(16)');
+
   await ensureColumn('vehicles', 'odometer_baseline_km', 'INTEGER');
   await ensureColumn('vehicles', 'odometer_baseline_device_km', 'INTEGER');
   await ensureColumn('vehicles', 'odometer_baseline_at', 'TIMESTAMP');

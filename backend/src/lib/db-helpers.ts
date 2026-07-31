@@ -72,12 +72,18 @@ interface CreateVehicleParams {
   model?: string;
   year?: number;
   tankCapacityLiters?: number;
+  /** Dashboard reading at onboarding, in km. The tracker only counts distance
+   *  from the day it is fitted, so without this we can never show true mileage.
+   *  `odometer_baseline_device_km` is left null and resolves from the vehicle's
+   *  first telemetry reading, which correctly handles a previously-used tracker
+   *  whose internal counter is already non-zero. */
+  odometerBaselineKm?: number;
 }
 
 export const createVehicle = async (
   tx: AnyTx,
   customerId: string,
-  { licensePlate, make, model, year, tankCapacityLiters }: CreateVehicleParams
+  { licensePlate, make, model, year, tankCapacityLiters, odometerBaselineKm }: CreateVehicleParams
 ): Promise<{
   id: string;
   license_plate: string | null;
@@ -99,6 +105,11 @@ export const createVehicle = async (
       model: model?.trim() || null,
       year: year ? Number(year) : null,
       tankCapacityLiters: tankCapacityLiters ? Number(tankCapacityLiters) : null,
+      odometerBaselineKm:
+        odometerBaselineKm != null && Number.isFinite(Number(odometerBaselineKm))
+          ? Math.round(Number(odometerBaselineKm))
+          : null,
+      odometerBaselineAt: odometerBaselineKm != null ? sql`NOW()` : null,
     })
     .returning({
       id: vehicles.id,

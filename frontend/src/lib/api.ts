@@ -674,6 +674,9 @@ export interface StopPlace {
   place_name: string | null;
   place_id: string | null;
   photo_url: string | null;
+  /** Street View shows the actual kerbside; place_photo is a nearby venue. */
+  image_kind: 'street_view' | 'place_photo' | null;
+  street_view_date: string | null;
 }
 
 /** Resolved on demand when a stop is opened — not for every stop in the list,

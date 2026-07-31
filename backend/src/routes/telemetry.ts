@@ -105,7 +105,9 @@ router.get('/history', async (req: Request, res: Response) => {
 });
 
 router.get('/tracks', async (req: Request, res: Response) => {
-  const minutes = Math.min(Number(req.query.minutes) || 1440, 1440);
+  // Up to 7 days of trail. A week of dense pings is far more than a map can
+  // draw, so long windows are evenly sampled below rather than truncated.
+  const minutes = Math.min(Number(req.query.minutes) || 1440, 10080);
   const limit = Math.min(Number(req.query.limit) || 2000, 5000);
   const customerId = req.user.customerId;
 
@@ -123,16 +125,28 @@ router.get('/tracks', async (req: Request, res: Response) => {
   try {
     const key = cacheKey(customerId, 'tracks', String(minutes));
     const cached = await withCache(key, 4, async () => {
-      // Tier 1 — live window (user-selected trail duration)
+      // Tier 1 — live window (user-selected trail duration).
+      // Sampled every Nth point per vehicle so a week-long trail keeps its
+      // full shape end-to-end. A plain LIMIT would have returned only the
+      // oldest points and silently cut off everything recent.
       const recent = await db.execute(sql`
-        SELECT ${trackColumns}
-        FROM telemetry t
-        JOIN vehicles v ON v.id = t.vehicle_id
-        WHERE t.customer_id = ${customerId}
-          AND t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL
-          AND ${validGps}
-        ORDER BY t.vehicle_id ASC, t.recorded_at ASC
-        LIMIT ${limit}
+        WITH numbered AS (
+          SELECT ${trackColumns},
+            ROW_NUMBER() OVER (PARTITION BY t.vehicle_id ORDER BY t.recorded_at ASC) AS rn,
+            COUNT(*) OVER (PARTITION BY t.vehicle_id) AS total
+          FROM telemetry t
+          JOIN vehicles v ON v.id = t.vehicle_id
+          WHERE t.customer_id = ${customerId}
+            AND t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL
+            AND ${validGps}
+        )
+        SELECT vehicle_id, imei, license_plate, make, model, driver_name,
+               latitude, longitude, speed_kph, fuel_level_liters, ignition_on, recorded_at
+        FROM numbered
+        WHERE rn % GREATEST(1, CEIL(total::numeric / ${limit})) = 0
+           OR rn = total
+           OR rn = 1
+        ORDER BY vehicle_id ASC, recorded_at ASC
       `);
 
       let rows = recent.rows;

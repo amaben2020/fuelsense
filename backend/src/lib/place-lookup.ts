@@ -18,8 +18,13 @@ export interface PlaceDetails {
   formatted_address: string | null;
   place_name: string | null;
   place_id: string | null;
-  /** Backend-proxied so the API key never reaches the browser. */
+  /** Backend-proxied so the API key never reaches the browser. Street View of
+   *  the actual spot where available, otherwise a photo of the nearby venue. */
   photo_url: string | null;
+  image_kind: 'street_view' | 'place_photo' | null;
+  /** Capture date of the Street View imagery, so a manager can judge how
+   *  current the picture is before acting on it. */
+  street_view_date: string | null;
 }
 
 const geoKeyFor = (lat: number, lng: number): string =>
@@ -27,6 +32,21 @@ const geoKeyFor = (lat: number, lng: number): string =>
 
 const photoUrlFor = (ref: string | null): string | null =>
   ref ? `/api/places/photo?ref=${encodeURIComponent(ref)}` : null;
+
+const streetViewUrlFor = (lat: number, lng: number): string =>
+  `/api/places/streetview?lat=${lat}&lng=${lng}`;
+
+/** Picks the best available image: the actual kerbside beats a venue stock photo. */
+function imageFor(
+  lat: number,
+  lng: number,
+  panoId: string | null,
+  photoRef: string | null
+): { photo_url: string | null; image_kind: PlaceDetails['image_kind'] } {
+  if (panoId) return { photo_url: streetViewUrlFor(lat, lng), image_kind: 'street_view' };
+  const photo = photoUrlFor(photoRef);
+  return { photo_url: photo, image_kind: photo ? 'place_photo' : null };
+}
 
 async function fetchJson(url: string): Promise<Record<string, unknown> | null> {
   const controller = new AbortController();
@@ -69,6 +89,22 @@ async function nearbyPlace(
   };
 }
 
+/** Free metadata call — tells us whether imagery exists before we request the
+ *  billable image, and when it was captured. */
+async function streetViewMeta(
+  lat: number,
+  lng: number
+): Promise<{ panoId: string | null; date: string | null }> {
+  const data = await fetchJson(
+    `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`
+  );
+  if (data?.status !== 'OK') return { panoId: null, date: null };
+  return {
+    panoId: (data.pano_id as string) ?? null,
+    date: (data.date as string) ?? null,
+  };
+}
+
 export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetails> {
   const geoKey = geoKeyFor(lat, lng);
   const base: PlaceDetails = {
@@ -78,6 +114,8 @@ export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetail
     place_name: null,
     place_id: null,
     photo_url: null,
+    image_kind: null,
+    street_view_date: null,
   };
 
   const [cached] = await db
@@ -92,7 +130,8 @@ export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetail
       formatted_address: cached.formattedAddress,
       place_name: cached.placeName,
       place_id: cached.placeId,
-      photo_url: photoUrlFor(cached.photoReference),
+      street_view_date: cached.streetViewDate,
+      ...imageFor(lat, lng, cached.streetViewPanoId, cached.photoReference),
     };
   }
 
@@ -100,14 +139,15 @@ export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetail
   // the trip view stays usable, just without addresses.
   if (!GOOGLE_KEY) return base;
 
-  const [address, place] = await Promise.all([
+  const [address, place, pano] = await Promise.all([
     reverseGeocode(lat, lng),
     nearbyPlace(lat, lng),
+    streetViewMeta(lat, lng),
   ]);
 
   // Nothing resolved (offline, quota, bad key) — don't poison the cache with
   // an empty row, so a later request can retry.
-  if (address == null && place.name == null) return base;
+  if (address == null && place.name == null && pano.panoId == null) return base;
 
   await db
     .insert(placeCache)
@@ -119,6 +159,8 @@ export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetail
       placeName: place.name,
       placeId: place.placeId,
       photoReference: place.photoRef,
+      streetViewPanoId: pano.panoId,
+      streetViewDate: pano.date,
       lookedUpAt: sql`NOW()`,
     })
     .onConflictDoNothing();
@@ -128,20 +170,17 @@ export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetail
     formatted_address: address,
     place_name: place.name,
     place_id: place.placeId,
-    photo_url: photoUrlFor(place.photoRef),
+    street_view_date: pano.date,
+    ...imageFor(lat, lng, pano.panoId, place.photoRef),
   };
 }
 
-/** Streams a Places photo through the backend so the key stays server-side. */
-export async function fetchPlacePhoto(
-  ref: string,
-  maxWidth = 480
+async function proxyImage(
+  url: string
 ): Promise<{ body: ArrayBuffer; contentType: string } | null> {
   if (!GOOGLE_KEY) return null;
   try {
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photo_reference=${encodeURIComponent(ref)}&key=${GOOGLE_KEY}`
-    );
+    const res = await fetch(url);
     if (!res.ok) return null;
     return {
       body: await res.arrayBuffer(),
@@ -150,4 +189,26 @@ export async function fetchPlacePhoto(
   } catch {
     return null;
   }
+}
+
+/** Streams a Places photo through the backend so the key stays server-side. */
+export async function fetchPlacePhoto(
+  ref: string,
+  maxWidth = 480
+): Promise<{ body: ArrayBuffer; contentType: string } | null> {
+  return proxyImage(
+    `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photo_reference=${encodeURIComponent(ref)}&key=${GOOGLE_KEY}`
+  );
+}
+
+/** Street View of the exact spot, same key-hiding proxy. */
+export async function fetchStreetView(
+  lat: number,
+  lng: number,
+  width = 640,
+  height = 360
+): Promise<{ body: ArrayBuffer; contentType: string } | null> {
+  return proxyImage(
+    `https://maps.googleapis.com/maps/api/streetview?size=${width}x${height}&location=${lat},${lng}&fov=90&key=${GOOGLE_KEY}`
+  );
 }

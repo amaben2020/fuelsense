@@ -7,6 +7,10 @@ export interface VehicleFormData {
   year: string;
   tankCapacityLiters: string;
   imei: string;
+  odometerReading: string;
+  /** Asked explicitly: imported vehicles run miles dashboards, local ones km,
+   *  and guessing wrong silently skews every distance figure built on it. */
+  odometerUnit: 'mi' | 'km';
 }
 
 export const emptyVehicle = (): VehicleFormData => ({
@@ -16,7 +20,17 @@ export const emptyVehicle = (): VehicleFormData => ({
   year: '',
   tankCapacityLiters: '',
   imei: '',
+  odometerReading: '',
+  odometerUnit: 'mi',
 });
+
+/** Form odometer → kilometres for storage. The API and database are km
+ *  throughout; miles exist only at the edges (dashboards and our UI). */
+export function odometerToKm(data: VehicleFormData): number | undefined {
+  const raw = Number(data.odometerReading);
+  if (!data.odometerReading.trim() || !Number.isFinite(raw) || raw < 0) return undefined;
+  return Math.round(data.odometerUnit === 'mi' ? raw * 1.609344 : raw);
+}
 
 interface VehicleDeviceFieldsProps {
   data: VehicleFormData;
@@ -90,6 +104,32 @@ export function VehicleDeviceFields({
           />
         </Field>
       </div>
+
+      <Field label="Current odometer reading">
+        <div className="flex gap-2">
+          <input
+            type="number"
+            min={0}
+            value={data.odometerReading}
+            onChange={(e) => set('odometerReading', e.target.value)}
+            className={inputClass}
+            placeholder="50813"
+          />
+          <select
+            value={data.odometerUnit}
+            onChange={(e) => set('odometerUnit', e.target.value)}
+            className={`${inputClass} w-24 shrink-0`}
+            aria-label="Odometer unit"
+          >
+            <option value="mi">miles</option>
+            <option value="km">km</option>
+          </select>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          Read it off the dashboard now. The tracker only counts distance from the
+          day it is fitted, so this is what makes true mileage possible.
+        </p>
+      </Field>
 
       <Field label="IMEI (from device sticker)">
         <input
