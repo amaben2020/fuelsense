@@ -1,4 +1,5 @@
-import { envOrigin, isValidLatLng, resolveOrigin, toLatLng, translateLoop } from './sim-origin'
+import { describe, it, expect } from '@jest/globals'
+import { envOrigin, isValidLatLng, resolveOrigin, toLatLng, translateLoop } from '../src/lib/sim-origin'
 
 const LAGOS = { lat: 6.5244, lng: 3.3792 }
 const ABUJA = { lat: 9.0765, lng: 7.3986 }

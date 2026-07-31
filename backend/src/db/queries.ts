@@ -31,7 +31,7 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       -- device has counted since that baseline was taken.
       CASE
         WHEN v.odometer_baseline_km IS NOT NULL
-          THEN v.odometer_baseline_km + GREATEST(0, COALESCE(t.odometer_km, 0) - COALESCE(v.odometer_baseline_device_km, 0))
+          THEN v.odometer_baseline_km + GREATEST(0, COALESCE(t.odometer_km, 0) - COALESCE(v.odometer_baseline_device_km, firstodo.odometer_km, 0))
         ELSE NULL
       END AS total_odometer_km,
       v.odometer_baseline_km,
@@ -74,6 +74,18 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       ORDER BY recorded_at DESC
       LIMIT 1
     ) lastfix ON true
+    -- Odometer captured at onboarding has no device counter to pair with yet,
+    -- so the anchor resolves to the first reading the tracker reports after
+    -- that moment. Without this a previously-used tracker whose counter is
+    -- already at, say, 5000 km would inflate true mileage by exactly that much.
+    LEFT JOIN LATERAL (
+      SELECT odometer_km
+      FROM telemetry
+      WHERE vehicle_id = v.id AND customer_id = v.customer_id AND odometer_km IS NOT NULL
+        AND (v.odometer_baseline_at IS NULL OR recorded_at >= v.odometer_baseline_at)
+      ORDER BY recorded_at ASC
+      LIMIT 1
+    ) firstodo ON true
     WHERE v.customer_id = ${customerId}
     ORDER BY v.license_plate ASC
   `);
