@@ -132,24 +132,6 @@ export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetail
   };
 }
 
-/** Resolves many stops at once, de-duplicating repeat coordinates. */
-export async function lookupPlaces(
-  coords: Array<{ lat: number; lng: number }>
-): Promise<Map<string, PlaceDetails>> {
-  const unique = new Map<string, { lat: number; lng: number }>();
-  for (const c of coords) unique.set(geoKeyFor(c.lat, c.lng), c);
-
-  const out = new Map<string, PlaceDetails>();
-  // Sequential on purpose: a burst of parallel Google calls trips rate limits,
-  // and cache hits make the common case fast anyway.
-  for (const [key, c] of unique) {
-    out.set(key, await lookupPlace(c.lat, c.lng));
-  }
-  return out;
-}
-
-export const placeKeyFor = geoKeyFor;
-
 /** Streams a Places photo through the backend so the key stays server-side. */
 export async function fetchPlacePhoto(
   ref: string,
