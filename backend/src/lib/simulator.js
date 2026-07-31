@@ -258,14 +258,17 @@ const buildCodecRecord = ({
   };
 };
 
+// NOTE: these profiles intentionally carry NO startLat/startLng. Each
+// vehicle's origin is resolved at runtime from its device's last real
+// telemetry fix (fleet-simulator.js -> withResolvedOrigins). Re-adding a
+// coordinate here would reintroduce the bug where the map asserted a location
+// the device had never reported.
 const DEFAULT_FLEET_PROFILES = [
   {
     imei: '356307042441013',
     label: 'LND-772-AA',
     model: 'Hilux',
     routeLoop: 'island',
-    startLat: 6.5244,
-    startLng: 3.3792,
     initialFuel: 42,
     tankCapacity: 60,
     initialOdometer: 45230,
@@ -278,8 +281,6 @@ const DEFAULT_FLEET_PROFILES = [
     label: 'IKD-109-BY',
     model: 'Hiace',
     routeLoop: 'mainland',
-    startLat: 6.6018,
-    startLng: 3.3515,
     initialFuel: 48,
     tankCapacity: 55,
     initialOdometer: 67890,
@@ -294,8 +295,6 @@ const DEFAULT_FLEET_PROFILES = [
     label: 'GGE-442-XM',
     model: 'Hilux',
     routeLoop: 'lekki',
-    startLat: 6.4474,
-    startLng: 3.4738,
     initialFuel: 35,
     tankCapacity: 70,
     initialOdometer: 102345,
@@ -306,8 +305,6 @@ const DEFAULT_FLEET_PROFILES = [
     label: 'KJA-901-CS',
     model: 'Camry',
     routeLoop: 'ikeja',
-    startLat: 6.5789,
-    startLng: 3.2802,
     initialFuel: 52,
     tankCapacity: 50,
     initialOdometer: 8901,
@@ -318,8 +315,6 @@ const DEFAULT_FLEET_PROFILES = [
     label: 'PHC-302-RY',
     model: 'RAV4',
     routeLoop: 'yaba',
-    startLat: 6.4969,
-    startLng: 3.3346,
     initialFuel: 40,
     tankCapacity: 55,
     initialOdometer: 15200,

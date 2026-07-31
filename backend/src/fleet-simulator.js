@@ -3,6 +3,8 @@ require('dotenv').config();
 const net = require('net');
 const { encodeCodec8ePacket } = require('./codec8e-encoder');
 const { VehicleSimulator, DEFAULT_FLEET_PROFILES } = require('./lib/simulator');
+const { lastKnownPosition } = require('./lib/last-known-position');
+const { resolveOrigin, envOrigin } = require('./lib/sim-origin');
 
 const TCP_SERVER_PORT = Number(process.env.TCP_PORT || 5027);
 const TCP_SERVER_HOST = process.env.TCP_SERVER_HOST || 'localhost';
@@ -76,6 +78,40 @@ const startVirtualDevice = (profile) => {
   };
 };
 
+/**
+ * Gives every profile the origin its device last actually reported. Vehicles
+ * with no telemetry fall back to SIM_ORIGIN_LAT/LNG, then to any explicit
+ * startLat/startLng on the profile; a vehicle that resolves to nothing is
+ * SKIPPED rather than dropped onto a made-up coordinate.
+ */
+const withResolvedOrigins = async (profiles) => {
+  const resolved = [];
+  for (const profile of profiles) {
+    let lastKnown = null;
+    try {
+      lastKnown = await lastKnownPosition(profile.imei);
+    } catch (err) {
+      console.warn(`[${profile.label}] last-known lookup failed: ${err.message}`);
+    }
+    const profileStart =
+      profile.startLat !== undefined && profile.startLng !== undefined
+        ? { lat: profile.startLat, lng: profile.startLng }
+        : null;
+    const { origin, source } = resolveOrigin({ lastKnown, envOrigin: envOrigin(), profileStart });
+    if (!origin) {
+      console.warn(
+        `[${profile.label}] skipped: no telemetry fix, no SIM_ORIGIN_LAT/LNG, no profile start.`,
+      );
+      continue;
+    }
+    console.log(
+      `[${profile.label}] origin ${origin.lat.toFixed(5)}, ${origin.lng.toFixed(5)} (from ${source})`,
+    );
+    resolved.push({ ...profile, origin });
+  }
+  return resolved;
+};
+
 const runFleetSimulator = (profiles = DEFAULT_FLEET_PROFILES) => {
   console.log(
     `Starting fleet simulator: ${profiles.length} vehicles → ${TCP_SERVER_HOST}:${TCP_SERVER_PORT} every ${SEND_INTERVAL_MS}ms`
@@ -87,7 +123,18 @@ const runFleetSimulator = (profiles = DEFAULT_FLEET_PROFILES) => {
 };
 
 if (require.main === module) {
-  runFleetSimulator();
+  withResolvedOrigins(DEFAULT_FLEET_PROFILES)
+    .then((profiles) => {
+      if (profiles.length === 0) {
+        console.error('No vehicles could be started — set SIM_ORIGIN_LAT/SIM_ORIGIN_LNG.');
+        process.exit(1);
+      }
+      runFleetSimulator(profiles);
+    })
+    .catch((err) => {
+      console.error(err.message);
+      process.exit(1);
+    });
 }
 
-module.exports = { runFleetSimulator, startVirtualDevice };
+module.exports = { runFleetSimulator, startVirtualDevice, withResolvedOrigins };

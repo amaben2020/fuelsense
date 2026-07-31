@@ -2,11 +2,19 @@ require('dotenv').config();
 
 const net = require('net');
 const { encodeCodec8ePacket } = require('./codec8e-encoder');
+const { lastKnownPosition } = require('./lib/last-known-position');
+const { resolveOrigin, envOrigin } = require('./lib/sim-origin');
 
 const MOCK_IMEI = process.env.MOCK_IMEI || '356307042441013';
 const TCP_SERVER_PORT = Number(process.env.TCP_PORT || 5027);
 const TCP_SERVER_HOST = process.env.TCP_SERVER_HOST || 'localhost';
 const SEND_INTERVAL_MS = Number(process.env.MOCK_INTERVAL_MS || 10000);
+
+// Resolved once at startup from the device's last real telemetry fix (see
+// lib/sim-origin.ts for the precedence rules). Previously this file hardcoded a
+// Lagos coordinate, so the map asserted a location the device had never
+// reported.
+let simOrigin = null;
 
 const generateMockData = (index) => {
   const now = Date.now();
@@ -24,8 +32,10 @@ const generateMockData = (index) => {
     theftSimulated = true;
   }
 
-  const latitude = 6.5244 + Math.random() * 0.01;
-  const longitude = 3.3792 + Math.random() * 0.01;
+  // Jitter around the RESOLVED origin, never a baked-in city. ~0.01 deg is
+  // roughly a kilometre of plausible wander around the last known fix.
+  const latitude = simOrigin.lat + Math.random() * 0.01;
+  const longitude = simOrigin.lng + Math.random() * 0.01;
   const speed = isIgnitionOn ? Math.random() * 80 : 0;
 
   const ioElements = [
@@ -59,6 +69,29 @@ const generateMockData = (index) => {
       theftSimulated,
     },
   };
+};
+
+// Resolves this device's starting point BEFORE any packet is sent. Refuses to
+// run rather than invent a location: emitting a fabricated fix is what put a
+// vehicle in Lagos that had never been there.
+const resolveSimOrigin = async () => {
+  let lastKnown = null;
+  try {
+    lastKnown = await lastKnownPosition(MOCK_IMEI);
+  } catch (err) {
+    console.warn(`Could not read last known position for ${MOCK_IMEI}: ${err.message}`);
+  }
+  const { origin, source } = resolveOrigin({ lastKnown, envOrigin: envOrigin() });
+  if (!origin) {
+    throw new Error(
+      `No origin for ${MOCK_IMEI}: it has no telemetry with a GPS fix, and SIM_ORIGIN_LAT/SIM_ORIGIN_LNG are unset. ` +
+        'Set those to choose where the simulation starts.',
+    );
+  }
+  console.log(
+    `Simulation origin for ${MOCK_IMEI}: ${origin.lat.toFixed(5)}, ${origin.lng.toFixed(5)} (from ${source})`,
+  );
+  return origin;
 };
 
 const runMockDevice = () => {
@@ -115,7 +148,15 @@ const runMockDevice = () => {
 };
 
 if (require.main === module) {
-  runMockDevice();
+  resolveSimOrigin()
+    .then((origin) => {
+      simOrigin = origin;
+      runMockDevice();
+    })
+    .catch((err) => {
+      console.error(err.message);
+      process.exit(1);
+    });
 }
 
-module.exports = { runMockDevice, generateMockData };
+module.exports = { runMockDevice, generateMockData, resolveSimOrigin };
