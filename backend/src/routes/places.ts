@@ -27,6 +27,10 @@ router.get('/photo', async (req: Request, res: Response) => {
     // Places photos are immutable for a given reference — cache hard.
     res.setHeader('Content-Type', photo.contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    // Helmet defaults this to same-origin, which makes the browser discard the
+    // image because the dashboard runs on a different origin to the API. The
+    // request succeeds and the bytes arrive; without this they never render.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.send(Buffer.from(photo.body));
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -50,6 +54,10 @@ router.get('/streetview', async (req: Request, res: Response) => {
     }
     res.setHeader('Content-Type', img.contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    // Helmet defaults this to same-origin, which makes the browser discard the
+    // image because the dashboard runs on a different origin to the API. The
+    // request succeeds and the bytes arrive; without this they never render.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.send(Buffer.from(img.body));
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
