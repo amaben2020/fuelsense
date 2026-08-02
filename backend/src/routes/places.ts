@@ -5,9 +5,23 @@
 // reference is an opaque Google handle — and proxying keeps the API key on the
 // server instead of embedding it in markup the browser can read.
 import express, { Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { fetchPlacePhoto, fetchStreetView } from '../lib/place-lookup';
 
 const router = express.Router();
+
+// These routes are public (an <img> cannot send a bearer token), so they get a
+// far tighter cap than the global one. A manager clicking through stops loads a
+// handful of images a minute; anything near this ceiling is not a person.
+const imageLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many image requests, please slow down.' },
+});
+
+router.use(imageLimiter);
 
 router.get('/photo', async (req: Request, res: Response) => {
   const ref = typeof req.query.ref === 'string' ? req.query.ref : '';
@@ -31,7 +45,8 @@ router.get('/photo', async (req: Request, res: Response) => {
     // image because the dashboard runs on a different origin to the API. The
     // request succeeds and the bytes arrive; without this they never render.
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.send(Buffer.from(photo.body));
+    res.setHeader('X-Image-Cache', photo.cached ? 'HIT' : 'MISS');
+    res.send(photo.body);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -58,7 +73,8 @@ router.get('/streetview', async (req: Request, res: Response) => {
     // image because the dashboard runs on a different origin to the API. The
     // request succeeds and the bytes arrive; without this they never render.
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.send(Buffer.from(img.body));
+    res.setHeader('X-Image-Cache', img.cached ? 'HIT' : 'MISS');
+    res.send(img.body);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

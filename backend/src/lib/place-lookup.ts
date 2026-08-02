@@ -5,6 +5,7 @@
 // revisits the same depots, markets and filling stations daily, and Google
 // bills per call, so the same stop is only ever resolved once.
 import { db, placeCache, eq, sql } from './db-helpers';
+import { chargeGoogleCall, GoogleCallKind } from './google-usage';
 
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 // ~11 m of precision. Tighter than this and GPS wander at the same building
@@ -48,7 +49,12 @@ function imageFor(
   return { photo_url: photo, image_kind: photo ? 'place_photo' : null };
 }
 
-async function fetchJson(url: string): Promise<Record<string, unknown> | null> {
+async function fetchJson(
+  url: string,
+  kind: GoogleCallKind
+): Promise<Record<string, unknown> | null> {
+  if (!chargeGoogleCall(kind)) return null;
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
   try {
@@ -62,9 +68,47 @@ async function fetchJson(url: string): Promise<Record<string, unknown> | null> {
   }
 }
 
+// Coordinates that resolved to nothing. Without this, a stop Google cannot
+// identify would re-run three billable calls on every single modal open.
+const NEGATIVE_TTL_MS = 6 * 60 * 60 * 1000;
+const negativeCache = new Map<string, number>();
+
+const isNegativelyCached = (key: string): boolean => {
+  const at = negativeCache.get(key);
+  if (at == null) return false;
+  if (Date.now() - at > NEGATIVE_TTL_MS) {
+    negativeCache.delete(key);
+    return false;
+  }
+  return true;
+};
+
+// Bounded LRU of already-fetched image bytes. A stop that several managers open
+// costs exactly one Street View request, not one per viewer per page load.
+const IMAGE_CACHE_MAX = 250;
+const imageCache = new Map<string, { body: Buffer; contentType: string }>();
+
+function cacheImage(key: string, value: { body: Buffer; contentType: string }): void {
+  if (imageCache.size >= IMAGE_CACHE_MAX) {
+    const oldest = imageCache.keys().next().value;
+    if (oldest !== undefined) imageCache.delete(oldest);
+  }
+  imageCache.set(key, value);
+}
+
+function readImageCache(key: string): { body: Buffer; contentType: string } | undefined {
+  const hit = imageCache.get(key);
+  if (!hit) return undefined;
+  // Refresh recency so hot places survive eviction.
+  imageCache.delete(key);
+  imageCache.set(key, hit);
+  return hit;
+}
+
 async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
   const data = await fetchJson(
-    `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_KEY}`
+    `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_KEY}`,
+    'geocode'
   );
   const results = data?.results as Array<Record<string, unknown>> | undefined;
   return (results?.[0]?.formatted_address as string) ?? null;
@@ -76,7 +120,8 @@ async function nearbyPlace(
   lng: number
 ): Promise<{ name: string | null; placeId: string | null; photoRef: string | null }> {
   const data = await fetchJson(
-    `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=60&key=${GOOGLE_KEY}`
+    `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=60&key=${GOOGLE_KEY}`,
+    'places_nearby'
   );
   const results = data?.results as Array<Record<string, unknown>> | undefined;
   const top = results?.[0];
@@ -96,7 +141,8 @@ async function streetViewMeta(
   lng: number
 ): Promise<{ panoId: string | null; date: string | null }> {
   const data = await fetchJson(
-    `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`
+    `https://maps.googleapis.com/maps/api/streetview/metadata?location=${lat},${lng}&key=${GOOGLE_KEY}`,
+    'streetview_meta'
   );
   if (data?.status !== 'OK') return { panoId: null, date: null };
   return {
@@ -139,15 +185,23 @@ export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetail
   // the trip view stays usable, just without addresses.
   if (!GOOGLE_KEY) return base;
 
+  // A spot Google could not identify stays unidentified for a while. Retrying
+  // on every modal open would spend three calls each time for the same nothing.
+  if (isNegativelyCached(geoKey)) return base;
+
   const [address, place, pano] = await Promise.all([
     reverseGeocode(lat, lng),
     nearbyPlace(lat, lng),
     streetViewMeta(lat, lng),
   ]);
 
-  // Nothing resolved (offline, quota, bad key) — don't poison the cache with
-  // an empty row, so a later request can retry.
-  if (address == null && place.name == null && pano.panoId == null) return base;
+  // Nothing resolved (offline, quota, bad key). Don't write an empty row — a
+  // later request should be able to retry — but hold it in the negative cache
+  // so "later" means hours from now, not the next click.
+  if (address == null && place.name == null && pano.panoId == null) {
+    negativeCache.set(geoKey, Date.now());
+    return base;
+  }
 
   await db
     .insert(placeCache)
@@ -175,40 +229,82 @@ export async function lookupPlace(lat: number, lng: number): Promise<PlaceDetail
   };
 }
 
+export interface ProxiedImage {
+  body: Buffer;
+  contentType: string;
+  cached: boolean;
+}
+
 async function proxyImage(
-  url: string
-): Promise<{ body: ArrayBuffer; contentType: string } | null> {
+  cacheKey: string,
+  url: string,
+  kind: GoogleCallKind
+): Promise<ProxiedImage | null> {
+  const hit = readImageCache(cacheKey);
+  if (hit) return { ...hit, cached: true };
+
   if (!GOOGLE_KEY) return null;
+  if (!chargeGoogleCall(kind)) return null;
+
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
-    return {
-      body: await res.arrayBuffer(),
+    const value = {
+      body: Buffer.from(await res.arrayBuffer()),
       contentType: res.headers.get('content-type') ?? 'image/jpeg',
     };
+    cacheImage(cacheKey, value);
+    return { ...value, cached: false };
   } catch {
     return null;
   }
 }
 
-/** Streams a Places photo through the backend so the key stays server-side. */
+/**
+ * Places photo, but only for a reference we have already stored. Accepting an
+ * arbitrary reference would turn this public route into an open, billable
+ * proxy onto Google's image API.
+ */
 export async function fetchPlacePhoto(
   ref: string,
   maxWidth = 480
-): Promise<{ body: ArrayBuffer; contentType: string } | null> {
+): Promise<ProxiedImage | null> {
+  const [known] = await db
+    .select({ geoKey: placeCache.geoKey })
+    .from(placeCache)
+    .where(eq(placeCache.photoReference, ref))
+    .limit(1);
+  if (!known) return null;
+
   return proxyImage(
-    `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photo_reference=${encodeURIComponent(ref)}&key=${GOOGLE_KEY}`
+    `photo:${ref}:${maxWidth}`,
+    `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photo_reference=${encodeURIComponent(ref)}&key=${GOOGLE_KEY}`,
+    'place_photo'
   );
 }
 
-/** Street View of the exact spot, same key-hiding proxy. */
+/**
+ * Street View of a stop, restricted to coordinates already resolved through the
+ * authenticated lookup. Arbitrary coordinates are rejected, so this route can
+ * never be used to bill fresh imagery anywhere on earth.
+ */
 export async function fetchStreetView(
   lat: number,
   lng: number,
   width = 640,
   height = 360
-): Promise<{ body: ArrayBuffer; contentType: string } | null> {
+): Promise<ProxiedImage | null> {
+  const geoKey = geoKeyFor(lat, lng);
+  const [known] = await db
+    .select({ pano: placeCache.streetViewPanoId })
+    .from(placeCache)
+    .where(eq(placeCache.geoKey, geoKey))
+    .limit(1);
+  if (!known?.pano) return null;
+
   return proxyImage(
-    `https://maps.googleapis.com/maps/api/streetview?size=${width}x${height}&location=${lat},${lng}&fov=90&key=${GOOGLE_KEY}`
+    `sv:${geoKey}:${width}x${height}`,
+    `https://maps.googleapis.com/maps/api/streetview?size=${width}x${height}&location=${lat},${lng}&fov=90&key=${GOOGLE_KEY}`,
+    'streetview_image'
   );
 }

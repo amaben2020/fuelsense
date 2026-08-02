@@ -30,6 +30,7 @@ import {
 import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../lib/receipt-reconciliation';
 import { creditRefuel } from '../lib/virtual-tank';
 import { lookupPlace } from '../lib/place-lookup';
+import { googleUsageSnapshot } from '../lib/google-usage';
 
 const router = express.Router();
 
@@ -368,6 +369,11 @@ router.get('/stop-place', async (req: Request, res: Response) => {
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
+});
+
+// Today's Google Maps spend, so the cap is observable rather than silent.
+router.get('/google-usage', async (_req: Request, res: Response) => {
+  res.json(googleUsageSnapshot());
 });
 
 router.get('/fleet-efficiency', async (req: Request, res: Response) => {
