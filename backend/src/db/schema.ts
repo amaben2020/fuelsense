@@ -55,6 +55,14 @@ export const vehicles = pgTable(
     model: varchar('model', { length: 100 }),
     year: integer('year'),
     tankCapacityLiters: integer('tank_capacity_liters'),
+    // Vehicle class drives the starting fuel figures. Once enough fill-ups are
+    // logged, the measured rate below takes over and the class is only a label.
+    vehicleType: varchar('vehicle_type', { length: 20 }),
+    // Rate actually in use. Seeded from the class preset, then overwritten by
+    // fill-to-fill calibration; `rate_source` says which is in play.
+    consumptionRateL100km: numeric('consumption_rate_l_per_100km', { precision: 6, scale: 2 }),
+    idleBurnRateLph: numeric('idle_burn_rate_l_per_hour', { precision: 5, scale: 2 }),
+    rateSource: varchar('rate_source', { length: 12 }).default('preset'),
     // True dashboard odometer, anchored once by the fleet manager. The tracker
     // only reports AVL 16 (distance accumulated since it was fitted), so the
     // real total is this baseline plus whatever the device has counted since
@@ -294,6 +302,22 @@ export const deviceEvents = pgTable('device_events', {
   occurredAt: timestamp('occurred_at').notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// Per-customer visibility switches, so a half-finished area can be hidden
+// without a redeploy. Absence of a row means the flag's coded default applies.
+export const featureFlags = pgTable(
+  'feature_flags',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    // Null customer = platform-wide default; a row with a customer overrides it.
+    customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'cascade' }),
+    flagKey: varchar('flag_key', { length: 60 }).notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    note: text('note'),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (table) => [unique().on(table.customerId, table.flagKey)]
+);
 
 // Reverse-geocoded stop locations. Keyed by rounded coordinates so repeat
 // visits to the same place reuse one lookup — Google billing is per call and

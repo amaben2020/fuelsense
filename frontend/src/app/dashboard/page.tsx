@@ -33,6 +33,8 @@ import {
   FuelAnomaly,
   FuelEventsResponse,
   FuelPurchasesResponse,
+  FeatureFlags,
+  fetchFeatureFlags,
   getToken,
   TrackPoint,
   TripsResponse,
@@ -82,6 +84,21 @@ type DashboardView =
   | 'alerts'
   | 'settings';
 
+/** Sidebar entry -> feature flag key. A view with no mapping is always shown. */
+const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
+  overview: 'fleet_overview',
+  live: 'live_monitoring',
+  vehicle: 'vehicle_view',
+  trips: 'trip_history',
+  behavior: 'driving_behavior',
+  fuel: 'fuel_analytics',
+  estimate: 'fuel_estimate',
+  receipts: 'receipts',
+  anomalies: 'replay_events',
+  alerts: 'alerts',
+  settings: 'settings',
+};
+
 const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'overview', label: 'Operations', hash: 'overview' },
   { id: 'live', label: 'Live monitoring', hash: 'live' },
@@ -128,6 +145,9 @@ export default function DashboardPage() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [followVehicle, setFollowVehicle] = useState(true);
+  // Sidebar visibility. Defaults to everything on so the nav never flashes
+  // empty while the flags load; the server response then narrows it.
+  const [flags, setFlags] = useState<FeatureFlags>({});
   const [trailMinutes, setTrailMinutes] = useState(1440);
   const trailMinutesRef = useRef(1440);
   trailMinutesRef.current = trailMinutes;
@@ -250,6 +270,14 @@ export default function DashboardPage() {
         driverRows = [];
       }
 
+      // Visibility switches. On failure the existing flags stand rather than
+      // collapsing the nav to nothing.
+      try {
+        setFlags((await fetchFeatureFlags()).flags);
+      } catch {
+        /* keep whatever we already resolved */
+      }
+
       let trackPoints: TrackPoint[] = [];
       try {
         trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=15');
@@ -336,6 +364,13 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Unmapped views and not-yet-loaded flags both show, so nothing disappears
+  // on a slow response — only an explicit `false` hides an entry.
+  const isVisible = (view: DashboardView): boolean => {
+    const key = VIEW_FLAG[view];
+    return key == null || flags[key] !== false;
+  };
+
   const switchView = (view: DashboardView) => {
     setActiveView(view);
     setMobileNavOpen(false);
@@ -412,76 +447,87 @@ export default function DashboardPage() {
         </p>
       </div>
       <nav className="space-y-1 px-3">
-        <NavItem
+        {isVisible('overview') && (<NavItem
           icon={Activity}
           label="Fleet overview"
           active={activeView === 'overview'}
           onClick={() => switchView('overview')}
         />
-        <NavItem
+        )}
+        {isVisible('live') && (<NavItem
           icon={Radio}
           label="Live monitoring"
           active={activeView === 'live'}
           onClick={() => switchView('live')}
           badge={liveTracks.length || undefined}
         />
-        <NavItem
+        )}
+        {isVisible('vehicle') && (<NavItem
           icon={Truck}
           label="Vehicle view"
           active={activeView === 'vehicle'}
           onClick={() => switchView('vehicle')}
         />
-        <NavItem
+        )}
+        {isVisible('trips') && (<NavItem
           icon={Route}
           label="Trip history"
           active={activeView === 'trips'}
           onClick={() => switchView('trips')}
         />
-        <NavItem
+        )}
+        {isVisible('behavior') && (<NavItem
           icon={ShieldAlert}
           label="Driving behavior"
           active={activeView === 'behavior'}
           onClick={() => switchView('behavior')}
         />
-        <NavItem
+        )}
+        {isVisible('fuel') && (<NavItem
           icon={Fuel}
           label="Fuel analytics"
           active={activeView === 'fuel'}
           onClick={() => switchView('fuel')}
         />
-        <NavItem
+        )}
+        {isVisible('estimate') && (<NavItem
           icon={Gauge}
           label="Fuel estimate"
           active={activeView === 'estimate'}
           onClick={() => switchView('estimate')}
         />
-        <NavItem
+        )}
+        {isVisible('receipts') && (<NavItem
           icon={Receipt}
           label="Receipts"
           badge={fuelPurchases?.total || undefined}
           active={activeView === 'receipts'}
           onClick={() => switchView('receipts')}
         />
-        <NavItem
+        )}
+        {isVisible('anomalies') && (<NavItem
           icon={Play}
           label="Replay events"
           badge={fuelEventCount || undefined}
           active={activeView === 'anomalies'}
           onClick={() => switchView('anomalies')}
         />
-        <NavItem
+        )}
+        {isVisible('alerts') && (<NavItem
           icon={AlertTriangle}
           label="Alerts"
           badge={alerts.length || undefined}
           active={activeView === 'alerts'}
           onClick={() => switchView('alerts')}
         />
-        <NavItem
+        )}
+        {isVisible('settings') && (<NavItem
           icon={Settings}
           label="Settings"
           active={activeView === 'settings'}
           onClick={() => switchView('settings')}
         />
+        )}
       </nav>
     </>
   );

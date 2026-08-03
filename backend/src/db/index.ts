@@ -275,6 +275,53 @@ export const initDatabase = async (): Promise<void> => {
     )
   `);
 
+  await ensureColumn('vehicles', 'vehicle_type', 'VARCHAR(20)');
+  await ensureColumn('vehicles', 'consumption_rate_l_per_100km', 'DECIMAL(6,2)');
+  await ensureColumn('vehicles', 'idle_burn_rate_l_per_hour', 'DECIMAL(5,2)');
+  await ensureColumn('vehicles', 'rate_source', "VARCHAR(12) DEFAULT 'preset'");
+
+  // Vehicles created before the class presets existed have no rate at all, so
+  // every estimate for them would fall back to a hardcoded guess. Seed them
+  // with the default class; a manager can correct the type, and calibration
+  // overwrites the numbers once real fill-ups are logged either way.
+  {
+    const { VEHICLE_TYPE_PRESETS, DEFAULT_VEHICLE_TYPE } = await import('../lib/fuel-metrics');
+    const preset = VEHICLE_TYPE_PRESETS[DEFAULT_VEHICLE_TYPE];
+    await db.execute(sql`
+      UPDATE vehicles
+      SET vehicle_type = COALESCE(vehicle_type, ${DEFAULT_VEHICLE_TYPE}),
+          consumption_rate_l_per_100km =
+            COALESCE(consumption_rate_l_per_100km, ${preset.consumptionL100km}),
+          idle_burn_rate_l_per_hour =
+            COALESCE(idle_burn_rate_l_per_hour, ${preset.idleBurnLph}),
+          rate_source = COALESCE(rate_source, 'preset')
+      WHERE vehicle_type IS NULL
+         OR consumption_rate_l_per_100km IS NULL
+         OR idle_burn_rate_l_per_hour IS NULL
+    `);
+  }
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS feature_flags (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
+      flag_key VARCHAR(60) NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      note TEXT,
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  // A partial unique index, because NULL customer_id (the platform-wide row)
+  // would otherwise never collide with itself under a plain UNIQUE constraint.
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_flags_global
+      ON feature_flags (flag_key) WHERE customer_id IS NULL
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_flags_customer
+      ON feature_flags (customer_id, flag_key) WHERE customer_id IS NOT NULL
+  `);
+
   await ensureColumn('place_cache', 'street_view_pano_id', 'VARCHAR(255)');
   await ensureColumn('place_cache', 'street_view_date', 'VARCHAR(16)');
 

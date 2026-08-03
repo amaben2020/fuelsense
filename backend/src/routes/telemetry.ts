@@ -17,6 +17,8 @@ import {
   REFUEL_THRESHOLD_LITERS,
   DEFAULT_FUEL_PRICE_NGN_LITER,
   IDLE_BURN_LITERS_PER_HOUR,
+  speedBucketMultiplier,
+  speedBucketLabel,
 } from '../lib/fuel-metrics';
 import {
   dailyDistanceThreshold,
@@ -270,14 +272,20 @@ router.get('/trips', async (req: Request, res: Response) => {
         return Array.from(byVehicle.entries()).map(([vehicleId, v]) => {
           const efficiencyKmL = baselineEfficiencyKmL(v.model ?? '');
           const trips = segmentTrips(v.points, nowMs).map((trip) => {
+            // Economy follows a U-curve, so the same distance burns more in
+            // stop-start traffic than at a steady cruise. Applied only to the
+            // driving portion — idle burn is time-based and unaffected by it.
+            const multiplier = speedBucketMultiplier(trip.avg_speed_kph);
             const fuel = round1(
-              trip.distance_km / efficiencyKmL +
+              (trip.distance_km / efficiencyKmL) * multiplier +
                 (trip.idle_minutes / 60) * IDLE_BURN_LITERS_PER_HOUR
             );
             return {
               ...trip,
               estimated_fuel_liters: fuel,
               estimated_cost_ngn: Math.round(fuel * pricePerLiter),
+              speed_bucket: speedBucketLabel(trip.avg_speed_kph),
+              speed_bucket_multiplier: multiplier,
             };
           });
           return {

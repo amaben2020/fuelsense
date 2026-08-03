@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Clock, Droplet, Gauge, MapPin, Route, X } from 'lucide-react';
 import { ServerTrip, TripStop, formatNgn } from '@/lib/api';
 import { StopDetailModal } from './StopDetailModal';
@@ -41,6 +41,34 @@ export function TripDetailModal({
   onFocusTrip?: (index: number) => void;
 }) {
   const [openStop, setOpenStop] = useState<TripStop | null>(null);
+
+  // Newest first — the most recent journey is what a manager asks about.
+  // Grouped by month, and the current month is left unlabelled since "this
+  // month" is the implied context when you open the panel.
+  const monthGroups = useMemo(() => {
+    const now = new Date();
+    const groups = new globalThis.Map<string, { label: string | null; trips: ServerTrip[] }>();
+
+    for (const trip of [...trips].sort(
+      (a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()
+    )) {
+      const d = new Date(trip.start_at);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const isCurrentMonth =
+        d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      const label = isCurrentMonth
+        ? null
+        : d.toLocaleDateString(undefined, {
+            month: 'long',
+            // Only show the year once it stops being obvious.
+            ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+          });
+
+      if (!groups.has(key)) groups.set(key, { label, trips: [] });
+      groups.get(key)!.trips.push(trip);
+    }
+    return [...groups.values()];
+  }, [trips]);
 
   const totalIdle = trips.reduce((s, t) => s + t.idle_minutes, 0);
   const totalStops = trips.reduce(
@@ -94,8 +122,22 @@ export function TripDetailModal({
               <p className="text-sm text-ink-dim">No trips in this period.</p>
             ) : (
               <ul className="space-y-4">
-                {trips.map((trip, i) => {
+                {monthGroups.flatMap((group) => [
+                  ...(group.label
+                    ? [
+                        <li
+                          key={`hdr-${group.label}`}
+                          className="sticky top-0 -mx-6 bg-panel px-6 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-ink-dim"
+                        >
+                          {group.label}
+                        </li>,
+                      ]
+                    : []),
+                  ...group.trips.map((trip) => {
                   const realStops = trip.stops.filter((s) => s.kind === 'stop');
+                  // Index into the original array, so "show on map" still points
+                  // at the right trip after regrouping.
+                  const i = trips.indexOf(trip);
                   return (
                     <li key={trip.start_at} className="rounded-lg border border-edge bg-canvas p-4">
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -166,7 +208,8 @@ export function TripDetailModal({
                       )}
                     </li>
                   );
-                })}
+                  }),
+                ])}
               </ul>
             )}
           </div>

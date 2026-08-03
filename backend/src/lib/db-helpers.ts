@@ -14,9 +14,15 @@ import {
   payments,
   deviceOrders,
   placeCache,
+  featureFlags,
 } from '../db/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, isNull } from 'drizzle-orm';
 import { serializeForApi } from './serialize';
+import {
+  DEFAULT_VEHICLE_TYPE,
+  isVehicleType,
+  presetForVehicleType,
+} from './fuel-metrics';
 
 export const IMEI_PATTERN = /^\d{15}$/;
 
@@ -78,12 +84,23 @@ interface CreateVehicleParams {
    *  first telemetry reading, which correctly handles a previously-used tracker
    *  whose internal counter is already non-zero. */
   odometerBaselineKm?: number;
+  /** Vehicle class. Seeds the starting fuel figures; measured fill-to-fill data
+   *  replaces them once enough purchases are logged. */
+  vehicleType?: string;
 }
 
 export const createVehicle = async (
   tx: AnyTx,
   customerId: string,
-  { licensePlate, make, model, year, tankCapacityLiters, odometerBaselineKm }: CreateVehicleParams
+  {
+    licensePlate,
+    make,
+    model,
+    year,
+    tankCapacityLiters,
+    odometerBaselineKm,
+    vehicleType,
+  }: CreateVehicleParams
 ): Promise<{
   id: string;
   license_plate: string | null;
@@ -95,6 +112,11 @@ export const createVehicle = async (
   if (!licensePlate?.trim()) {
     throw Object.assign(new Error('License plate is required'), { status: 400 });
   }
+
+  // Every vehicle starts on its class average so estimates are sane from the
+  // first trip; calibration overwrites these once real fill-ups exist.
+  const resolvedType = isVehicleType(vehicleType) ? vehicleType : DEFAULT_VEHICLE_TYPE;
+  const preset = presetForVehicleType(resolvedType);
 
   const [vehicle] = await (tx as typeof db)
     .insert(vehicles)
@@ -110,6 +132,10 @@ export const createVehicle = async (
           ? Math.round(Number(odometerBaselineKm))
           : null,
       odometerBaselineAt: odometerBaselineKm != null ? sql`NOW()` : null,
+      vehicleType: resolvedType,
+      consumptionRateL100km: preset.consumptionL100km.toFixed(2),
+      idleBurnRateLph: preset.idleBurnLph.toFixed(2),
+      rateSource: 'preset',
     })
     .returning({
       id: vehicles.id,
@@ -150,8 +176,10 @@ export {
   payments,
   deviceOrders,
   placeCache,
+  featureFlags,
   eq,
   and,
   desc,
   sql,
+  isNull,
 };

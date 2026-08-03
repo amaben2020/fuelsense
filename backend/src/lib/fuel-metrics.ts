@@ -8,6 +8,67 @@ export const VEHICLE_EFFICIENCY: Record<string, { min: number; max: number; avg:
 
 const DEFAULT_EFFICIENCY = { min: 7.0, max: 10.0, avg: 8.5 };
 
+/** Vehicle classes with their industry-average starting figures. These are only
+ *  a seed: once a vehicle has enough logged fill-ups, its own measured rate
+ *  replaces the preset entirely (see CALIBRATION_MIN_PURCHASES). */
+export type VehicleType =
+  | 'sedan'
+  | 'suv_pickup'
+  | 'van_bus'
+  | 'medium_truck'
+  | 'heavy_truck'
+  | 'motorcycle';
+
+export interface VehicleTypePreset {
+  consumptionL100km: number;
+  idleBurnLph: number;
+  label: string;
+}
+
+export const VEHICLE_TYPE_PRESETS: Record<VehicleType, VehicleTypePreset> = {
+  sedan: { consumptionL100km: 8, idleBurnLph: 0.7, label: 'Sedan' },
+  suv_pickup: { consumptionL100km: 11.5, idleBurnLph: 0.9, label: 'SUV / Pickup' },
+  van_bus: { consumptionL100km: 12.5, idleBurnLph: 1.15, label: 'Van / Bus' },
+  medium_truck: { consumptionL100km: 21, idleBurnLph: 1.55, label: 'Medium truck' },
+  heavy_truck: { consumptionL100km: 35, idleBurnLph: 2.4, label: 'Heavy truck' },
+  motorcycle: { consumptionL100km: 2.5, idleBurnLph: 0.2, label: 'Motorcycle' },
+};
+
+export const DEFAULT_VEHICLE_TYPE: VehicleType = 'suv_pickup';
+
+export function isVehicleType(value: unknown): value is VehicleType {
+  return typeof value === 'string' && value in VEHICLE_TYPE_PRESETS;
+}
+
+export function presetForVehicleType(type: string | null | undefined): VehicleTypePreset {
+  return VEHICLE_TYPE_PRESETS[isVehicleType(type) ? type : DEFAULT_VEHICLE_TYPE];
+}
+
+/** Fill-ups needed before a vehicle's measured rate replaces its class preset. */
+export const CALIBRATION_MIN_PURCHASES = Number(process.env.CALIBRATION_MIN_PURCHASES || 2);
+
+/** Real-world economy follows a U-curve: stop-start crawling and motorway speeds
+ *  both burn more than a mid-range cruise. Applied as a multiplier on top of the
+ *  vehicle's base rate rather than baked into it, so the base stays comparable. */
+export const SPEED_BUCKETS: Array<{ maxKph: number; multiplier: number; label: string }> = [
+  { maxKph: 20, multiplier: 1.3, label: 'Stop-start' },
+  { maxKph: 60, multiplier: 1.0, label: 'Urban / baseline' },
+  { maxKph: 100, multiplier: 1.1, label: 'Highway' },
+  { maxKph: Infinity, multiplier: 1.25, label: 'High speed' },
+];
+
+export function speedBucketMultiplier(avgSpeedKph: number | null | undefined): number {
+  // No usable average (very short or stationary segment) — don't invent an
+  // adjustment; the baseline is the honest answer.
+  if (avgSpeedKph == null || !Number.isFinite(avgSpeedKph) || avgSpeedKph <= 0) return 1;
+  return SPEED_BUCKETS.find((b) => avgSpeedKph < b.maxKph)?.multiplier ?? 1;
+}
+
+export function speedBucketLabel(avgSpeedKph: number | null | undefined): string | null {
+  if (avgSpeedKph == null || avgSpeedKph <= 0) return null;
+  return SPEED_BUCKETS.find((b) => avgSpeedKph < b.maxKph)?.label ?? null;
+}
+
 export const CO2_KG_PER_LITER = 2.31;
 export const REFUEL_THRESHOLD_LITERS = 5;
 export const THEFT_DROP_THRESHOLD_LITERS = 12;

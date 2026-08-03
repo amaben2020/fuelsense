@@ -851,6 +851,33 @@ export async function setVehicleOdometer(
   });
 }
 
+export type FeatureFlags = Record<string, boolean>;
+
+export interface FeatureCatalogueItem {
+  key: string;
+  label: string;
+  description: string;
+  default_enabled: boolean;
+  enabled: boolean;
+}
+
+export async function fetchFeatureFlags(): Promise<{
+  flags: FeatureFlags;
+  catalogue: FeatureCatalogueItem[];
+}> {
+  return api('/features');
+}
+
+export async function setFeatureFlag(
+  key: string,
+  enabled: boolean
+): Promise<{ success: boolean; flags: FeatureFlags }> {
+  return api(`/features/${key}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 export const KM_TO_MILES = 0.621371;
 
 /** Odometer display convention: miles (values are stored/transported in km). */
