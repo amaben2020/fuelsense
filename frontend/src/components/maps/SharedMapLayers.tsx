@@ -107,6 +107,8 @@ export const TripBadgeMarker = memo(function TripBadgeMarker({
   focused = false,
   title,
   onClick,
+  onMouseOver,
+  onMouseOut,
 }: {
   lat: number;
   lng: number;
@@ -115,6 +117,12 @@ export const TripBadgeMarker = memo(function TripBadgeMarker({
   focused?: boolean;
   title?: string;
   onClick?: () => void;
+  // Cursor position is handed up so the caller can anchor a themed hover card.
+  // Google's own InfoWindow is not used for hover: this build's
+  // @vis.gl/react-google-maps (1.8.3) has no headerDisabled option, so it would
+  // force a white bubble with a close button onto a dark map.
+  onMouseOver?: (point: { x: number; y: number }) => void;
+  onMouseOut?: () => void;
 }) {
   const maps = useMapsLibrary('core');
 
@@ -137,6 +145,15 @@ export const TripBadgeMarker = memo(function TripBadgeMarker({
       zIndex={focused ? 900 : 300}
       title={title}
       onClick={onClick}
+      onMouseOver={
+        onMouseOver
+          ? (e) => {
+              const dom = e.domEvent as MouseEvent | undefined;
+              if (dom) onMouseOver({ x: dom.clientX, y: dom.clientY });
+            }
+          : undefined
+      }
+      onMouseOut={onMouseOut}
     />
   );
 });

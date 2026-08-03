@@ -78,6 +78,14 @@ function formatDuration(minutes: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/** Wall-clock HH:MM for a stop's arrive/depart pair. */
+function clockTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? '—'
+    : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 /** Zooms the camera to a trip's bounds when the user picks one from the list. */
 function TripFocusCamera({ trip }: { trip: ServerTrip | null }) {
   const map = useMap();
@@ -161,6 +169,14 @@ export function LiveMonitoringMap({
   const [showPoi, setShowPoi] = useState(true);
   const [showTripDetail, setShowTripDetail] = useState(false);
   const [openStop, setOpenStop] = useState<TripStop | null>(null);
+  // Hover preview for a parked marker. Deliberately renders only what the trip
+  // payload already carries — opening the stop modal fires a billed Places
+  // lookup (fetchStopPlace), so hovering must never trigger one.
+  const [hoveredStop, setHoveredStop] = useState<{
+    stop: TripStop;
+    x: number;
+    y: number;
+  } | null>(null);
   const [focusedTrip, setFocusedTrip] = useState<{ vehicleId: string; index: number } | null>(
     null
   );
@@ -425,8 +441,13 @@ export function LiveMonitoringMap({
                       lng={stop.lng}
                       label="P"
                       color="var(--warn)"
-                      title={`Stopped ${stop.duration_minutes} min · click for address`}
+                      focused={
+                        hoveredStop?.stop.arrived_at === stop.arrived_at &&
+                        hoveredStop?.stop.lat === stop.lat
+                      }
                       onClick={() => setOpenStop(stop)}
+                      onMouseOver={(point) => setHoveredStop({ stop, ...point })}
+                      onMouseOut={() => setHoveredStop(null)}
                     />
                   ))
               )}
@@ -695,6 +716,25 @@ export function LiveMonitoringMap({
             setFocusedTrip({ vehicleId: selectedTrack.vehicleId, index })
           }
         />
+      )}
+
+      {hoveredStop && !openStop && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-[1200] w-52 rounded-lg border border-edge bg-panel/95 px-3 py-2 shadow-xl backdrop-blur"
+          style={{
+            left: Math.min(hoveredStop.x + 14, Math.max(8, window.innerWidth - 220)),
+            top: Math.min(hoveredStop.y + 14, Math.max(8, window.innerHeight - 110)),
+          }}
+        >
+          <p className="text-sm font-semibold text-ink">
+            Parked {formatDuration(hoveredStop.stop.duration_minutes)}
+          </p>
+          <p className="mt-0.5 font-mono text-xs text-ink-mid">
+            {clockTime(hoveredStop.stop.arrived_at)} → {clockTime(hoveredStop.stop.departed_at)}
+          </p>
+          <p className="mt-1.5 text-[11px] text-ink-dim">Click for address and photo</p>
+        </div>
       )}
 
       <StopDetailModal

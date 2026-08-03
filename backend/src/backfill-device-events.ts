@@ -35,7 +35,10 @@ async function run(): Promise<void> {
     FROM device_frames f
     JOIN devices d ON d.imei = f.imei
     LEFT JOIN vehicles v ON v.id = d.vehicle_id
-    WHERE f.event_id = ANY(${SCENARIO_EVENT_IO_IDS})
+    WHERE f.event_id IN (${sql.join(
+      SCENARIO_EVENT_IO_IDS.map((id) => sql`${id}`),
+      sql`, `
+    )})
       AND d.vehicle_id IS NOT NULL
     ORDER BY f.received_at ASC
   `);

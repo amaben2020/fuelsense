@@ -1,10 +1,46 @@
 import express, { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, drivers, vehicles, eq, and, sql } from '../lib/db-helpers';
 
 const router = express.Router();
 
-router.use(authenticateCustomer);
+// Matches the cost used everywhere else a driver PIN is written.
+const PIN_ROUNDS = 12;
+const PIN_PATTERN = /^\d{4,6}$/;
+
+// routes/driver.ts's login looks a driver up by driver_code alone — it is NOT
+// scoped to a customer — so a code has to be unique across the whole table,
+// not just within one fleet. Codes are stored upper-cased because login
+// upper-cases what the driver types before matching.
+const normalizeCode = (code: string): string => code.trim().toUpperCase();
+
+async function codeTaken(code: string, exceptDriverId?: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: drivers.id })
+    .from(drivers)
+    .where(eq(drivers.driverCode, code));
+  return rows.some((r) => r.id !== exceptDriverId);
+}
+
+/** Validates the optional credential half of a create/update payload. */
+function readCredentials(body: { driver_code?: string; pin?: string }):
+  | { ok: true; code: string | null; pin: string | null }
+  | { ok: false; error: string } {
+  const rawCode = body.driver_code?.trim();
+  const rawPin = body.pin?.trim();
+
+  if (rawCode && !rawPin) return { ok: false, error: 'pin is required when driver_code is set' };
+  if (rawPin && !rawCode) return { ok: false, error: 'driver_code is required when pin is set' };
+  if (rawPin && !PIN_PATTERN.test(rawPin)) {
+    return { ok: false, error: 'pin must be 4 to 6 digits' };
+  }
+  if (rawCode && rawCode.length > 50) {
+    return { ok: false, error: 'driver_code must be 50 characters or fewer' };
+  }
+
+  return { ok: true, code: rawCode ? normalizeCode(rawCode) : null, pin: rawPin ?? null };
+}
 
 router.post('/', async (req: Request, res: Response) => {
   const { full_name, phone, license_number } = req.body as {
@@ -18,7 +54,18 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
+  const creds = readCredentials(req.body ?? {});
+  if (!creds.ok) {
+    res.status(400).json({ error: creds.error });
+    return;
+  }
+
   try {
+    if (creds.code && (await codeTaken(creds.code))) {
+      res.status(409).json({ error: `Driver code "${creds.code}" is already in use` });
+      return;
+    }
+
     const [driver] = await db
       .insert(drivers)
       .values({
@@ -26,19 +73,74 @@ router.post('/', async (req: Request, res: Response) => {
         fullName: full_name.trim(),
         phone: phone?.trim() || null,
         licenseNumber: license_number?.trim() || null,
+        driverCode: creds.code,
+        pinHash: creds.pin ? await bcrypt.hash(creds.pin, PIN_ROUNDS) : null,
       })
       .returning({
         id: drivers.id,
         full_name: drivers.fullName,
         phone: drivers.phone,
         license_number: drivers.licenseNumber,
+        driver_code: drivers.driverCode,
         status: drivers.status,
         vehicle_id: sql<string | null>`null`,
         license_plate: sql<string | null>`null`,
         created_at: drivers.createdAt,
       });
 
-    res.status(201).json(driver);
+    res.status(201).json({ ...driver, has_pin: Boolean(creds.pin) });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Issue or rotate a driver's login. The PIN is only ever accepted here and
+// never returned — the response reports whether one is set, nothing more.
+router.patch('/:id/credentials', async (req: Request, res: Response) => {
+  const creds = readCredentials(req.body ?? {});
+  if (!creds.ok) {
+    res.status(400).json({ error: creds.error });
+    return;
+  }
+  if (!creds.code || !creds.pin) {
+    res.status(400).json({ error: 'driver_code and pin are required' });
+    return;
+  }
+
+  try {
+    const [driver] = await db
+      .select({ id: drivers.id })
+      .from(drivers)
+      .where(
+        and(eq(drivers.id, String(req.params.id)), eq(drivers.customerId, req.user.customerId))
+      );
+
+    if (!driver) {
+      res.status(404).json({ error: 'Driver not found' });
+      return;
+    }
+
+    if (await codeTaken(creds.code, driver.id)) {
+      res.status(409).json({ error: `Driver code "${creds.code}" is already in use` });
+      return;
+    }
+
+    const [updated] = await db
+      .update(drivers)
+      .set({
+        driverCode: creds.code,
+        pinHash: await bcrypt.hash(creds.pin, PIN_ROUNDS),
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(drivers.id, driver.id))
+      .returning({
+        id: drivers.id,
+        full_name: drivers.fullName,
+        driver_code: drivers.driverCode,
+        status: drivers.status,
+      });
+
+    res.json({ ...updated, has_pin: true });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
@@ -52,6 +154,9 @@ router.get('/', async (req: Request, res: Response) => {
         full_name: drivers.fullName,
         phone: drivers.phone,
         license_number: drivers.licenseNumber,
+        driver_code: drivers.driverCode,
+        // Never expose the hash — the UI only needs to know a login exists.
+        has_pin: sql<boolean>`${drivers.pinHash} IS NOT NULL`,
         status: drivers.status,
         vehicle_id: vehicles.id,
         license_plate: vehicles.licensePlate,

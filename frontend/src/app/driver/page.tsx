@@ -16,17 +16,11 @@ import { DriverFuelScreen } from '@/components/driver/DriverFuelScreen';
 import { DriverVehicleScreen } from '@/components/driver/DriverVehicleScreen';
 import { DriverTripsScreen } from '@/components/driver/DriverTripsScreen';
 
-const TEST_DRIVERS = [
-  { code: 'CHIDI-ABC', pin: '1234', name: 'Chidi · ABC-123' },
-  { code: 'AMARA-456', pin: '1234', name: 'Amara · LAG-456-CD' },
-  { code: 'NGOZI-789', pin: '1234', name: 'Ngozi · LAG-789-EF' },
-];
-
 export default function DriverPortalPage() {
   const [authed, setAuthed] = useState(false);
   const [tab, setTab] = useState<DriverTab>('fuel');
-  const [driverCode, setDriverCode] = useState('CHIDI-ABC');
-  const [pin, setPin] = useState('1234');
+  const [driverCode, setDriverCode] = useState('');
+  const [pin, setPin] = useState('');
   const [driver, setDriver] = useState<DriverSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
@@ -106,28 +100,9 @@ export default function DriverPortalPage() {
             </button>
           </form>
 
-          <div className="mt-6">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">
-              Test drivers
-            </p>
-            <div className="space-y-2">
-              {TEST_DRIVERS.map((d) => (
-                <button
-                  key={d.code}
-                  type="button"
-                  onClick={() => {
-                    setDriverCode(d.code);
-                    setPin(d.pin);
-                  }}
-                  className="w-full rounded-xl border border-edge bg-panel/60 px-4 py-3 text-left text-sm text-ink-mid active:bg-panel-hover"
-                >
-                  <span className="font-mono text-brand">{d.code}</span>
-                  <span className="text-ink-dim"> · PIN {d.pin}</span>
-                  <span className="block text-xs text-ink-dim">{d.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <p className="mt-6 text-center text-xs text-ink-dim">
+            Your driver code and PIN are issued by your fleet manager.
+          </p>
 
           <Link
             href="/login"
