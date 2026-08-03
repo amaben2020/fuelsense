@@ -311,6 +311,18 @@ export const initDatabase = async (): Promise<void> => {
   }
 
   await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS notification_preferences (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      alert_type VARCHAR(40) NOT NULL,
+      email_enabled BOOLEAN NOT NULL DEFAULT false,
+      email_address VARCHAR(255),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (customer_id, alert_type)
+    )
+  `);
+
+  await db.execute(sql`
     CREATE TABLE IF NOT EXISTS feature_flags (
       id BIGSERIAL PRIMARY KEY,
       customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,

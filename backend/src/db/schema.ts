@@ -322,6 +322,24 @@ export const deviceEvents = pgTable('device_events', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+// Which alert types a customer wants emailed. A missing row means "not opted
+// in" — notifications are never forced on.
+export const notificationPreferences = pgTable(
+  'notification_preferences',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    alertType: varchar('alert_type', { length: 40 }).notNull(),
+    emailEnabled: boolean('email_enabled').notNull().default(false),
+    // Optional override; falls back to the account email.
+    emailAddress: varchar('email_address', { length: 255 }),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (table) => [unique().on(table.customerId, table.alertType)]
+);
+
 // Per-customer visibility switches, so a half-finished area can be hidden
 // without a redeploy. Absence of a row means the flag's coded default applies.
 export const featureFlags = pgTable(

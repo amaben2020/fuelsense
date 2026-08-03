@@ -4,7 +4,18 @@
 // are derived from the ignition element (AVL 239) instead: an off→on
 // transition is a journey beginning. That works with what the device already
 // sends, and needs no reconfiguration in the field.
-import { db, deviceEvents, alerts, eq, and, sql } from './db-helpers';
+import {
+  db,
+  deviceEvents,
+  alerts,
+  customers,
+  notificationPreferences,
+  eq,
+  and,
+  sql,
+} from './db-helpers';
+import { sendMail, mailerReady, alertEmail } from './mailer';
+import { lookupPlace } from './place-lookup';
 
 // Ignition can flicker (stall-and-restart, cranking, a driver moving the car a
 // few metres). Collapsing starts within this window keeps one journey from
@@ -90,7 +101,65 @@ export async function handleIgnitionForTripStart(
     });
   }
 
+  // Deliberately not awaited: ingestion must not wait on SMTP, and a failed
+  // notification must never cost us the telemetry record that triggered it.
+  void emailTripStart(ctx, plate).catch((err) =>
+    console.error('[trip_notifier] email failed:', err)
+  );
+
   return true;
+}
+
+/** Emails the account, if this customer has opted in to trip-start mail. */
+async function emailTripStart(ctx: TripStartContext, plate: string): Promise<void> {
+  if (!mailerReady()) return;
+
+  const [pref] = await db
+    .select({
+      enabled: notificationPreferences.emailEnabled,
+      address: notificationPreferences.emailAddress,
+    })
+    .from(notificationPreferences)
+    .where(
+      and(
+        eq(notificationPreferences.customerId, ctx.customerId),
+        eq(notificationPreferences.alertType, 'trip_start')
+      )
+    )
+    .limit(1);
+
+  // No row means not opted in — notifications are never on by default.
+  if (!pref?.enabled) return;
+
+  const [account] = await db
+    .select({ email: customers.email, name: customers.name })
+    .from(customers)
+    .where(eq(customers.id, ctx.customerId))
+    .limit(1);
+
+  const to = pref.address || account?.email;
+  if (!to) return;
+
+  // Turn the coordinates into somewhere a person recognises. Cached, and it
+  // degrades to raw coordinates rather than blocking the notification.
+  let where = ctx.latitude && ctx.longitude ? `${ctx.latitude}, ${ctx.longitude}` : 'Unknown';
+  if (ctx.latitude && ctx.longitude) {
+    const place = await lookupPlace(Number(ctx.latitude), Number(ctx.longitude)).catch(() => null);
+    if (place?.formatted_address) where = place.formatted_address;
+  }
+
+  const { text, html } = alertEmail({
+    title: `${plate} has started a trip`,
+    lines: [
+      ['Vehicle', plate],
+      ['Driver', ctx.driverName || 'Unassigned'],
+      ['Started', ctx.occurredAt.toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })],
+      ['From', where],
+    ],
+    footer: 'FuelSense · turn these off in Settings → Notifications',
+  });
+
+  await sendMail({ to, subject: `${plate} started a trip`, text, html });
 }
 
 /** Closes the open "on a trip" alert once the vehicle is shut off. */

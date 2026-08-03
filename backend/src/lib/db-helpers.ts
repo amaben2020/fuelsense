@@ -15,6 +15,7 @@ import {
   deviceOrders,
   placeCache,
   featureFlags,
+  notificationPreferences,
 } from '../db/schema';
 import { eq, and, desc, sql, isNull } from 'drizzle-orm';
 import { serializeForApi } from './serialize';
@@ -177,6 +178,7 @@ export {
   deviceOrders,
   placeCache,
   featureFlags,
+  notificationPreferences,
   eq,
   and,
   desc,
