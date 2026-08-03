@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import { lerp, timeAgo, tripColor } from '@/lib/map-utils';
-import { FleetVehicle, ServerTrip, TripsResponse, VehicleTrack, formatOdometerMiles } from '@/lib/api';
+import {
+  FleetVehicle,
+  ServerTrip,
+  TripStop,
+  TripsResponse,
+  VehicleTrack,
+  formatOdometerMiles,
+} from '@/lib/api';
 import {
   FLEET_MAPS_KEY,
   LAGOS_CENTER,
@@ -16,6 +23,7 @@ import {
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
 import { TripDetailModal } from './TripDetailModal';
+import { StopDetailModal } from './StopDetailModal';
 
 const ANIMATION_MS = 1800;
 
@@ -152,6 +160,7 @@ export function LiveMonitoringMap({
   const [animated, setAnimated] = useState<AnimatedTrack[]>([]);
   const [showPoi, setShowPoi] = useState(true);
   const [showTripDetail, setShowTripDetail] = useState(false);
+  const [openStop, setOpenStop] = useState<TripStop | null>(null);
   const [focusedTrip, setFocusedTrip] = useState<{ vehicleId: string; index: number } | null>(
     null
   );
@@ -401,6 +410,26 @@ export function LiveMonitoringMap({
                   onClick={() => handleFocusTrip(selectedTrack.vehicleId, i)}
                 />
               ))}
+
+            {/* Where the driver actually stopped. Clicking one opens that place
+                directly — the address and photo are the point, so they should
+                not be buried behind the trip list. */}
+            {selectedTrack &&
+              selectedTrips.flatMap((trip, ti) =>
+                trip.stops
+                  .filter((s) => s.kind === 'stop')
+                  .map((stop, si) => (
+                    <TripBadgeMarker
+                      key={`stop-${selectedTrack.vehicleId}-${ti}-${si}`}
+                      lat={stop.lat}
+                      lng={stop.lng}
+                      label="P"
+                      color="var(--warn)"
+                      title={`Stopped ${stop.duration_minutes} min · click for address`}
+                      onClick={() => setOpenStop(stop)}
+                    />
+                  ))
+              )}
 
             {animated.map((track) => (
               <VehicleCarMarker
@@ -667,6 +696,16 @@ export function LiveMonitoringMap({
           }
         />
       )}
+
+      <StopDetailModal
+        key={openStop ? `${openStop.arrived_at}-${openStop.lat}` : 'none'}
+        stop={openStop}
+        licensePlate={selectedTrack?.licensePlate}
+        driverName={
+          selectedTrack ? fleetMeta.get(selectedTrack.vehicleId)?.driver : undefined
+        }
+        onClose={() => setOpenStop(null)}
+      />
     </div>
   );
 }

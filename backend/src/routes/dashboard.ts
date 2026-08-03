@@ -117,6 +117,65 @@ router.get('/summary', async (req: Request, res: Response) => {
 });
 
 // Fuel estimate from distance ÷ baseline efficiency — no fuel-level sensor required.
+// Which vehicles are actually carrying the work. Ranked on the same distance
+// deltas the efficiency report uses, so utilisation and cost never disagree.
+router.get('/utilisation', async (req: Request, res: Response) => {
+  const days = Math.min(Number(req.query.days) || 30, 90);
+  const customerId = req.user.customerId;
+
+  try {
+    const key = cacheKey(customerId, 'utilisation', String(days));
+    const rows = await withCache(key, 60, async () => {
+      const result = await db.execute(sql`
+        WITH ${distanceDeltasCte({ customerId, days })}
+        SELECT
+          vehicle_id,
+          license_plate,
+          model,
+          driver_name,
+          ROUND(COALESCE(SUM(dist_delta), 0)::numeric, 1) AS distance_km,
+          ROUND((COALESCE(SUM(idle_delta_s), 0) / 3600.0)::numeric, 1) AS idle_hours,
+          -- Distinct calendar days with real movement: a vehicle doing 200 km
+          -- across 20 days is worked harder than one doing it in a single run.
+          COUNT(DISTINCT CASE WHEN dist_delta > 0 THEN recorded_at::date END) AS active_days,
+          MAX(recorded_at) AS last_active_at
+        FROM deltas
+        GROUP BY vehicle_id, license_plate, model, driver_name
+        ORDER BY distance_km DESC
+      `);
+      return result.rows;
+    });
+
+    const list = rows as Array<Record<string, unknown>>;
+    const totalKm = list.reduce((s, r) => s + Number(r.distance_km ?? 0), 0);
+
+    res.json({
+      days,
+      total_distance_km: round1(totalKm),
+      vehicles: list.map((r) => ({
+        ...r,
+        distance_km: Number(r.distance_km ?? 0),
+        idle_hours: Number(r.idle_hours ?? 0),
+        active_days: Number(r.active_days ?? 0),
+        // Share of total fleet distance — the honest way to say "most used"
+        // when vehicles have been on the platform for different lengths of time.
+        share_percent: totalKm > 0 ? round1((Number(r.distance_km ?? 0) / totalKm) * 100) : 0,
+      })),
+      most_used: list[0]
+        ? {
+            vehicle_id: list[0].vehicle_id,
+            license_plate: list[0].license_plate,
+            driver_name: list[0].driver_name,
+            distance_km: Number(list[0].distance_km ?? 0),
+            active_days: Number(list[0].active_days ?? 0),
+          }
+        : null,
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.get('/estimated-consumption', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
   const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
