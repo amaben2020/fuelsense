@@ -152,9 +152,28 @@ export const fuelPurchases = pgTable('fuel_purchases', {
   obdRefuelDetectedAt: timestamp('obd_refuel_detected_at'),
   ignitionOnAt: timestamp('ignition_on_at'),
   costPerLiterNgn: integer('cost_per_liter_ngn'),
+  // Dashboard reading at the pump, in km. Everything downstream compares in km;
+  // miles only ever appear as a secondary display.
   odometerKm: integer('odometer_km'),
+  odometerPhotoUrl: text('odometer_photo_url'),
   status: varchar('status', { length: 30 }).default('verified'),
   source: varchar('source', { length: 30 }).default('receipt'),
+  // --- fill-to-fill reconciliation, written when a purchase is logged ---
+  // Distance covered since the previous fill, by odometer and by GPS.
+  odometerDeltaKm: integer('odometer_delta_km'),
+  gpsDistanceKm: numeric('gps_distance_km', { precision: 10, scale: 1 }),
+  // This vehicle's measured burn over that interval — the number that
+  // eventually replaces the class preset.
+  realConsumptionL100km: numeric('real_consumption_l_per_100km', { precision: 6, scale: 2 }),
+  // Odometer and GPS disagree by more than tolerance: tracker gap, or a
+  // reading that doesn't match how far the vehicle actually went.
+  distanceMismatch: boolean('distance_mismatch').default(false),
+  // Reading is impossible (backwards, unchanged, or an implausible jump), so
+  // no rate is derived from it rather than publishing a nonsense figure.
+  implausibleOdometer: boolean('implausible_odometer').default(false),
+  // Litres bought exceed what the distance can account for.
+  unusualPurchase: boolean('unusual_purchase').default(false),
+  flagReason: text('flag_reason'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

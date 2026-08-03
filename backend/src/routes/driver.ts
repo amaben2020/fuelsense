@@ -19,6 +19,7 @@ import { scanReceiptImage as ocrScanReceiptImage } from '../lib/receipt-ocr';
 import { buildPurchaseValuesFromReceipt } from '../lib/driver-receipt-sync';
 import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
 import { creditRefuel } from '../lib/virtual-tank';
+import { reconcileFuelPurchase } from '../lib/fuel-calibration';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
 
 const router = express.Router();
@@ -467,6 +468,20 @@ router.post('/receipts', async (req: Request, res: Response) => {
       req.driver.customerId,
       reconciliation.obdLitersActual ?? declared
     ).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
+
+    // Reconcile this fill against the previous one and refresh the vehicle's
+    // measured consumption rate.
+    const purchaseRow = await db
+      .select({ id: fuelPurchases.id })
+      .from(fuelPurchases)
+      .where(eq(fuelPurchases.vehicleId, vehicleId))
+      .orderBy(desc(fuelPurchases.purchasedAt))
+      .limit(1);
+    if (purchaseRow[0]) {
+      await reconcileFuelPurchase(purchaseRow[0].id).catch((err) =>
+        console.error('[calibration] failed:', err)
+      );
+    }
 
     if (reconciliation.reconciliationStatus === 'flagged_theft') {
       const diff = reconciliation.differenceLiters ?? 0;

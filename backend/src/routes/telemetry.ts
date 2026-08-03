@@ -31,6 +31,7 @@ import {
 } from '../lib/activity-thresholds';
 import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../lib/receipt-reconciliation';
 import { creditRefuel } from '../lib/virtual-tank';
+import { reconcileFuelPurchase, consumptionTrend } from '../lib/fuel-calibration';
 import { lookupPlace } from '../lib/place-lookup';
 import { googleUsageSnapshot } from '../lib/google-usage';
 
@@ -380,6 +381,35 @@ router.get('/stop-place', async (req: Request, res: Response) => {
 });
 
 // Today's Google Maps spend, so the cap is observable rather than silent.
+// Measured consumption over time for one vehicle — the trend a manager reads
+// to spot a rate drifting upward (mechanical, driving habits, or fraud).
+router.get('/consumption-trend/:vehicleId', async (req: Request, res: Response) => {
+  const vehicleId = String(req.params.vehicleId);
+  try {
+    const [owned] = await db
+      .select({ id: vehicles.id, rate: vehicles.consumptionRateL100km, source: vehicles.rateSource })
+      .from(vehicles)
+      .where(and(eq(vehicles.id, vehicleId), eq(vehicles.customerId, req.user.customerId)))
+      .limit(1);
+
+    if (!owned) {
+      res.status(404).json({ error: 'Vehicle not found' });
+      return;
+    }
+
+    const history = await consumptionTrend(vehicleId);
+    res.json({
+      vehicle_id: vehicleId,
+      current_rate_l_per_100km: owned.rate != null ? Number(owned.rate) : null,
+      rate_source: owned.source,
+      calibrated_from: history.filter((h) => h.real_consumption_l_per_100km != null).length,
+      history,
+    });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.get('/google-usage', async (_req: Request, res: Response) => {
   res.json(googleUsageSnapshot());
 });
@@ -876,12 +906,16 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     merchant,
     receipt_reference: receiptReference,
     purchased_at: purchasedAt,
+    odometer_km: odometerKm,
+    odometer_photo_url: odometerPhotoUrl,
   } = req.body as {
     vehicle_id?: string;
     liters_declared?: number;
     merchant?: string;
     receipt_reference?: string;
     purchased_at?: string;
+    odometer_km?: number;
+    odometer_photo_url?: string;
   };
 
   if (!vehicleId || !litersDeclared) {
@@ -924,6 +958,11 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
         obdRefuelDetectedAt: obdMatch.obdRefuelDetectedAt,
         ignitionOnAt: obdMatch.ignitionOnAt,
         costPerLiterNgn: pricePerLiter,
+        odometerKm:
+          odometerKm != null && Number.isFinite(Number(odometerKm))
+            ? Math.round(Number(odometerKm))
+            : null,
+        odometerPhotoUrl: odometerPhotoUrl ?? null,
         status,
         source: 'receipt_upload',
       })
@@ -936,10 +975,19 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     await creditRefuel(vehicleId, customerId, litersActual ?? declared).catch((err) =>
       console.error('[virtual_tank] refuel credit failed:', err)
     );
+
+    // Fill-to-fill reconciliation: compares this odometer reading against the
+    // previous fill and against GPS, then refreshes the vehicle's rate.
+    const reconciliation = await reconcileFuelPurchase(row.id).catch((err) => {
+      console.error('[calibration] failed:', err);
+      return null;
+    });
+
     await invalidate(customerId, 'fleet', 'summary');
 
     res.status(201).json({
       id: row.id,
+      reconciliation,
       liters_declared: declared,
       liters_actual: litersActual,
       difference_liters: diff,

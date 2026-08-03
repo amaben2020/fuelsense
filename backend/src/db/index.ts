@@ -275,6 +275,15 @@ export const initDatabase = async (): Promise<void> => {
     )
   `);
 
+  await ensureColumn('fuel_purchases', 'odometer_photo_url', 'TEXT');
+  await ensureColumn('fuel_purchases', 'odometer_delta_km', 'INTEGER');
+  await ensureColumn('fuel_purchases', 'gps_distance_km', 'DECIMAL(10,1)');
+  await ensureColumn('fuel_purchases', 'real_consumption_l_per_100km', 'DECIMAL(6,2)');
+  await ensureColumn('fuel_purchases', 'distance_mismatch', 'BOOLEAN DEFAULT false');
+  await ensureColumn('fuel_purchases', 'implausible_odometer', 'BOOLEAN DEFAULT false');
+  await ensureColumn('fuel_purchases', 'unusual_purchase', 'BOOLEAN DEFAULT false');
+  await ensureColumn('fuel_purchases', 'flag_reason', 'TEXT');
+
   await ensureColumn('vehicles', 'vehicle_type', 'VARCHAR(20)');
   await ensureColumn('vehicles', 'consumption_rate_l_per_100km', 'DECIMAL(6,2)');
   await ensureColumn('vehicles', 'idle_burn_rate_l_per_hour', 'DECIMAL(5,2)');

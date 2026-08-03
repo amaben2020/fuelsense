@@ -1,0 +1,330 @@
+// Fill-to-fill calibration.
+//
+// A vehicle's real fuel economy is the one thing GPS cannot measure: we know
+// how far it went, never how much it drank. Two consecutive fill-ups with
+// odometer readings give it directly — litres bought divided by distance
+// covered — and that measured rate replaces the class preset for good.
+//
+// Everything here is in kilometres. Odometers in this fleet read km, so there
+// is no conversion at the boundary; miles are a display concern only.
+import {
+  db,
+  fuelPurchases,
+  vehicles,
+  telemetry,
+  eq,
+  and,
+  desc,
+  sql,
+} from './db-helpers';
+import { CALIBRATION_MIN_PURCHASES, presetForVehicleType, round1, round2 } from './fuel-metrics';
+
+/** Odometer vs GPS may legitimately differ (tunnels, tracker gaps, wheel size). */
+export const DISTANCE_MISMATCH_TOLERANCE = Number(
+  process.env.DISTANCE_MISMATCH_TOLERANCE || 0.15
+);
+/** Beyond this between fills the pairing is almost certainly wrong. */
+export const MAX_PLAUSIBLE_FILL_GAP_KM = Number(process.env.MAX_FILL_GAP_KM || 5000);
+/** How many recent intervals feed the rolling average. */
+export const CALIBRATION_WINDOW = Number(process.env.CALIBRATION_WINDOW || 5);
+/** Litres beyond the predicted amount before a purchase is questioned. */
+export const UNUSUAL_PURCHASE_TOLERANCE = Number(
+  process.env.UNUSUAL_PURCHASE_TOLERANCE || 0.35
+);
+
+export interface ReconcileResult {
+  odometer_delta_km: number | null;
+  gps_distance_km: number | null;
+  real_consumption_l_per_100km: number | null;
+  distance_mismatch: boolean;
+  implausible_odometer: boolean;
+  unusual_purchase: boolean;
+  flag_reason: string | null;
+  /** Rate now in force for the vehicle, and where it came from. */
+  vehicle_rate_l_per_100km: number | null;
+  rate_source: 'preset' | 'calibrated';
+}
+
+/** GPS distance the vehicle covered between two instants. */
+async function gpsDistanceBetween(
+  vehicleId: string,
+  fromAt: Date,
+  toAt: Date
+): Promise<number | null> {
+  const result = await db.execute(sql`
+    WITH ordered AS (
+      SELECT
+        latitude::double precision AS lat,
+        longitude::double precision AS lng,
+        speed_kph,
+        recorded_at,
+        LAG(latitude::double precision) OVER w AS prev_lat,
+        LAG(longitude::double precision) OVER w AS prev_lng,
+        LAG(recorded_at) OVER w AS prev_at
+      FROM telemetry
+      WHERE vehicle_id = ${vehicleId}
+        AND latitude IS NOT NULL AND longitude IS NOT NULL
+        AND recorded_at > ${fromAt.toISOString()}::timestamp
+        AND recorded_at <= ${toAt.toISOString()}::timestamp
+      WINDOW w AS (ORDER BY recorded_at)
+    )
+    SELECT COALESCE(SUM(hop), 0)::double precision AS distance_km
+    FROM (
+      SELECT 6371 * 2 * ASIN(SQRT(
+        POWER(SIN(RADIANS(lat - prev_lat) / 2), 2)
+        + COS(RADIANS(prev_lat)) * COS(RADIANS(lat))
+          * POWER(SIN(RADIANS(lng - prev_lng) / 2), 2)
+      )) AS hop
+      FROM ordered
+      WHERE prev_lat IS NOT NULL
+        -- same jitter rejection the trip segmenter uses: ignore sub-10 m
+        -- wander reported while stationary
+        AND COALESCE(speed_kph, 0) >= 2
+    ) hops
+    WHERE hop < 50
+  `);
+
+  const row = result.rows[0] as { distance_km?: number } | undefined;
+  return row?.distance_km != null ? round1(Number(row.distance_km)) : null;
+}
+
+/**
+ * Recomputes the vehicle's rate from its recent measured intervals. Only
+ * switches away from the class preset once enough real fills exist.
+ */
+async function recalculateVehicleRate(
+  vehicleId: string
+): Promise<{ rate: number | null; source: 'preset' | 'calibrated' }> {
+  const rows = await db
+    .select({ rate: fuelPurchases.realConsumptionL100km })
+    .from(fuelPurchases)
+    .where(
+      and(
+        eq(fuelPurchases.vehicleId, vehicleId),
+        sql`${fuelPurchases.realConsumptionL100km} IS NOT NULL`,
+        // A flagged interval is untrustworthy input, so it never moves the rate.
+        eq(fuelPurchases.implausibleOdometer, false)
+      )
+    )
+    .orderBy(desc(fuelPurchases.purchasedAt))
+    .limit(CALIBRATION_WINDOW);
+
+  const measured = rows
+    .map((r) => Number(r.rate))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  const [vehicle] = await db
+    .select({ vehicleType: vehicles.vehicleType })
+    .from(vehicles)
+    .where(eq(vehicles.id, vehicleId))
+    .limit(1);
+
+  if (measured.length < CALIBRATION_MIN_PURCHASES) {
+    const preset = presetForVehicleType(vehicle?.vehicleType);
+    await db
+      .update(vehicles)
+      .set({
+        consumptionRateL100km: preset.consumptionL100km.toFixed(2),
+        idleBurnRateLph: preset.idleBurnLph.toFixed(2),
+        rateSource: 'preset',
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(vehicles.id, vehicleId));
+    return { rate: preset.consumptionL100km, source: 'preset' };
+  }
+
+  const rolling = round2(measured.reduce((a, b) => a + b, 0) / measured.length);
+  await db
+    .update(vehicles)
+    .set({
+      consumptionRateL100km: rolling.toFixed(2),
+      rateSource: 'calibrated',
+      updatedAt: sql`NOW()`,
+    })
+    .where(eq(vehicles.id, vehicleId));
+
+  return { rate: rolling, source: 'calibrated' };
+}
+
+/**
+ * Reconciles a newly logged purchase against the previous one for the same
+ * vehicle, then refreshes that vehicle's rate. Safe to re-run for a purchase.
+ */
+export async function reconcileFuelPurchase(purchaseId: string): Promise<ReconcileResult> {
+  const [current] = await db
+    .select()
+    .from(fuelPurchases)
+    .where(eq(fuelPurchases.id, purchaseId))
+    .limit(1);
+
+  const blank: ReconcileResult = {
+    odometer_delta_km: null,
+    gps_distance_km: null,
+    real_consumption_l_per_100km: null,
+    distance_mismatch: false,
+    implausible_odometer: false,
+    unusual_purchase: false,
+    flag_reason: null,
+    vehicle_rate_l_per_100km: null,
+    rate_source: 'preset',
+  };
+
+  if (!current) return blank;
+
+  // The immediately preceding fill for this vehicle that carried an odometer.
+  const [previous] = await db
+    .select({
+      odometerKm: fuelPurchases.odometerKm,
+      purchasedAt: fuelPurchases.purchasedAt,
+    })
+    .from(fuelPurchases)
+    .where(
+      and(
+        eq(fuelPurchases.vehicleId, current.vehicleId),
+        sql`${fuelPurchases.odometerKm} IS NOT NULL`,
+        // Exclude this row by id as well as by time: two fills logged in the
+        // same second would otherwise let the row match itself and produce a
+        // zero delta that looks like a stuck odometer.
+        sql`${fuelPurchases.id} <> ${purchaseId}`,
+        sql`${fuelPurchases.purchasedAt} <= ${new Date(current.purchasedAt).toISOString()}::timestamp`
+      )
+    )
+    .orderBy(desc(fuelPurchases.purchasedAt))
+    .limit(1);
+
+  const liters = Number(current.litersActual ?? current.litersDeclared ?? 0);
+  const reasons: string[] = [];
+  let odometerDelta: number | null = null;
+  let realRate: number | null = null;
+  let implausible = false;
+  let mismatch = false;
+  let unusual = false;
+
+  if (current.odometerKm != null && previous?.odometerKm != null) {
+    odometerDelta = Number(current.odometerKm) - Number(previous.odometerKm);
+
+    if (odometerDelta <= 0) {
+      implausible = true;
+      reasons.push(
+        `Odometer did not advance since the last fill (${previous.odometerKm} → ${current.odometerKm} km).`
+      );
+    } else if (odometerDelta > MAX_PLAUSIBLE_FILL_GAP_KM) {
+      implausible = true;
+      reasons.push(
+        `Odometer jumped ${odometerDelta.toLocaleString()} km between fills, beyond the ${MAX_PLAUSIBLE_FILL_GAP_KM.toLocaleString()} km limit.`
+      );
+    } else if (liters > 0) {
+      realRate = round2((liters / odometerDelta) * 100);
+    }
+  }
+
+  // GPS cross-check: does the tracker agree the vehicle went that far?
+  let gpsDistance: number | null = null;
+  if (previous?.purchasedAt) {
+    gpsDistance = await gpsDistanceBetween(
+      current.vehicleId,
+      new Date(previous.purchasedAt),
+      new Date(current.purchasedAt)
+    );
+
+    if (!implausible && odometerDelta != null && gpsDistance != null && gpsDistance > 0) {
+      const divergence = Math.abs(odometerDelta - gpsDistance) / odometerDelta;
+      if (divergence > DISTANCE_MISMATCH_TOLERANCE) {
+        mismatch = true;
+        reasons.push(
+          `Odometer says ${odometerDelta} km but GPS recorded ${gpsDistance} km (${Math.round(divergence * 100)}% apart).`
+        );
+      }
+    }
+  }
+
+  // Does the fuel bought match what the distance can account for? Compared
+  // against the rate already in force, so a calibrated vehicle judges itself.
+  const [vehicle] = await db
+    .select({
+      rate: vehicles.consumptionRateL100km,
+      vehicleType: vehicles.vehicleType,
+      tank: vehicles.tankCapacityLiters,
+    })
+    .from(vehicles)
+    .where(eq(vehicles.id, current.vehicleId))
+    .limit(1);
+
+  const rateInForce =
+    vehicle?.rate != null
+      ? Number(vehicle.rate)
+      : presetForVehicleType(vehicle?.vehicleType).consumptionL100km;
+
+  if (!implausible && odometerDelta != null && odometerDelta > 0 && liters > 0) {
+    const expected = (odometerDelta * rateInForce) / 100;
+    // A tank cannot take more than it holds, whatever the distance suggests.
+    const capacityCeiling = vehicle?.tank != null ? Number(vehicle.tank) : null;
+    if (expected > 0 && liters > expected * (1 + UNUSUAL_PURCHASE_TOLERANCE)) {
+      unusual = true;
+      reasons.push(
+        `Bought ${liters.toFixed(1)} L for ${odometerDelta} km; expected about ${expected.toFixed(1)} L at ${rateInForce.toFixed(1)} L/100km.`
+      );
+    } else if (capacityCeiling != null && liters > capacityCeiling * 1.05) {
+      unusual = true;
+      reasons.push(
+        `Bought ${liters.toFixed(1)} L into a ${capacityCeiling} L tank.`
+      );
+    }
+  }
+
+  await db
+    .update(fuelPurchases)
+    .set({
+      odometerDeltaKm: odometerDelta,
+      gpsDistanceKm: gpsDistance != null ? gpsDistance.toFixed(1) : null,
+      realConsumptionL100km: realRate != null ? realRate.toFixed(2) : null,
+      distanceMismatch: mismatch,
+      implausibleOdometer: implausible,
+      unusualPurchase: unusual,
+      flagReason: reasons.length ? reasons.join(' ') : null,
+    })
+    .where(eq(fuelPurchases.id, purchaseId));
+
+  const { rate, source } = await recalculateVehicleRate(current.vehicleId);
+
+  return {
+    odometer_delta_km: odometerDelta,
+    gps_distance_km: gpsDistance,
+    real_consumption_l_per_100km: realRate,
+    distance_mismatch: mismatch,
+    implausible_odometer: implausible,
+    unusual_purchase: unusual,
+    flag_reason: reasons.length ? reasons.join(' ') : null,
+    vehicle_rate_l_per_100km: rate,
+    rate_source: source,
+  };
+}
+
+/** Rate history for a vehicle — powers the trend view. */
+export async function consumptionTrend(vehicleId: string, limit = 12) {
+  const rows = await db
+    .select({
+      purchased_at: fuelPurchases.purchasedAt,
+      liters: fuelPurchases.litersDeclared,
+      odometer_km: fuelPurchases.odometerKm,
+      odometer_delta_km: fuelPurchases.odometerDeltaKm,
+      gps_distance_km: fuelPurchases.gpsDistanceKm,
+      rate: fuelPurchases.realConsumptionL100km,
+      distance_mismatch: fuelPurchases.distanceMismatch,
+      implausible_odometer: fuelPurchases.implausibleOdometer,
+      unusual_purchase: fuelPurchases.unusualPurchase,
+    })
+    .from(fuelPurchases)
+    .where(eq(fuelPurchases.vehicleId, vehicleId))
+    .orderBy(desc(fuelPurchases.purchasedAt))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    ...r,
+    liters: r.liters != null ? Number(r.liters) : null,
+    gps_distance_km: r.gps_distance_km != null ? Number(r.gps_distance_km) : null,
+    real_consumption_l_per_100km: r.rate != null ? Number(r.rate) : null,
+  }));
+}
+
+export { telemetry };
