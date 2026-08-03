@@ -134,6 +134,8 @@ const isActive = (p: TelemetryTripPoint) =>
 // A halt only counts as a stop once it lasts this long — shorter pauses are
 // traffic lights and junctions, which would bury the real visits in noise.
 const MIN_STOP_MINUTES = 3;
+// How close two fixes must be to count as "did not move" across a long gap.
+const STATIONARY_GAP_M = 120;
 // Points inside one halt wander a little; average them so the pin lands on the
 // place rather than on whichever fix happened to be last.
 function centroid(points: TelemetryTripPoint[]): { lat: number; lng: number } {
@@ -180,6 +182,36 @@ function findStops(segment: TelemetryTripPoint[]): TripStop[] {
     else flush();
   }
   flush();
+
+  // Sparse-data fallback. Trackers throttle to occasional heartbeats once the
+  // engine is off, so a real stop can produce too few points to form a run —
+  // a shop or market visit would vanish entirely. Two consecutive fixes far
+  // apart in time but not in space describe exactly that: the vehicle sat there.
+  for (let i = 1; i < segment.length; i++) {
+    const a = segment[i - 1];
+    const b = segment[i];
+    const mins = (b.recordedAt.getTime() - a.recordedAt.getTime()) / 60000;
+    if (mins < MIN_STOP_MINUTES) continue;
+    if (haversineKm(a.lat, a.lng, b.lat, b.lng) * 1000 > STATIONARY_GAP_M) continue;
+
+    // Don't duplicate a stop the run-based pass already reported.
+    const already = stops.some(
+      (s) =>
+        Math.abs(new Date(s.arrived_at).getTime() - a.recordedAt.getTime()) < 60_000 ||
+        Math.abs(new Date(s.departed_at).getTime() - b.recordedAt.getTime()) < 60_000
+    );
+    if (already) continue;
+
+    stops.push({
+      ...centroid([a, b]),
+      arrived_at: a.recordedAt.toISOString(),
+      departed_at: b.recordedAt.toISOString(),
+      duration_minutes: Math.round(mins),
+      kind: 'stop',
+    });
+  }
+
+  stops.sort((x, y) => new Date(x.arrived_at).getTime() - new Date(y.arrived_at).getTime());
 
   stops.push({
     ...centroid([last]),
