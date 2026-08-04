@@ -125,6 +125,60 @@ export function FleetOperationsOverview({
   const preventableLoss = efficiencySummary?.total_loss_ngn ?? summary?.estimated_theft_loss_ngn ?? 0;
   const annualSavingsOpportunity = Math.round((preventableLoss / periodDays) * 365);
 
+  const fuelSpend =
+    efficiencySummary?.total_actual_cost_ngn ??
+    efficiencySummary?.total_telemetry_cost_ngn ??
+    summary?.total_fuel_cost_ngn ??
+    0;
+
+  // A naira total on its own says nothing — ₦1,651 is either cheap or ruinous
+  // depending on how far the fleet went for it. Everything here turns the spend
+  // into rates a manager can judge, and compares them with the industry figures
+  // already used as each vehicle's baseline.
+  const fuelContext = useMemo(() => {
+    const distanceKm = efficiencySummary?.total_distance_km ?? 0;
+    const liters = efficiencySummary?.total_fuel_used_liters ?? 0;
+    if (!efficiencySummary || distanceKm <= 0 || liters <= 0) return null;
+
+    const costPerKm = fuelSpend / distanceKm;
+    const kmPerLiter = distanceKm / liters;
+    const litersPer100km = (liters / distanceKm) * 100;
+
+    // Distance-weighted, so a vehicle that barely moved cannot drag the fleet
+    // benchmark around.
+    const weighted = efficiency.reduce(
+      (acc, row) => {
+        if (!row.expected_efficiency_km_l || !row.distance_km) return acc;
+        return {
+          km: acc.km + row.distance_km,
+          weighted: acc.weighted + row.expected_efficiency_km_l * row.distance_km,
+        };
+      },
+      { km: 0, weighted: 0 }
+    );
+    const benchmarkKmPerLiter = weighted.km > 0 ? weighted.weighted / weighted.km : null;
+    const benchmarkCostPerKm =
+      benchmarkKmPerLiter && benchmarkKmPerLiter > 0
+        ? efficiencySummary.price_per_liter_ngn / benchmarkKmPerLiter
+        : null;
+
+    return {
+      distanceKm,
+      liters,
+      costPerKm,
+      kmPerLiter,
+      litersPer100km,
+      benchmarkKmPerLiter,
+      benchmarkCostPerKm,
+      variancePercent:
+        benchmarkKmPerLiter && benchmarkKmPerLiter > 0
+          ? ((kmPerLiter - benchmarkKmPerLiter) / benchmarkKmPerLiter) * 100
+          : null,
+      monthlyRunRate: (fuelSpend / periodDays) * 30,
+      pricePerLiter: efficiencySummary.price_per_liter_ngn,
+    };
+  }, [efficiencySummary, efficiency, fuelSpend, periodDays]);
+
   const healthScore = summary ? fleetHealthScore(summary, efficiency) : null;
   const healthTone =
     healthScore == null ? 'default' : healthScore >= 75 ? 'good' : healthScore >= 50 ? 'warn' : 'bad';
@@ -379,11 +433,6 @@ export function FleetOperationsOverview({
     );
   }
 
-  const fuelSpend =
-    efficiencySummary?.total_actual_cost_ngn ??
-    efficiencySummary?.total_telemetry_cost_ngn ??
-    summary.total_fuel_cost_ngn;
-
   return (
     <>
       {replayTarget && (
@@ -401,7 +450,13 @@ export function FleetOperationsOverview({
             icon={Fuel}
             label={`Fuel spend (${periodDays}d)`}
             value={fuelSpend > 0 ? formatNgn(fuelSpend) : '—'}
-            hint="Telemetry-based spend"
+            hint={
+              fuelContext
+                ? `${Math.round(fuelContext.distanceKm)} km · ${formatNgn(
+                    fuelContext.costPerKm
+                  )}/km`
+                : 'Telemetry-based spend'
+            }
           />
           <MetricPill
             icon={Droplet}
@@ -418,6 +473,65 @@ export function FleetOperationsOverview({
             tone={summary.active_alerts > 0 ? 'warn' : 'good'}
           />
         </div>
+        {fuelContext && (
+          <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-edge pt-3 text-[11px] sm:grid-cols-4">
+            <div>
+              <p className="text-ink-dim">Distance covered</p>
+              <p className="font-mono text-sm text-ink">
+                {Math.round(fuelContext.distanceKm)} km
+              </p>
+            </div>
+            <div>
+              <p className="text-ink-dim">Fuel burned</p>
+              <p className="font-mono text-sm text-ink">
+                {fuelContext.liters.toFixed(1)} L
+                <span className="ml-1 text-[10px] text-ink-dim">
+                  @ {formatNgn(fuelContext.pricePerLiter)}/L
+                </span>
+              </p>
+            </div>
+            <div>
+              <p className="text-ink-dim">Cost per km</p>
+              <p className="font-mono text-sm text-ink">
+                {formatNgn(fuelContext.costPerKm)}
+                {fuelContext.benchmarkCostPerKm != null && (
+                  <span className="ml-1 text-[10px] text-ink-dim">
+                    vs {formatNgn(fuelContext.benchmarkCostPerKm)} typical
+                  </span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-ink-dim">Economy</p>
+              <p className="font-mono text-sm text-ink">
+                {fuelContext.kmPerLiter.toFixed(1)} km/L
+                {fuelContext.variancePercent != null && (
+                  <span
+                    className={`ml-1 text-[10px] ${
+                      fuelContext.variancePercent >= 0 ? 'text-good' : 'text-bad'
+                    }`}
+                  >
+                    {fuelContext.variancePercent >= 0 ? '+' : ''}
+                    {Math.round(fuelContext.variancePercent)}% vs benchmark
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {fuelContext && (
+          <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
+            {fuelContext.litersPer100km.toFixed(1)} L/100km against a
+            {fuelContext.benchmarkKmPerLiter
+              ? ` ${(100 / fuelContext.benchmarkKmPerLiter).toFixed(1)} L/100km`
+              : ''}{' '}
+            industry figure for this fleet&rsquo;s vehicle types. At this rate fuel runs
+            about <span className="font-mono text-ink">{formatNgn(fuelContext.monthlyRunRate)}</span>{' '}
+            a month.
+          </p>
+        )}
+
         <button
           type="button"
           onClick={() => setFinancialDetailsOpen((v) => !v)}
