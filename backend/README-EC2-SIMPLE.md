@@ -26,13 +26,13 @@ If timeout happens, open inbound security-group rules for `5027/tcp`.
 ## Connect to EC2
 
 ```bash
-ssh -i "/Users/uzochukwuamara/Downloads/.ssh/fuelsense.pem" ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
+ssh -i ~/.ssh/fuelsense.pem ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
 ```
 
 If key permission is wrong:
 
 ```bash
-chmod 600 /Users/uzochukwuamara/Downloads/.ssh/fuelsense.pem
+chmod 600 ~/.ssh/fuelsense.pem
 ```
 
 ## Where app is on server
@@ -49,19 +49,35 @@ When you change code locally, you must deploy again.
 
 ## Deploy updated code (after local changes)
 
-From your Mac:
+From your Mac. **Always dry-run first** (`-n`) and read the deletion list —
+`--delete` removes anything on the server that is missing locally:
 
 ```bash
-rsync -av --delete --exclude node_modules --exclude .git -e 'ssh -i /Users/uzochukwuamara/Downloads/.ssh/fuelsense.pem' /Users/uzochukwuamara/Code/FuelSense/backend/ ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:/home/ec2-user/backend/
+rsync -avn --delete \
+  --exclude node_modules --exclude .git --exclude .env --exclude dist \
+  -e 'ssh -i ~/.ssh/fuelsense.pem' \
+  /Users/uzochukwuamara/Code/FuelSense/backend/ \
+  ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:/home/ec2-user/backend/
 ```
+
+Drop the `n` to apply.
+
+**`--exclude .env` is not optional.** A local `.env` exists, so without it rsync
+overwrites the server's production environment — `DATABASE_URL` included — with
+your laptop's values, and the backend silently starts writing to the wrong
+database.
 
 Then on EC2:
 
 ```bash
-cd /home/ec2-user/backend
-npm install --omit=dev
 sudo systemctl restart fuelsense-backend
 ```
+
+**Do not run `npm install --omit=dev`.** The systemd unit starts the app with
+`node_modules/.bin/tsx src/server.ts`, and `tsx` is a devDependency — omitting
+dev dependencies deletes the binary the service runs, and it will not start
+again. Only run a plain `npm install` when `package.json` dependencies actually
+changed; a code-only deploy needs no install step at all.
 
 ## If `.env` changes (or you add new env vars)
 
