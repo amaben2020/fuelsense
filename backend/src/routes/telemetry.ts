@@ -216,8 +216,31 @@ router.get('/trips', async (req: Request, res: Response) => {
   const customerId = req.user.customerId;
   const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
+  // Explicit calendar range wins over the rolling `minutes` window when both
+  // ends parse. Used by the date-range picker; `minutes` stays the default so
+  // existing callers are unaffected.
+  const parseDate = (v: unknown): Date | null => {
+    if (typeof v !== 'string' || !v.trim()) return null;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const fromDate = parseDate(req.query.from);
+  const toDate = parseDate(req.query.to);
+  const useRange = Boolean(fromDate && toDate && fromDate! < toDate!);
+
+  // When the caller picked a window deliberately, an empty result is the
+  // truthful answer — silently widening to 30 days makes the range control
+  // look broken. Callers opt back into the old behaviour with fallback=1.
+  const allowFallback = req.query.fallback === '1' || req.query.fallback === 'true';
+
   try {
-    const key = cacheKey(customerId, 'trips', String(minutes));
+    const key = cacheKey(
+      customerId,
+      'trips',
+      useRange
+        ? `${fromDate!.toISOString()}..${toDate!.toISOString()}:${allowFallback ? 'fb' : 'strict'}`
+        : `${minutes}:${allowFallback ? 'fb' : 'strict'}`
+    );
     const cached = await withCache(key, 15, async () => {
       const tripColumns = sql`
         t.vehicle_id,
@@ -303,13 +326,18 @@ router.get('/trips', async (req: Request, res: Response) => {
         });
       };
 
+      const window = useRange
+        ? sql`t.recorded_at >= ${fromDate!.toISOString()}::timestamptz
+              AND t.recorded_at <= ${toDate!.toISOString()}::timestamptz`
+        : sql`t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL`;
+
       const liveResult = await db.execute(sql`
         SELECT ${tripColumns}
         FROM telemetry t
         JOIN vehicles v ON v.id = t.vehicle_id
         LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
         WHERE t.customer_id = ${customerId}
-          AND t.recorded_at > NOW() - (${minutes} || ' minutes')::INTERVAL
+          AND ${window}
           AND ${tripValidGps}
         ORDER BY t.vehicle_id ASC, t.recorded_at ASC
       `);
@@ -319,9 +347,11 @@ router.get('/trips', async (req: Request, res: Response) => {
       const liveTripCount = vehicleTrips.reduce((s, v) => s + v.trips.length, 0);
 
       // The live window can be non-empty (parked heartbeat pings) yet contain
-      // zero actual trips. Fall back to the most recent real journeys — up to
-      // 30 days back — instead of showing an empty trail next to "0 trips".
-      if (liveTripCount === 0) {
+      // zero actual trips. Only when the caller opted in (fallback=1) do we
+      // substitute the most recent real journeys — up to 30 days back — rather
+      // than showing an empty trail next to "0 trips". Doing this
+      // unconditionally contradicted the selected range control.
+      if (liveTripCount === 0 && allowFallback) {
         const historical = await db.execute(sql`
           WITH ranked AS (
             SELECT ${tripColumns},
@@ -348,7 +378,11 @@ router.get('/trips', async (req: Request, res: Response) => {
       }
 
       return {
-        period_minutes: minutes,
+        period_minutes: useRange
+          ? Math.round((toDate!.getTime() - fromDate!.getTime()) / 60000)
+          : minutes,
+        from: useRange ? fromDate!.toISOString() : null,
+        to: useRange ? toDate!.toISOString() : null,
         source,
         price_per_liter_ngn: pricePerLiter,
         vehicles: vehicleTrips,

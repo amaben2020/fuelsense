@@ -151,6 +151,16 @@ export default function DashboardPage() {
   const [trailMinutes, setTrailMinutes] = useState(1440);
   const trailMinutesRef = useRef(1440);
   trailMinutesRef.current = trailMinutes;
+  // Explicit calendar range from the date picker. When set it supersedes the
+  // rolling preset above; clearing it returns to the presets.
+  const [tripRange, setTripRange] = useState<{ from: string; to: string } | null>(null);
+  const tripRangeRef = useRef(tripRange);
+  tripRangeRef.current = tripRange;
+  // Opt-in to the server's "show the most recent journeys instead" widening.
+  // Off by default so a chosen window always reports what is actually in it.
+  const [tripFallback, setTripFallback] = useState(false);
+  const tripFallbackRef = useRef(tripFallback);
+  tripFallbackRef.current = tripFallback;
   const [siphonSidebarOpen, setSiphonSidebarOpen] = useState(false);
   const [fuelEventCount, setFuelEventCount] = useState(0);
   const { customer: cachedCustomer, setCustomer: cacheCustomer, clearAuth } = useAuthStore();
@@ -199,9 +209,14 @@ export default function DashboardPage() {
 
   const loadTrips = useCallback(async () => {
     try {
-      const data = await api<TripsResponse>(
-        `/telemetry/trips?minutes=${trailMinutesRef.current}`,
+      const range = tripRangeRef.current;
+      const params = new URLSearchParams(
+        range
+          ? { from: range.from, to: range.to }
+          : { minutes: String(trailMinutesRef.current) },
       );
+      if (tripFallbackRef.current) params.set('fallback', '1');
+      const data = await api<TripsResponse>(`/telemetry/trips?${params.toString()}`);
       setTrips(data);
     } catch {
       // no-op — keep existing trips on error
@@ -346,11 +361,12 @@ export default function DashboardPage() {
     };
   }, [activeView, loadLiveTracks, loadTrips]);
 
-  // Re-fetch immediately when the user changes trail duration
+  // Re-fetch immediately when the user changes trail duration, picks a date
+  // range, or opts into the historical widening
   useEffect(() => {
     if (activeView === 'live' && getToken()) loadTrips();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trailMinutes]);
+  }, [trailMinutes, tripRange, tripFallback]);
 
   useEffect(() => {
     if (!getToken()) return;
@@ -695,7 +711,17 @@ export default function DashboardPage() {
                 followSelected={followVehicle}
                 onUserPan={() => setFollowVehicle(false)}
                 trailMinutes={trailMinutes}
-                onTrailMinutesChange={setTrailMinutes}
+                onTrailMinutesChange={(m) => {
+                  setTripRange(null);
+                  setTripFallback(false);
+                  setTrailMinutes(m);
+                }}
+                dateRange={tripRange}
+                onDateRangeChange={(r) => {
+                  setTripFallback(false);
+                  setTripRange(r);
+                }}
+                onShowRecentInstead={() => setTripFallback(true)}
               />
             </div>
           )}

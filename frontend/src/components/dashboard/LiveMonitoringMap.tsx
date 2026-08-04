@@ -78,6 +78,30 @@ function formatDuration(minutes: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/** ISO → the `datetime-local` input format, in the viewer's own timezone. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatRangeLabel({ from, to }: { from: string; to: string }): string {
+  const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
+  return `${new Date(from).toLocaleDateString([], opts)}–${new Date(to).toLocaleDateString([], opts)}`;
+}
+
+/** Null when the draft range is valid — otherwise why Apply is disabled. */
+function rangeError(from: string, to: string): string | null {
+  if (!from || !to) return null;
+  const a = new Date(from);
+  const b = new Date(to);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 'Enter both dates.';
+  if (a >= b) return 'From must be before To.';
+  if (b.getTime() - a.getTime() > 30 * 86_400_000) return 'Range cannot exceed 30 days.';
+  return null;
+}
+
 /** Wall-clock HH:MM for a stop's arrive/depart pair. */
 function clockTime(iso: string): string {
   const d = new Date(iso);
@@ -150,6 +174,9 @@ export function LiveMonitoringMap({
   onUserPan,
   trailMinutes,
   onTrailMinutesChange,
+  dateRange = null,
+  onDateRangeChange,
+  onShowRecentInstead,
   initialFocus,
   onFocusConsumed,
 }: {
@@ -162,6 +189,9 @@ export function LiveMonitoringMap({
   onUserPan?: () => void;
   trailMinutes: number;
   onTrailMinutesChange: (m: number) => void;
+  dateRange?: { from: string; to: string } | null;
+  onDateRangeChange?: (r: { from: string; to: string } | null) => void;
+  onShowRecentInstead?: () => void;
   initialFocus?: { vehicleId: string; startAt: string } | null;
   onFocusConsumed?: () => void;
 }) {
@@ -177,6 +207,11 @@ export function LiveMonitoringMap({
     x: number;
     y: number;
   } | null>(null);
+  const [rangeOpen, setRangeOpen] = useState(false);
+  // Draft values for the date-range popover — only committed on Apply, so a
+  // half-typed date never triggers a fetch.
+  const [draftFrom, setDraftFrom] = useState('');
+  const [draftTo, setDraftTo] = useState('');
   const [focusedTrip, setFocusedTrip] = useState<{ vehicleId: string; index: number } | null>(
     null
   );
@@ -487,7 +522,10 @@ export function LiveMonitoringMap({
                   type="button"
                   onClick={() => onTrailMinutesChange(value)}
                   className={`px-2.5 py-1.5 transition-colors ${
-                    trailMinutes === value
+                    // A custom range wins, so no preset may look selected while
+                    // one is active — that mismatch is what made the control
+                    // read as broken.
+                    !dateRange && trailMinutes === value
                       ? 'bg-accent text-white'
                       : 'text-ink-dim hover:text-ink'
                   }`}
@@ -495,7 +533,74 @@ export function LiveMonitoringMap({
                   {label}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setDraftFrom(dateRange ? toLocalInput(dateRange.from) : '');
+                  setDraftTo(dateRange ? toLocalInput(dateRange.to) : '');
+                  setRangeOpen((v) => !v);
+                }}
+                className={`border-l border-edge px-2.5 py-1.5 transition-colors ${
+                  dateRange ? 'bg-accent text-white' : 'text-ink-dim hover:text-ink'
+                }`}
+                title="Pick an exact date range"
+              >
+                {dateRange ? formatRangeLabel(dateRange) : 'Custom'}
+              </button>
             </div>
+
+            {rangeOpen && (
+              <div className="absolute right-0 top-10 z-30 w-72 rounded-xl border border-edge bg-panel/95 p-3 shadow-xl backdrop-blur">
+                <p className="mb-2 text-xs font-semibold text-ink">Date range</p>
+                <label className="block text-[11px] text-ink-dim">
+                  From
+                  <input
+                    type="datetime-local"
+                    value={draftFrom}
+                    onChange={(e) => setDraftFrom(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-edge bg-canvas px-2 py-1.5 text-xs text-ink"
+                  />
+                </label>
+                <label className="mt-2 block text-[11px] text-ink-dim">
+                  To
+                  <input
+                    type="datetime-local"
+                    value={draftTo}
+                    onChange={(e) => setDraftTo(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-edge bg-canvas px-2 py-1.5 text-xs text-ink"
+                  />
+                </label>
+                {rangeError(draftFrom, draftTo) && (
+                  <p className="mt-2 text-[11px] text-error">{rangeError(draftFrom, draftTo)}</p>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={!draftFrom || !draftTo || Boolean(rangeError(draftFrom, draftTo))}
+                    onClick={() => {
+                      onDateRangeChange?.({
+                        from: new Date(draftFrom).toISOString(),
+                        to: new Date(draftTo).toISOString(),
+                      });
+                      setRangeOpen(false);
+                    }}
+                    className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDateRangeChange?.(null);
+                      setRangeOpen(false);
+                    }}
+                    className="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-mid hover:text-ink"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
             {/* POI toggle */}
             <button
               type="button"
@@ -630,13 +735,26 @@ export function LiveMonitoringMap({
             </div>
             {trips?.source === 'historical' && (
               <p className="mt-1 text-[10px] text-warn">
-                Parked for a while — showing the most recent journeys instead.
+                Outside the selected range — showing the most recent journeys instead.
               </p>
             )}
             {selectedTrips.length === 0 ? (
-              <p className="mt-1 text-[10px] text-ink-dim">
-                No trips in this window — vehicle stayed parked.
-              </p>
+              <div className="mt-1">
+                <p className="text-[10px] text-ink-dim">
+                  No trips in this window — vehicle stayed parked.
+                </p>
+                {/* The server no longer widens the window on its own, so
+                    reaching past the chosen range is an explicit action. */}
+                {trips?.source === 'live' && onShowRecentInstead && (
+                  <button
+                    type="button"
+                    onClick={onShowRecentInstead}
+                    className="mt-1 text-[10px] font-semibold text-brand hover:underline"
+                  >
+                    Show most recent journeys instead →
+                  </button>
+                )}
+              </div>
             ) : (
               <ul className="mt-1.5 max-h-44 space-y-1 overflow-y-auto pr-1">
                 {selectedTrips

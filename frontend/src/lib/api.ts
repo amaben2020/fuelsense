@@ -720,6 +720,9 @@ export interface TripsVehicle {
 
 export interface TripsResponse {
   period_minutes: number;
+  /** Set only when an explicit calendar range was requested. */
+  from?: string | null;
+  to?: string | null;
   source: 'live' | 'historical';
   price_per_liter_ngn: number;
   vehicles: TripsVehicle[];
