@@ -111,12 +111,24 @@ export function TripHistoryPanel({
   const [data, setData] = useState<TripsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Explicit calendar range. When both ends are set and valid it supersedes
+  // the presets above; the stops shown per trip follow the same window, since
+  // they arrive inside the trips payload.
+  const [fromInput, setFromInput] = useState('');
+  const [toInput, setToInput] = useState('');
+  const range =
+    fromInput && toInput && new Date(fromInput) < new Date(toInput)
+      ? { from: new Date(fromInput).toISOString(), to: new Date(toInput).toISOString() }
+      : null;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api<TripsResponse>(`/telemetry/trips?minutes=${minutes}`)
+    const query = range
+      ? `from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`
+      : `minutes=${minutes}`;
+    api<TripsResponse>(`/telemetry/trips?${query}`)
       .then((result) => {
         if (!cancelled) setData(result);
       })
@@ -132,7 +144,9 @@ export function TripHistoryPanel({
     return () => {
       cancelled = true;
     };
-  }, [minutes]);
+    // range is derived from the two inputs, so those are the real triggers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minutes, range?.from, range?.to]);
 
   const vehicles = data?.vehicles ?? [];
   const visibleVehicles = vehicleFilter
@@ -213,9 +227,15 @@ export function TripHistoryPanel({
               <button
                 key={p.minutes}
                 type="button"
-                onClick={() => setMinutes(p.minutes)}
+                onClick={() => {
+                  // A preset and a calendar range are mutually exclusive —
+                  // leaving both active would misreport which one is in force.
+                  setFromInput('');
+                  setToInput('');
+                  setMinutes(p.minutes);
+                }}
                 className={`rounded-lg border px-3 py-1.5 text-xs ${
-                  minutes === p.minutes
+                  !range && minutes === p.minutes
                     ? 'border-good bg-good/10 text-good'
                     : 'border-edge bg-panel text-ink-mid hover:bg-panel-hover'
                 }`}
@@ -224,6 +244,47 @@ export function TripHistoryPanel({
               </button>
             ))}
           </div>
+
+          {/* Exact date range — trips and the stops inside them share this
+              window, so parked stops filter with it. */}
+          <div className="flex items-center gap-1">
+            <input
+              type="datetime-local"
+              value={fromInput}
+              onChange={(e) => setFromInput(e.target.value)}
+              aria-label="From date"
+              className={`rounded-lg border bg-panel px-2 py-1.5 text-xs text-ink ${
+                range ? 'border-good' : 'border-edge'
+              }`}
+            />
+            <span className="text-xs text-ink-dim">→</span>
+            <input
+              type="datetime-local"
+              value={toInput}
+              onChange={(e) => setToInput(e.target.value)}
+              aria-label="To date"
+              className={`rounded-lg border bg-panel px-2 py-1.5 text-xs text-ink ${
+                range ? 'border-good' : 'border-edge'
+              }`}
+            />
+            {(fromInput || toInput) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFromInput('');
+                  setToInput('');
+                }}
+                className="rounded-lg border border-edge bg-panel px-2 py-1.5 text-xs text-ink-dim hover:text-ink"
+                title="Clear date range"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {fromInput && toInput && !range && (
+            <p className="text-xs text-error">From must be before To.</p>
+          )}
+
           <button
             type="button"
             onClick={() => exportCsv(flat)}
