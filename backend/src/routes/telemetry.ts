@@ -444,6 +444,85 @@ router.get('/consumption-trend/:vehicleId', async (req: Request, res: Response) 
   }
 });
 
+// Latest purchase per vehicle, reduced to the numbers a plain-language card is
+// built from. Variance is measured against the rate actually in force, so this
+// card and the efficiency flag are reading the same figure and cannot disagree.
+router.get('/purchase-reconciliation', async (req: Request, res: Response) => {
+  try {
+    const result = await db.execute(sql`
+      WITH latest AS (
+        SELECT DISTINCT ON (fp.vehicle_id)
+          fp.id, fp.vehicle_id, fp.purchased_at,
+          COALESCE(fp.liters_actual, fp.liters_declared)::double precision AS liters,
+          fp.odometer_delta_km,
+          fp.gps_distance_km::double precision AS gps_distance_km,
+          fp.real_consumption_l_per_100km::double precision AS measured_rate,
+          fp.distance_mismatch, fp.implausible_odometer, fp.unusual_purchase,
+          fp.flag_reason
+        FROM fuel_purchases fp
+        WHERE fp.customer_id = ${req.user.customerId}
+        ORDER BY fp.vehicle_id, fp.purchased_at DESC
+      )
+      SELECT l.*, v.license_plate,
+             COALESCE(dr.full_name, v.driver_name) AS driver_name,
+             v.consumption_rate_l_per_100km::double precision AS rate_in_force,
+             v.rate_source
+      FROM latest l
+      JOIN vehicles v ON v.id = l.vehicle_id
+      LEFT JOIN drivers dr ON dr.id = v.driver_id
+      ORDER BY l.purchased_at DESC
+    `);
+
+    const cards = (result.rows as Array<Record<string, unknown>>).map((r) => {
+      const liters = Number(r.liters ?? 0);
+      const rate = Number(r.rate_in_force ?? 0);
+      // Odometer is the better distance when we have it; GPS is the fallback.
+      const distance =
+        r.odometer_delta_km != null ? Number(r.odometer_delta_km) : Number(r.gps_distance_km ?? 0);
+      const expected = distance > 0 && rate > 0 ? round1((distance * rate) / 100) : null;
+      const variance =
+        expected != null && expected > 0
+          ? Math.round(((liters - expected) / expected) * 1000) / 10
+          : null;
+
+      // Attention level mirrors the flags the calibration engine already set,
+      // rather than inventing a second opinion on the same purchase.
+      const attention =
+        r.unusual_purchase || r.implausible_odometer
+          ? 'high'
+          : r.distance_mismatch || (variance != null && Math.abs(variance) >= 20)
+            ? 'medium'
+            : 'neutral';
+
+      return {
+        vehicle_id: r.vehicle_id,
+        license_plate: r.license_plate,
+        driver_name: r.driver_name,
+        purchased_at: r.purchased_at,
+        liters_purchased: round1(liters),
+        distance_since_purchase_km: distance > 0 ? round1(distance) : null,
+        distance_source: r.odometer_delta_km != null ? 'odometer' : 'gps',
+        rate_l_per_100km: rate || null,
+        rate_source: r.rate_source,
+        expected_liters: expected,
+        variance_percent: variance != null ? Math.abs(variance) : null,
+        variance_direction: variance == null ? null : variance >= 0 ? 'over' : 'under',
+        attention,
+        flags: {
+          distance_mismatch: !!r.distance_mismatch,
+          implausible_odometer: !!r.implausible_odometer,
+          unusual_purchase: !!r.unusual_purchase,
+        },
+        flag_reason: r.flag_reason,
+      };
+    });
+
+    res.json({ cards });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.get('/google-usage', async (_req: Request, res: Response) => {
   res.json(googleUsageSnapshot());
 });

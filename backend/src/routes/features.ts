@@ -1,7 +1,12 @@
 import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import { FEATURES, resolveFeatureFlags, setFeatureFlag } from '../lib/feature-flags';
-import { VEHICLE_TYPE_PRESETS, CALIBRATION_MIN_PURCHASES, SPEED_BUCKETS } from '../lib/fuel-metrics';
+import {
+  VEHICLE_TYPE_PRESETS,
+  CALIBRATION_MIN_PURCHASES,
+  SPEED_BUCKETS,
+  presetForVehicleType,
+} from '../lib/fuel-metrics';
 import { ALERT_CATALOGUE } from '../lib/alert-catalogue';
 import { db, notificationPreferences, eq, and, sql } from '../lib/db-helpers';
 
@@ -107,6 +112,59 @@ router.get('/documentation', async (req: Request, res: Response) => {
         'Device scenario alerts — overspeeding, towing, crash, jamming, geofences — only fire if those scenarios are enabled on the tracker itself.',
       ],
     });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/** Live calibration state per vehicle — what rate each is running on, whether
+ *  it is still the class preset, and how many more fill-ups it needs. Turns the
+ *  explainer page into something actionable rather than static copy. */
+router.get('/calibration-status', async (req: Request, res: Response) => {
+  try {
+    const result = await db.execute(sql`
+      SELECT
+        v.id AS vehicle_id,
+        v.license_plate,
+        v.vehicle_type,
+        v.consumption_rate_l_per_100km::double precision AS rate,
+        v.idle_burn_rate_l_per_hour::double precision AS idle_rate,
+        v.rate_source,
+        COUNT(fp.id) FILTER (
+          WHERE fp.real_consumption_l_per_100km IS NOT NULL
+            AND fp.implausible_odometer = false
+        ) AS usable_measurements,
+        COUNT(fp.id) AS purchases_logged,
+        COUNT(fp.id) FILTER (WHERE fp.distance_mismatch) AS distance_mismatches,
+        MAX(fp.purchased_at) AS last_purchase_at
+      FROM vehicles v
+      LEFT JOIN fuel_purchases fp ON fp.vehicle_id = v.id
+      WHERE v.customer_id = ${req.user.customerId}
+      GROUP BY v.id, v.license_plate, v.vehicle_type,
+               v.consumption_rate_l_per_100km, v.idle_burn_rate_l_per_hour, v.rate_source
+      ORDER BY v.license_plate
+    `);
+
+    const vehicles = (result.rows as Array<Record<string, unknown>>).map((r) => {
+      const usable = Number(r.usable_measurements ?? 0);
+      return {
+        vehicle_id: r.vehicle_id,
+        license_plate: r.license_plate,
+        vehicle_type: r.vehicle_type,
+        vehicle_type_label: presetForVehicleType(r.vehicle_type as string).label,
+        rate_l_per_100km: r.rate != null ? Number(r.rate) : null,
+        idle_burn_l_per_hour: r.idle_rate != null ? Number(r.idle_rate) : null,
+        rate_source: r.rate_source,
+        purchases_logged: Number(r.purchases_logged ?? 0),
+        usable_measurements: usable,
+        distance_mismatches: Number(r.distance_mismatches ?? 0),
+        // What the manager can actually do about it.
+        fill_ups_until_calibrated: Math.max(0, CALIBRATION_MIN_PURCHASES - usable),
+        last_purchase_at: r.last_purchase_at,
+      };
+    });
+
+    res.json({ calibration_min_purchases: CALIBRATION_MIN_PURCHASES, vehicles });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
