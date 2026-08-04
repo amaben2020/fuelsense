@@ -162,6 +162,15 @@ export function FleetOperationsOverview({
         ? efficiencySummary.price_per_liter_ngn / benchmarkKmPerLiter
         : null;
 
+    // What the same distance should have cost at the benchmark, and therefore
+    // what was saved or overspent against it. Shown with its arithmetic so the
+    // number can be checked rather than taken on trust.
+    const benchmarkLiters =
+      benchmarkKmPerLiter && benchmarkKmPerLiter > 0 ? distanceKm / benchmarkKmPerLiter : null;
+    const benchmarkCost =
+      benchmarkLiters != null ? benchmarkLiters * efficiencySummary.price_per_liter_ngn : null;
+    const savedNgn = benchmarkCost != null ? benchmarkCost - fuelSpend : null;
+
     return {
       distanceKm,
       liters,
@@ -170,6 +179,9 @@ export function FleetOperationsOverview({
       litersPer100km,
       benchmarkKmPerLiter,
       benchmarkCostPerKm,
+      benchmarkLiters,
+      benchmarkCost,
+      savedNgn,
       variancePercent:
         benchmarkKmPerLiter && benchmarkKmPerLiter > 0
           ? ((kmPerLiter - benchmarkKmPerLiter) / benchmarkKmPerLiter) * 100
@@ -505,18 +517,40 @@ export function FleetOperationsOverview({
               <p className="text-ink-dim">Economy</p>
               <p className="font-mono text-sm text-ink">
                 {fuelContext.kmPerLiter.toFixed(1)} km/L
-                {fuelContext.variancePercent != null && (
-                  <span
-                    className={`ml-1 text-[10px] ${
-                      fuelContext.variancePercent >= 0 ? 'text-good' : 'text-bad'
-                    }`}
-                  >
-                    {fuelContext.variancePercent >= 0 ? '+' : ''}
-                    {Math.round(fuelContext.variancePercent)}% vs benchmark
+                {fuelContext.benchmarkKmPerLiter != null && (
+                  <span className="ml-1 text-[10px] text-ink-dim">
+                    vs {fuelContext.benchmarkKmPerLiter.toFixed(1)} benchmark
                   </span>
                 )}
               </p>
             </div>
+          </div>
+        )}
+
+        {fuelContext && fuelContext.savedNgn != null && fuelContext.benchmarkCost != null && (
+          <div className="mt-3 rounded-lg border border-edge bg-canvas p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-xs text-ink-dim">
+                {fuelContext.savedNgn >= 0 ? 'Money saved' : 'Overspent'} vs benchmark ({periodDays}d)
+              </p>
+              <p
+                className={`font-mono text-lg font-semibold ${
+                  // Green means one thing only: money genuinely kept.
+                  fuelContext.savedNgn > 0 ? 'text-good' : 'text-ink'
+                }`}
+              >
+                {formatNgn(Math.abs(fuelContext.savedNgn))}
+              </p>
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-ink-dim">
+              {Math.round(fuelContext.distanceKm)} km at the{' '}
+              {fuelContext.benchmarkKmPerLiter?.toFixed(1)} km/L benchmark ={' '}
+              {fuelContext.benchmarkLiters?.toFixed(1)} L, which at{' '}
+              {formatNgn(fuelContext.pricePerLiter)}/L is{' '}
+              {formatNgn(fuelContext.benchmarkCost)}. Actual spend was{' '}
+              {formatNgn(fuelSpend)} — a {fuelContext.savedNgn >= 0 ? 'saving' : 'shortfall'} of{' '}
+              {formatNgn(Math.abs(fuelContext.savedNgn))}.
+            </p>
           </div>
         )}
 
@@ -535,7 +569,7 @@ export function FleetOperationsOverview({
         <button
           type="button"
           onClick={() => setFinancialDetailsOpen((v) => !v)}
-          className="mt-4 flex w-full items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-brand"
+          className="mt-4 flex w-full items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-accent"
         >
           <span>{financialDetailsOpen ? 'Hide' : 'Show'} breakdown & savings projection</span>
           {financialDetailsOpen ? (
@@ -559,7 +593,7 @@ export function FleetOperationsOverview({
               </p>
             </div>
             <div className="rounded-lg bg-good/10 p-3 sm:col-span-2">
-              <p className="text-xs text-good">Potential annual savings opportunity</p>
+              <p className="text-xs text-ink-dim">Potential annual savings opportunity</p>
               <p className="text-2xl font-bold text-ink">
                 {formatMillionsNgn(annualSavingsOpportunity)}
               </p>
@@ -616,14 +650,14 @@ export function FleetOperationsOverview({
                         />
                       </div>
                       <p className="mt-0.5 text-sm text-ink-mid">
-                        Vehicle <span className="font-mono text-brand">{item.vehicle}</span>
+                        Vehicle <span className="font-mono text-ink">{item.vehicle}</span>
                         <span className="ml-2 text-ink-dim">· {item.source}</span>
                       </p>
                       <p className="mt-1 text-xs text-ink-mid">{item.detail}</p>
                       <ul className="mt-2 space-y-0.5">
                         {item.reasons.map((line) => (
                           <li key={line} className="flex gap-1.5 text-xs text-ink-dim">
-                            <span className="text-brand">•</span>
+                            <span className="text-ink-dim">•</span>
                             {line}
                           </li>
                         ))}
@@ -662,7 +696,7 @@ export function FleetOperationsOverview({
               <button
                 type="button"
                 onClick={onOpenAnomalies}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand hover:underline"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
               >
                 <Play className="h-3.5 w-3.5" /> {TRUST_COPY.viewEvidenceCta} — all events
               </button>
@@ -723,7 +757,7 @@ export function FleetOperationsOverview({
                             <td className="px-5 py-3">{row.driver_name ?? '—'}</td>
                             <td className="px-5 py-3 font-mono">{row.distance_km} km</td>
                             <td className="px-5 py-3 font-mono">{row.fuel_used_liters.toFixed(1)}L</td>
-                            <td className="px-5 py-3 font-mono text-brand">
+                            <td className="px-5 py-3 font-mono text-ink">
                               {row.efficiency_km_l != null
                                 ? `${row.efficiency_km_l.toFixed(1)} km/L`
                                 : '—'}
@@ -764,7 +798,7 @@ export function FleetOperationsOverview({
                                     e.stopPropagation();
                                     onViewOnMap(row.vehicle_id);
                                   }}
-                                  className="mt-2 inline-flex items-center gap-1 text-brand"
+                                  className="mt-2 inline-flex items-center gap-1 text-accent"
                                 >
                                   <MapPin className="h-3 w-3" /> View on live map
                                 </button>
@@ -805,7 +839,7 @@ export function FleetOperationsOverview({
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs text-brand">
+                          <span className="font-mono text-xs text-ink">
                             {formatEventTime(item.time)}
                           </span>
                           <ConfidenceBadge
@@ -832,7 +866,7 @@ export function FleetOperationsOverview({
                         <button
                           type="button"
                           onClick={() => setReplayTarget(item.replayTarget!)}
-                          className="shrink-0 rounded-lg border border-accent/50 bg-accent/15 px-3 py-2 text-xs font-medium text-brand"
+                          className="shrink-0 rounded-lg border border-accent/50 bg-accent/15 px-3 py-2 text-xs font-medium text-accent"
                         >
                           <Play className="mr-1 inline h-3 w-3" />
                           {TRUST_COPY.investigateCta} ▶
@@ -879,7 +913,7 @@ export function FleetOperationsOverview({
                       onClick={() => onViewOnMap(v.id)}
                       className="flex w-full items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-left text-sm hover:bg-panel-hover"
                     >
-                      <span className="font-mono text-brand">{v.plate}</span>
+                      <span className="font-mono text-ink">{v.plate}</span>
                       <span
                         className={
                           v.severity === 'bad'

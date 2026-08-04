@@ -509,7 +509,10 @@ export function LiveMonitoringMap({
       </div>
 
       {/* Top header + controls overlay */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-canvas/90 to-transparent p-4">
+      {/* Above the overlay cards (z-10): the date-range popover drops out of
+          this bar, and a sibling at the same depth would paint over it no
+          matter what z-index the popover itself carries. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-canvas/90 to-transparent p-4">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-sm font-medium text-ink">Live monitoring</p>
