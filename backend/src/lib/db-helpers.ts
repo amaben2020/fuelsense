@@ -16,6 +16,7 @@ import {
   placeCache,
   featureFlags,
   notificationPreferences,
+  fuelPrices,
 } from '../db/schema';
 import { eq, and, desc, sql, isNull } from 'drizzle-orm';
 import { serializeForApi } from './serialize';
@@ -179,6 +180,7 @@ export {
   placeCache,
   featureFlags,
   notificationPreferences,
+  fuelPrices,
   eq,
   and,
   desc,

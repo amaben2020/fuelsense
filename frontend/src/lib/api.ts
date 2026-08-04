@@ -635,6 +635,38 @@ export async function getFuelHistory(
   );
 }
 
+export interface BenchmarkPrice {
+  ngn_per_liter: number;
+  effective_from: string;
+  source: string;
+  note: string | null;
+}
+
+export interface FuelPriceResponse {
+  current: BenchmarkPrice | null;
+  latest_receipt: { ngn_per_liter: number; as_of: string } | null;
+  history: BenchmarkPrice[];
+}
+
+export async function getFuelPrice(): Promise<FuelPriceResponse> {
+  return api<FuelPriceResponse>('/fuel-price');
+}
+
+export async function setFuelPrice(input: {
+  ngnPerLiter: number;
+  effectiveFrom?: string;
+  note?: string;
+}): Promise<BenchmarkPrice> {
+  return api<BenchmarkPrice>('/fuel-price', {
+    method: 'POST',
+    body: JSON.stringify({
+      ngn_per_liter: input.ngnPerLiter,
+      effective_from: input.effectiveFrom,
+      note: input.note,
+    }),
+  });
+}
+
 export interface VehicleSignal {
   avl_id: number;
   label: string;

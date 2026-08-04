@@ -11,6 +11,7 @@ import {
   numeric,
   text,
   unique,
+  index,
   jsonb,
 } from 'drizzle-orm/pg-core';
 
@@ -338,6 +339,32 @@ export const notificationPreferences = pgTable(
     updatedAt: timestamp('updated_at').defaultNow(),
   },
   (table) => [unique().on(table.customerId, table.alertType)]
+);
+
+// Pump price per litre as the fleet manager declares it, kept as a history
+// rather than a single editable value.
+//
+// Nigerian pump prices move often, and a fleet's cost figures are only fair if
+// each period is valued at the price that applied *then*. Storing one mutable
+// number would silently restate last month's spend every time the price
+// changed. Each row opens a new period; the row with the latest
+// effective_from at or before a moment in time is the price for that moment.
+export const fuelPrices = pgTable(
+  'fuel_prices',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    ngnPerLiter: numeric('ngn_per_liter', { precision: 10, scale: 2 }).notNull(),
+    effectiveFrom: timestamp('effective_from').notNull().defaultNow(),
+    // Where the figure came from — a manager typing it in, or a logged receipt.
+    source: varchar('source', { length: 20 }).notNull().default('manager'),
+    note: text('note'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  // Costing runs this lookup once per telemetry delta, so it has to be indexed.
+  (table) => [index('fuel_prices_customer_effective_idx').on(table.customerId, table.effectiveFrom)]
 );
 
 // Per-customer visibility switches, so a half-finished area can be hidden

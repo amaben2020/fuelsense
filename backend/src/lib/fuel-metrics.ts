@@ -1,12 +1,22 @@
-/** Realistic km/L baselines for Nigerian fleet vehicles (diesel/petrol mix). */
+/**
+ * km/L baselines for Nigerian city conditions — NOT manufacturer combined-cycle
+ * figures, which are measured on smooth roads at steady speeds with the AC off
+ * and flatter every vehicle here by 30-40%.
+ *
+ * These assume what the fleet actually drives in: stop-start gridlock, potholed
+ * surfaces that force low gears, and the AC running permanently (a 10-15% fuel
+ * penalty on its own). Holding vehicles to a brochure number makes every driver
+ * look wasteful and makes real theft impossible to see against the noise.
+ */
 export const VEHICLE_EFFICIENCY: Record<string, { min: number; max: number; avg: number }> = {
-  Hiace: { min: 6.5, max: 8.5, avg: 7.5 },
-  Hilux: { min: 7.0, max: 9.0, avg: 8.0 },
-  RAV4: { min: 9.0, max: 12.0, avg: 10.5 },
-  Camry: { min: 10.0, max: 14.0, avg: 12.0 },
+  Corolla: { min: 8.0, max: 10.0, avg: 9.0 },
+  Camry: { min: 7.0, max: 9.0, avg: 8.0 },
+  RAV4: { min: 6.0, max: 8.0, avg: 7.0 },
+  Hilux: { min: 6.0, max: 8.0, avg: 7.0 },
+  Hiace: { min: 5.5, max: 7.0, avg: 6.2 },
 };
 
-const DEFAULT_EFFICIENCY = { min: 7.0, max: 10.0, avg: 8.5 };
+const DEFAULT_EFFICIENCY = { min: 6.0, max: 8.5, avg: 7.2 };
 
 /** Vehicle classes with their industry-average starting figures. These are only
  *  a seed: once a vehicle has enough logged fill-ups, its own measured rate
@@ -25,13 +35,17 @@ export interface VehicleTypePreset {
   label: string;
 }
 
+// Kept consistent with VEHICLE_EFFICIENCY: a vehicle costed by its class must
+// not disagree with the same vehicle costed by its model. Figures are city-
+// traffic equivalents (sedan 11 L/100km ≈ 9 km/L, SUV 14.3 ≈ 7 km/L), not
+// combined-cycle ratings.
 export const VEHICLE_TYPE_PRESETS: Record<VehicleType, VehicleTypePreset> = {
-  sedan: { consumptionL100km: 8, idleBurnLph: 0.7, label: 'Sedan' },
-  suv_pickup: { consumptionL100km: 11.5, idleBurnLph: 0.9, label: 'SUV / Pickup' },
-  van_bus: { consumptionL100km: 12.5, idleBurnLph: 1.15, label: 'Van / Bus' },
-  medium_truck: { consumptionL100km: 21, idleBurnLph: 1.55, label: 'Medium truck' },
-  heavy_truck: { consumptionL100km: 35, idleBurnLph: 2.4, label: 'Heavy truck' },
-  motorcycle: { consumptionL100km: 2.5, idleBurnLph: 0.2, label: 'Motorcycle' },
+  sedan: { consumptionL100km: 11, idleBurnLph: 0.9, label: 'Sedan' },
+  suv_pickup: { consumptionL100km: 14.3, idleBurnLph: 1.2, label: 'SUV / Pickup' },
+  van_bus: { consumptionL100km: 16, idleBurnLph: 1.4, label: 'Van / Bus' },
+  medium_truck: { consumptionL100km: 26, idleBurnLph: 1.9, label: 'Medium truck' },
+  heavy_truck: { consumptionL100km: 40, idleBurnLph: 2.8, label: 'Heavy truck' },
+  motorcycle: { consumptionL100km: 3, idleBurnLph: 0.2, label: 'Motorcycle' },
 };
 
 export const DEFAULT_VEHICLE_TYPE: VehicleType = 'suv_pickup';

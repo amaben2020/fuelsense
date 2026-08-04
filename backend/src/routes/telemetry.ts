@@ -33,7 +33,7 @@ import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '..
 import { creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase, consumptionTrend } from '../lib/fuel-calibration';
 import { lookupPlace } from '../lib/place-lookup';
-import { latestReceiptPrice } from '../lib/fuel-price';
+import { latestReceiptPrice, currentBenchmarkPrice } from '../lib/fuel-price';
 import { googleUsageSnapshot } from '../lib/google-usage';
 import { getSerializedIoValue } from '../lib/avl-io';
 import { decodeSignal } from '../lib/avl-catalogue';
@@ -545,10 +545,17 @@ router.get('/google-usage', async (_req: Request, res: Response) => {
 
 router.get('/fleet-efficiency', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
   try {
     const customerId = req.user.customerId;
+
+    // The manager's declared price is the benchmark. It only sets the fallback
+    // for periods before any price was declared — the SQL prices each litre by
+    // the period it was burned in.
+    const benchmark = await currentBenchmarkPrice(customerId);
+    const pricePerLiter =
+      benchmark?.ngnPerLiter ??
+      Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
     const [result, alertRows, siphonRows] = await Promise.all([
       db.execute(fleetEfficiencyAggSql({ customerId, days, pricePerLiter })),
@@ -614,11 +621,17 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
           ? efficiencyDeviationPercentL100km(tankEfficiencyL100km, expectedL100km)
           : null;
 
+      // Prices come from the SQL already applied per period, so a fleet that
+      // changed its declared price mid-window is costed at both prices rather
+      // than having today's rate projected backwards.
+      const periodPriceNgn = Number(r.avg_price_ngn) || pricePerLiter;
       const expectedFuelLiters = expectedKmL > 0 ? distanceKm / expectedKmL : 0;
-      const expectedCostNgn = Math.round(expectedFuelLiters * pricePerLiter);
+      const expectedCostNgn = Math.round(expectedFuelLiters * periodPriceNgn);
 
       const purchaseCostNgn = Math.round(Number(r.purchase_cost_ngn) || 0);
-      const telemetryCostNgn = Math.round(fuelUsed * pricePerLiter);
+      const telemetryCostNgn = Math.round(
+        Number(r.telemetry_cost_ngn) || fuelUsed * periodPriceNgn
+      );
       const receiptFraudLossNgn = Math.round(Number(r.receipt_fraud_loss_ngn) || 0);
       const alertTheftLossNgn = alertTheftByVehicle.get(r.vehicle_id as string) || 0;
       const siphonLossNgn = siphonLossByVehicle.get(r.vehicle_id as string) || 0;

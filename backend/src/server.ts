@@ -21,6 +21,7 @@ import fuelEventsRoutes from './routes/fuel-events';
 import deviceEventsRoutes from './routes/device-events';
 import placesRoutes from './routes/places';
 import featureRoutes from './routes/features';
+import fuelPriceRoutes from './routes/fuel-price';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -93,6 +94,7 @@ app.use('/api/device-events', deviceEventsRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/places', placesRoutes);
 app.use('/api/features', featureRoutes);
+app.use('/api/fuel-price', fuelPriceRoutes);
 
 const start = async () => {
   await initDatabase();

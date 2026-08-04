@@ -13,6 +13,31 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
 
   return sql`
     WITH ${telemetryDeltasCte({ customerId, days })},
+    -- Each declared price opens a period that runs until the next one starts.
+    price_periods AS (
+      SELECT
+        ngn_per_liter::numeric AS price_ngn,
+        effective_from
+      FROM fuel_prices
+      WHERE customer_id = ${customerId}
+    ),
+    -- Value every litre at the price that applied the day it was burned, so a
+    -- price change today cannot restate what last month cost.
+    priced AS (
+      SELECT
+        d.*,
+        COALESCE(
+          (
+            SELECT pp.price_ngn
+            FROM price_periods pp
+            WHERE pp.effective_from <= d.recorded_at
+            ORDER BY pp.effective_from DESC
+            LIMIT 1
+          ),
+          ${fuelPrice}
+        ) AS price_ngn
+      FROM deltas d
+    ),
     period_agg AS (
       SELECT
         vehicle_id,
@@ -21,8 +46,15 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
         driver_name,
         tank_capacity_liters,
         COALESCE(SUM(dist_delta), 0)::numeric AS distance_km,
-        COALESCE(SUM(fuel_delta), 0)::numeric AS fuel_used_liters
-      FROM deltas
+        COALESCE(SUM(fuel_delta), 0)::numeric AS fuel_used_liters,
+        COALESCE(SUM(fuel_delta * price_ngn), 0)::numeric AS telemetry_cost_ngn,
+        -- Distance-weighted, so expected cost is judged at the prices that
+        -- were in force while the vehicle was actually driving.
+        COALESCE(
+          SUM(dist_delta * price_ngn) / NULLIF(SUM(dist_delta), 0),
+          ${fuelPrice}
+        )::numeric AS avg_price_ngn
+      FROM priced
       GROUP BY vehicle_id, license_plate, model, driver_name, tank_capacity_liters
     ),
     last_refuel AS (
@@ -96,6 +128,8 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
       p.tank_capacity_liters,
       p.distance_km,
       p.fuel_used_liters,
+      p.telemetry_cost_ngn,
+      p.avg_price_ngn,
       sr.tank_distance_km,
       sr.tank_fuel_used_liters,
       lp.last_purchase_at,

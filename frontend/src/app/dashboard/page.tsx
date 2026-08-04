@@ -46,6 +46,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { FleetOperationsOverview } from '@/components/dashboard/FleetOperationsOverview';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
+import { FuelPricePanel } from '@/components/dashboard/FuelPricePanel';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
 import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
@@ -864,6 +865,7 @@ export default function DashboardPage() {
                 </Link>
                 </div>
               </div>
+              <FuelPricePanel />
               <DriverSettingsPanel
                 drivers={drivers}
                 fleet={fleet}
