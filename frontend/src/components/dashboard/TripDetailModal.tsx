@@ -5,11 +5,34 @@ import { Clock, Droplet, Gauge, MapPin, Route, X } from 'lucide-react';
 import { ServerTrip, TripStop, formatNgn } from '@/lib/api';
 import { StopDetailModal } from './StopDetailModal';
 
+const HHMM: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+
+/** Clock span only — the day is already the group heading. */
 function timeRange(trip: ServerTrip): string {
   const s = new Date(trip.start_at);
   const e = new Date(trip.end_at);
-  const opts: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
-  return `${s.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${s.toLocaleTimeString([], opts)}–${e.toLocaleTimeString([], opts)}`;
+  return `${s.toLocaleTimeString([], HHMM)}–${e.toLocaleTimeString([], HHMM)}`;
+}
+
+/** "Today" / "Yesterday" / "Thu 30 Jul", with the year once it stops being obvious. */
+function dayLabel(d: Date): string {
+  const today = new Date();
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const daysApart = Math.round((startOfDay(today) - startOfDay(d)) / 86_400_000);
+  if (daysApart === 0) return 'Today';
+  if (daysApart === 1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    ...(d.getFullYear() === today.getFullYear() ? {} : { year: 'numeric' }),
+  });
+}
+
+/** Minutes the vehicle sat between the end of one trip and the start of the next. */
+function gapMinutes(prev: ServerTrip, next: ServerTrip): number {
+  const ms = new Date(next.start_at).getTime() - new Date(prev.end_at).getTime();
+  return ms > 0 ? Math.round(ms / 60_000) : 0;
 }
 
 function formatDuration(minutes: number): string {
@@ -42,32 +65,31 @@ export function TripDetailModal({
 }) {
   const [openStop, setOpenStop] = useState<TripStop | null>(null);
 
-  // Newest first — the most recent journey is what a manager asks about.
-  // Grouped by month, and the current month is left unlabelled since "this
-  // month" is the implied context when you open the panel.
-  const monthGroups = useMemo(() => {
-    const now = new Date();
-    const groups = new globalThis.Map<string, { label: string | null; trips: ServerTrip[] }>();
+  // A day is the unit a manager actually thinks in ("what did the van do on
+  // Thursday?"), so trips are grouped by day and laid out as one continuous
+  // timeline — days newest first, but each day reads top-down in chronological
+  // order with the parked gaps between journeys shown explicitly.
+  const dayGroups = useMemo(() => {
+    const groups = new globalThis.Map<string, { label: string; trips: ServerTrip[] }>();
 
     for (const trip of [...trips].sort(
-      (a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()
+      (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
     )) {
       const d = new Date(trip.start_at);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      const isCurrentMonth =
-        d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-      const label = isCurrentMonth
-        ? null
-        : d.toLocaleDateString(undefined, {
-            month: 'long',
-            // Only show the year once it stops being obvious.
-            ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-          });
-
-      if (!groups.has(key)) groups.set(key, { label, trips: [] });
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      if (!groups.has(key)) groups.set(key, { label: dayLabel(d), trips: [] });
       groups.get(key)!.trips.push(trip);
     }
-    return [...groups.values()];
+
+    return [...groups.values()]
+      .map((g) => ({
+        ...g,
+        distanceKm: g.trips.reduce((s, t) => s + t.distance_km, 0),
+        fuelLiters: g.trips.reduce((s, t) => s + t.estimated_fuel_liters, 0),
+        durationMinutes: g.trips.reduce((s, t) => s + t.duration_minutes, 0),
+        idleMinutes: g.trips.reduce((s, t) => s + t.idle_minutes, 0),
+      }))
+      .reverse();
   }, [trips]);
 
   const totalIdle = trips.reduce((s, t) => s + t.idle_minutes, 0);
@@ -121,28 +143,52 @@ export function TripDetailModal({
             {trips.length === 0 ? (
               <p className="text-sm text-ink-dim">No trips in this period.</p>
             ) : (
-              <ul className="space-y-4">
-                {monthGroups.flatMap((group) => [
-                  ...(group.label
-                    ? [
-                        <li
-                          key={`hdr-${group.label}`}
-                          className="sticky top-0 -mx-6 bg-panel px-6 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-ink-dim"
-                        >
-                          {group.label}
-                        </li>,
-                      ]
-                    : []),
-                  ...group.trips.map((trip) => {
+              <div className="space-y-6">
+                {dayGroups.map((group) => (
+                  <section key={group.label}>
+                    {/* Day header carries the totals so the rail below is just
+                        the story of how the day was spent. */}
+                    <div className="sticky top-0 z-10 -mx-6 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-panel px-6 pb-2 pt-2">
+                      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-ink">
+                        {group.label}
+                      </h4>
+                      <p className="font-mono text-[11px] text-ink-dim">
+                        {group.trips.length} trip{group.trips.length === 1 ? '' : 's'} ·{' '}
+                        {group.distanceKm.toFixed(1)} km ·{' '}
+                        {formatDuration(group.durationMinutes)} driving
+                        {group.idleMinutes > 0 && (
+                          <span className="text-warn"> · {formatDuration(group.idleMinutes)} idle</span>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* One continuous rail per day: trips and the parked gaps
+                        between them hang off the same line. */}
+                    <ul className="ml-2 border-l border-edge pl-4">
+                      {group.trips.flatMap((trip, gi) => {
                   const realStops = trip.stops.filter((s) => s.kind === 'stop');
                   // Index into the original array, so "show on map" still points
                   // at the right trip after regrouping.
                   const i = trips.indexOf(trip);
-                  return (
-                    <li key={trip.start_at} className="rounded-lg border border-edge bg-canvas p-4">
+                  const prev = gi > 0 ? group.trips[gi - 1] : null;
+                  const gap = prev ? gapMinutes(prev, trip) : 0;
+                  return [
+                    ...(gap > 0
+                      ? [
+                          <li
+                            key={`gap-${trip.start_at}`}
+                            className="relative py-2 text-xs text-ink-dim"
+                          >
+                            <span className="absolute -left-[21px] top-3.5 h-1.5 w-1.5 rounded-full bg-edge" />
+                            Parked {formatDuration(gap)}
+                          </li>,
+                        ]
+                      : []),
+                    <li key={trip.start_at} className="relative py-2">
+                      <span className="absolute -left-[23px] top-3.5 h-2.5 w-2.5 rounded-full border-2 border-panel bg-brand" />
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
-                          <p className="text-sm font-medium text-ink">{timeRange(trip)}</p>
+                          <p className="font-mono text-sm font-medium text-ink">{timeRange(trip)}</p>
                           <p className="mt-0.5 text-xs text-ink-dim">
                             {formatDuration(trip.duration_minutes)} · avg {trip.avg_speed_kph} km/h ·
                             top {trip.max_speed_kph} km/h
@@ -159,7 +205,7 @@ export function TripDetailModal({
                         </div>
                       </div>
 
-                      <div className="mt-3 space-y-1.5">
+                      <div className="mt-2 space-y-1.5">
                         {trip.stops.map((s, si) => (
                           <button
                             key={`${s.arrived_at}-${si}`}
@@ -201,16 +247,18 @@ export function TripDetailModal({
                             onFocusTrip(i);
                             onClose();
                           }}
-                          className="mt-3 text-xs font-medium text-brand hover:underline"
+                          className="mt-2 text-xs font-medium text-brand hover:underline"
                         >
                           Show this trip on the map
                         </button>
                       )}
-                    </li>
-                  );
-                  }),
-                ])}
-              </ul>
+                    </li>,
+                  ];
+                  })}
+                    </ul>
+                  </section>
+                ))}
+              </div>
             )}
           </div>
         </div>

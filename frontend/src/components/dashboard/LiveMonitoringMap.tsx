@@ -336,6 +336,11 @@ export function LiveMonitoringMap({
             odometerIsTotal: v.total_odometer_km != null,
             driver: v.driver_name,
             fuel: v.fuel_level_liters,
+            tankCapacity: v.virtual_tank_capacity_liters != null
+              ? Number(v.virtual_tank_capacity_liters)
+              : null,
+            tankConfidence: v.virtual_tank_confidence ?? null,
+            tankCalibratedAt: v.virtual_tank_calibrated_at ?? null,
           },
         ]),
       ),
@@ -679,13 +684,51 @@ export function LiveMonitoringMap({
               <p className="text-ink-dim">Speed</p>
               <p className="font-mono text-lg text-ink">{selectedTrack.current.speedKph ?? 0} <span className="text-[10px]">km/h</span></p>
             </div>
+            {/* "Fuel" alone read as a trip statistic next to "Last trip". This
+                is the modelled level still IN the tank, so it says so — with
+                the percentage and the confidence that the GPS-derived tank
+                model attaches to it, since it is an estimate, not a sender
+                reading. */}
             <div className="rounded-lg bg-canvas p-2">
-              <p className="text-ink-dim">Fuel</p>
+              <p className="text-ink-dim">Fuel left</p>
               <p className="font-mono text-lg text-good">
                 {selectedTrack.current.fuelLiters != null
                   ? `${selectedTrack.current.fuelLiters.toFixed(1)}L`
                   : '—'}
               </p>
+              {(() => {
+                const meta = fleetMeta.get(selectedTrack.vehicleId);
+                const litres = selectedTrack.current.fuelLiters;
+                const pct =
+                  litres != null && meta?.tankCapacity
+                    ? Math.round((litres / meta.tankCapacity) * 100)
+                    : null;
+                if (pct == null && meta?.tankConfidence == null) return null;
+                return (
+                  <p className="mt-0.5 text-[10px] leading-tight text-ink-dim">
+                    {pct != null && <span>{pct}% of tank</span>}
+                    {pct != null && meta?.tankConfidence != null && ' · '}
+                    {meta?.tankConfidence != null && (
+                      <span
+                        title={
+                          meta.tankCalibratedAt
+                            ? `Estimated from GPS fuel use since calibration on ${new Date(meta.tankCalibratedAt).toLocaleDateString()}`
+                            : 'Never calibrated — calibrate after a fill-up for an accurate level'
+                        }
+                        className={
+                          meta.tankConfidence >= 70
+                            ? 'text-good'
+                            : meta.tankConfidence >= 45
+                              ? 'text-warn'
+                              : 'text-error'
+                        }
+                      >
+                        {meta.tankConfidence}% confidence
+                      </span>
+                    )}
+                  </p>
+                );
+              })()}
             </div>
             <div className="rounded-lg bg-canvas p-2">
               <p className="text-ink-dim">
