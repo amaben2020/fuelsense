@@ -492,7 +492,7 @@ router.post('/receipts', async (req: Request, res: Response) => {
       customerId: req.driver.customerId,
       vehicleId,
       licensePlate: vehicle.licensePlate,
-      driverName: req.driver.fullName ?? null,
+      driverName: req.driver.name ?? null,
       merchantName: merchantName.trim(),
       merchantAddress: merchantAddress?.trim() ?? null,
       liters: declared,

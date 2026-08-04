@@ -24,6 +24,17 @@ export interface AlertDefinition {
 
 export const ALERT_CATALOGUE: AlertDefinition[] = [
   {
+    type: 'receipt_uploaded',
+    label: 'Driver filed a fuel receipt',
+    severity: 'info',
+    meaning:
+      'A driver submitted a fuel purchase from the driver app, with the station location captured by their phone.',
+    trigger:
+      'Any successful receipt submission. The email carries the station name, address, a photo of the location, the volume and the amount.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
     type: 'trip_start',
     label: 'Vehicle started a trip',
     severity: 'info',

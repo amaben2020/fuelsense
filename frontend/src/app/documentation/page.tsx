@@ -46,6 +46,45 @@ const SEVERITY_ICON = {
 export default function DocumentationPage() {
   const [doc, setDoc] = useState<DocPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which alert type is mid-save, so a double-click cannot race the toggle.
+  const [savingType, setSavingType] = useState<string | null>(null);
+
+  // "Email on/off" used to be a read-only label, which meant nothing could
+  // ever be opted into and therefore no alert mail could ever be sent.
+  async function toggleEmail(alertType: string, next: boolean) {
+    setSavingType(alertType);
+    // Optimistic — reverted below if the request fails.
+    setDoc((prev) =>
+      prev
+        ? {
+            ...prev,
+            alerts: prev.alerts.map((a) =>
+              a.type === alertType ? { ...a, email_enabled: next } : a
+            ),
+          }
+        : prev
+    );
+    try {
+      await api(`/features/notifications/${alertType}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ emailEnabled: next }),
+      });
+    } catch (e) {
+      setDoc((prev) =>
+        prev
+          ? {
+              ...prev,
+              alerts: prev.alerts.map((a) =>
+                a.type === alertType ? { ...a, email_enabled: !next } : a
+              ),
+            }
+          : prev
+      );
+      setError((e as Error).message);
+    } finally {
+      setSavingType(null);
+    }
+  }
 
   useEffect(() => {
     if (!getToken()) {
@@ -110,10 +149,26 @@ export default function DocumentationPage() {
                           <span className="text-[11px] text-ink-dim">needs tracker config</span>
                         )}
                         {a.emailable && (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-brand">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={a.email_enabled}
+                            disabled={savingType === a.type}
+                            onClick={() => toggleEmail(a.type, !a.email_enabled)}
+                            title={
+                              a.email_enabled
+                                ? 'Emails are on — click to stop them'
+                                : 'Click to get this alert by email'
+                            }
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${
+                              a.email_enabled
+                                ? 'border-brand bg-brand/10 text-brand'
+                                : 'border-edge text-ink-dim hover:text-ink'
+                            }`}
+                          >
                             <Bell className="h-3 w-3" />
                             Email {a.email_enabled ? 'on' : 'off'}
-                          </span>
+                          </button>
                         )}
                       </div>
                       <p className="mt-2 text-sm text-ink-mid">{a.meaning}</p>
