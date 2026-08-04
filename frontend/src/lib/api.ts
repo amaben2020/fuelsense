@@ -638,6 +638,7 @@ export async function getFuelHistory(
 export interface VehicleSignal {
   avl_id: number;
   label: string;
+  description: string | null;
   group: 'engine' | 'fuel' | 'movement' | 'electrical' | 'network' | 'gnss' | 'other';
   raw: number;
   value: number | null;

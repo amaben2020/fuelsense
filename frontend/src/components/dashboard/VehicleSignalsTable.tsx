@@ -1,11 +1,13 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Activity,
   Battery,
   Fuel,
   Gauge,
+  Info,
   Navigation,
   Radio,
   Signal,
@@ -60,6 +62,69 @@ function formatDuration(seconds: number): string {
 
 const formatClock = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+
+const TIP_WIDTH = 288;
+// How much room a tooltip needs below the trigger before it flips above it.
+const TIP_FLIP_MARGIN = 180;
+
+interface TipAnchor {
+  x: number;
+  y: number;
+  above: boolean;
+}
+
+// Rendered through a portal because the signal table scrolls horizontally, and
+// an absolutely-positioned tooltip inside a scroll container gets clipped by it.
+function SignalHelp({ label, description }: { label: string; description: string }) {
+  const [anchor, setAnchor] = useState<TipAnchor | null>(null);
+
+  const open = (event: { currentTarget: HTMLElement }) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const above = window.innerHeight - rect.bottom < TIP_FLIP_MARGIN;
+    setAnchor({
+      // Keep the panel on screen when the trigger sits near the right edge.
+      x: Math.max(16, Math.min(rect.left, window.innerWidth - TIP_WIDTH - 16)),
+      y: above ? rect.top - 8 : rect.bottom + 8,
+      above,
+    });
+  };
+  const close = () => setAnchor(null);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`What is ${label}?`}
+        onMouseEnter={open}
+        onMouseLeave={close}
+        onFocus={open}
+        onBlur={close}
+        className="text-ink-dim/60 transition-colors hover:text-ink focus-visible:text-ink"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      {anchor &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{
+              left: anchor.x,
+              top: anchor.y,
+              width: TIP_WIDTH,
+              // Anchoring by transform means the flip works without knowing
+              // the rendered height of the text.
+              transform: anchor.above ? 'translateY(-100%)' : undefined,
+            }}
+            className="pointer-events-none fixed z-50 rounded-md border border-edge bg-panel-deep p-3 shadow-xl"
+          >
+            <p className="text-xs font-semibold text-ink">{label}</p>
+            <p className="mt-1 text-xs leading-relaxed text-ink-dim">{description}</p>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
 
 function StatCell({
   label,
@@ -258,7 +323,17 @@ export function VehicleSignalsTable({
                           key={signal.avl_id}
                           className="border-t border-edge/50 hover:bg-panel-hover/40"
                         >
-                          <td className="py-1.5 text-ink">{signal.label}</td>
+                          <td className="py-1.5 text-ink">
+                            <span className="flex items-center gap-1.5">
+                              {signal.label}
+                              {signal.description && (
+                                <SignalHelp
+                                  label={signal.label}
+                                  description={signal.description}
+                                />
+                              )}
+                            </span>
+                          </td>
                           <td className="py-1.5 text-right font-mono text-ink">
                             {signal.display}
                           </td>

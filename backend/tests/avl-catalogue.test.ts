@@ -35,6 +35,20 @@ describe('decodeSignal', () => {
     expect(signal.group).toBe('other')
   })
 
+  it('explains every element this fleet’s tracker actually sends', () => {
+    // The live FMC150's full element set — each of these renders a tooltip, so
+    // adding one to the catalogue without an explanation should fail here.
+    const sent = [12, 13, 16, 21, 24, 68, 69, 181, 182, 199, 200, 239, 240, 241, 449]
+
+    for (const id of sent) {
+      expect(decodeSignal(id, 0).description).toEqual(expect.any(String))
+    }
+  })
+
+  it('leaves unmapped elements without an invented explanation', () => {
+    expect(decodeSignal(517, 42).description).toBeNull()
+  })
+
   it('keeps the raw value alongside the scaled one', () => {
     const signal = decodeSignal(16, 785775)
 
