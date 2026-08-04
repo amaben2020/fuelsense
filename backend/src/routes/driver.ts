@@ -17,6 +17,7 @@ import { findObdRefuelMatch, reconcileReceipt } from '../lib/receipt-reconciliat
 import { parseReceiptText } from '../lib/receipt-parser';
 import { scanReceiptImage as ocrScanReceiptImage } from '../lib/receipt-ocr';
 import { buildPurchaseValuesFromReceipt } from '../lib/driver-receipt-sync';
+import { notifyReceiptUploaded } from '../lib/receipt-notifier';
 import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
 import { creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase } from '../lib/fuel-calibration';
@@ -482,6 +483,27 @@ router.post('/receipts', async (req: Request, res: Response) => {
         console.error('[calibration] failed:', err)
       );
     }
+
+    // Tell the fleet manager a receipt has landed — in-app always, email when
+    // opted in. Awaited so a failure is logged against this request, but the
+    // notifier swallows its own errors: the receipt is already committed and
+    // must not be lost to a notification fault.
+    await notifyReceiptUploaded({
+      customerId: req.driver.customerId,
+      vehicleId,
+      licensePlate: vehicle.licensePlate,
+      driverName: req.driver.fullName ?? null,
+      merchantName: merchantName.trim(),
+      merchantAddress: merchantAddress?.trim() ?? null,
+      liters: declared,
+      pricePerLiter: price,
+      totalAmount: total,
+      odometerKm: odometerKm ? Number(odometerKm) : null,
+      transactionDate: when,
+      latitude: receiptLatitude?.toString() ?? null,
+      longitude: receiptLongitude?.toString() ?? null,
+      reconciliationStatus: reconciliation.reconciliationStatus,
+    });
 
     if (reconciliation.reconciliationStatus === 'flagged_theft') {
       const diff = reconciliation.differenceLiters ?? 0;
