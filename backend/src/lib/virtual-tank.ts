@@ -35,6 +35,22 @@ const IDLE_WASTE_RATE_FACTOR = 1.5;
 const IDLE_WASTE_MIN_MINUTES = 5;
 const LOW_FUEL_PERCENT = 15;
 
+// The FMC150's two fuel elements are both firmware estimates, and on some
+// vehicles they disagree badly: AVL 12 has been observed accumulating at ~1.0
+// l/h on a 2.5L SUV while AVL 13 reported 2.27 l/h for the same idle. Left
+// uncorrected the tank drains too slowly, low-fuel warnings arrive late, and
+// cost per kilometre reads at a fraction of what the fleet actually spends.
+//
+// The rate element is the better reference: it is a direct estimate, while the
+// accumulator compounds its error over every ping. Where the two disagree
+// consistently, the ratio between them corrects the accumulator.
+const BURN_FACTOR_MIN = 0.5;
+const BURN_FACTOR_MAX = 4;
+// Enough stationary samples that the ratio reflects a pattern, not one ping.
+const BURN_FACTOR_MIN_SAMPLES = 10;
+// Below this the two elements effectively agree — leave the device alone.
+const BURN_FACTOR_DEADBAND = 0.15;
+
 export interface VirtualTankState {
   vehicleId: string;
   customerId: string;
@@ -46,7 +62,40 @@ export interface VirtualTankState {
   calibrationSource: string | null;
   consumedSinceCalibrationMl: number;
   learnedIdleLph: number | null;
+  accumulatorIdleLph: number | null;
+  burnFactor: number;
+  burnFactorSource: string | null;
+  burnFactorSamples: number;
   confidence: number;
+}
+
+/**
+ * Correction for the accumulator, derived from how far its own implied idle
+ * rate sits from the rate the device reports for the same moments. Returns 1
+ * whenever the evidence is thin or the two elements already agree — a wrong
+ * correction is worse than none.
+ */
+export function deriveBurnFactor(
+  learnedIdleLph: number | null,
+  accumulatorIdleLph: number | null,
+  samples: number
+): { factor: number; source: string | null } {
+  if (
+    learnedIdleLph == null ||
+    accumulatorIdleLph == null ||
+    accumulatorIdleLph <= 0 ||
+    samples < BURN_FACTOR_MIN_SAMPLES
+  ) {
+    return { factor: 1, source: null };
+  }
+
+  const ratio = learnedIdleLph / accumulatorIdleLph;
+  if (Math.abs(ratio - 1) <= BURN_FACTOR_DEADBAND) return { factor: 1, source: null };
+
+  return {
+    factor: Math.min(BURN_FACTOR_MAX, Math.max(BURN_FACTOR_MIN, ratio)),
+    source: 'device_rate_cross_check',
+  };
 }
 
 interface FuelGpsReading {
@@ -77,6 +126,10 @@ const rowToState = (row: typeof virtualTanks.$inferSelect): VirtualTankState => 
   calibrationSource: row.calibrationSource,
   consumedSinceCalibrationMl: Number(row.consumedSinceCalibrationMl ?? 0),
   learnedIdleLph: row.learnedIdleLph != null ? Number(row.learnedIdleLph) : null,
+  accumulatorIdleLph: row.accumulatorIdleLph != null ? Number(row.accumulatorIdleLph) : null,
+  burnFactor: row.burnFactor != null ? Number(row.burnFactor) : 1,
+  burnFactorSource: row.burnFactorSource,
+  burnFactorSamples: row.burnFactorSamples ?? 0,
   confidence: row.confidence,
 });
 
@@ -254,25 +307,59 @@ export async function processFuelGpsReading(
     deltaMl = capacityMlLimit;
   }
 
-  const levelMl = Math.max(0, state.levelMl - deltaMl);
-  const consumedSinceCalibrationMl = state.consumedSinceCalibrationMl + deltaMl;
-
   // Learn the vehicle's true idle burn from stationary rate samples
   let learnedIdleLph = state.learnedIdleLph;
+  let accumulatorIdleLph = state.accumulatorIdleLph;
+  let burnFactorSamples = state.burnFactorSamples;
   const stationary = reading.ignitionOn && (reading.speedKph ?? 0) < 2;
   const rate = reading.fuelRateLph;
+  const gapSeconds =
+    state.lastReadingAt != null
+      ? (reading.recordedAt.getTime() - state.lastReadingAt.getTime()) / 1000
+      : 0;
+
   if (stationary && rate != null && rate >= IDLE_RATE_MIN_LPH && rate <= IDLE_RATE_MAX_LPH) {
     learnedIdleLph =
       learnedIdleLph == null
         ? rate
         : learnedIdleLph + IDLE_EMA_ALPHA * (rate - learnedIdleLph);
+
+    // What the accumulator itself claims was burned over the same stretch.
+    // Only gaps long enough to carry a meaningful delta — a 2-second hop
+    // rounds to noise and would swamp the average.
+    if (gapSeconds >= 30 && !accumulatorReset) {
+      const impliedLph = (deltaMl / 1000 / gapSeconds) * 3600;
+      if (impliedLph >= IDLE_RATE_MIN_LPH && impliedLph <= IDLE_RATE_MAX_LPH) {
+        accumulatorIdleLph =
+          accumulatorIdleLph == null
+            ? impliedLph
+            : accumulatorIdleLph + IDLE_EMA_ALPHA * (impliedLph - accumulatorIdleLph);
+        burnFactorSamples += 1;
+      }
+    }
   }
+
+  const { factor: burnFactor, source: burnFactorSource } = deriveBurnFactor(
+    learnedIdleLph,
+    accumulatorIdleLph,
+    burnFactorSamples
+  );
+
+  // Correct the delta before it touches the tank, so level, consumption and
+  // every naira figure downstream all rest on the same corrected burn.
+  const correctedDeltaMl = Math.round(deltaMl * burnFactor);
+
+  const levelMl = Math.max(0, state.levelMl - correctedDeltaMl);
+  const consumedSinceCalibrationMl = state.consumedSinceCalibrationMl + correctedDeltaMl;
 
   const nextState: VirtualTankState = {
     ...state,
     levelMl,
     consumedSinceCalibrationMl,
     learnedIdleLph,
+    accumulatorIdleLph,
+    burnFactor,
+    burnFactorSource,
   };
   const confidence = computeConfidence(nextState, reading.recordedAt);
 
@@ -284,6 +371,10 @@ export async function processFuelGpsReading(
       lastReadingAt: reading.recordedAt,
       consumedSinceCalibrationMl,
       learnedIdleLph: learnedIdleLph != null ? learnedIdleLph.toFixed(3) : null,
+      accumulatorIdleLph: accumulatorIdleLph != null ? accumulatorIdleLph.toFixed(3) : null,
+      burnFactor: burnFactor.toFixed(3),
+      burnFactorSource,
+      burnFactorSamples,
       confidence,
       updatedAt: sql`NOW()`,
     })

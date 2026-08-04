@@ -238,6 +238,14 @@ export const virtualTanks = pgTable('virtual_tanks', {
     .default(0),
   // EMA of Fuel Rate GPS while stationary — the vehicle's real idle burn (l/h)
   learnedIdleLph: numeric('learned_idle_lph', { precision: 6, scale: 3 }),
+  // EMA of the burn rate implied by the accumulator itself over the same
+  // stationary samples. The two should agree; when they don't, the accumulator
+  // is miscalibrated and the ratio between them is the correction.
+  accumulatorIdleLph: numeric('accumulator_idle_lph', { precision: 6, scale: 3 }),
+  // Multiplier applied to accumulator deltas. 1 = trust the device as-is.
+  burnFactor: numeric('burn_factor', { precision: 5, scale: 3 }).notNull().default('1'),
+  burnFactorSource: varchar('burn_factor_source', { length: 30 }),
+  burnFactorSamples: integer('burn_factor_samples').notNull().default(0),
   confidence: integer('confidence').notNull().default(30),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
