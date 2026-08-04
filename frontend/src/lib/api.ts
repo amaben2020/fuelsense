@@ -702,7 +702,8 @@ export interface ServerTrip {
   idle_minutes: number;
   active: boolean;
   estimated_fuel_liters: number;
-  estimated_cost_ngn: number;
+  /** null until a real receipt establishes a price per litre. */
+  estimated_cost_ngn: number | null;
   path: [number, number][];
   stops: TripStop[];
 }
@@ -715,7 +716,7 @@ export interface TripsVehicle {
   trips: ServerTrip[];
   total_distance_km: number;
   total_fuel_liters: number;
-  total_cost_ngn: number;
+  total_cost_ngn: number | null;
 }
 
 export interface TripsResponse {
@@ -724,7 +725,9 @@ export interface TripsResponse {
   from?: string | null;
   to?: string | null;
   source: 'live' | 'historical';
-  price_per_liter_ngn: number;
+  /** null when no fuel receipt has been logged yet. */
+  price_per_liter_ngn: number | null;
+  price_as_of?: string | null;
   vehicles: TripsVehicle[];
 }
 

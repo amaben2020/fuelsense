@@ -182,7 +182,11 @@ export function TripHistoryPanel({
       km: Math.round(flat.reduce((s, f) => s + f.trip.distance_km, 0) * 10) / 10,
       minutes: flat.reduce((s, f) => s + f.trip.duration_minutes, 0),
       fuel: Math.round(flat.reduce((s, f) => s + f.trip.estimated_fuel_liters, 0) * 10) / 10,
-      cost: flat.reduce((s, f) => s + f.trip.estimated_cost_ngn, 0),
+      // null across the board until a receipt sets a real price per litre
+      cost: flat.reduce<number | null>(
+        (s, f) => (f.trip.estimated_cost_ngn == null || s == null ? null : s + f.trip.estimated_cost_ngn),
+        0
+      ),
     }),
     [flat]
   );
@@ -319,8 +323,18 @@ export function TripHistoryPanel({
         <StatCard
           icon={MapPin}
           label="Estimated cost"
-          value={loading && !data ? '…' : formatNgn(totals.cost)}
-          detail={data ? `At ${formatNgn(data.price_per_liter_ngn)}/L` : ''}
+          value={
+            loading && !data
+              ? '…'
+              : totals.cost != null
+                ? formatNgn(totals.cost)
+                : '—'
+          }
+          detail={
+            data?.price_per_liter_ngn != null
+              ? `At ${formatNgn(data.price_per_liter_ngn)}/L`
+              : 'Log a fuel receipt to price these trips'
+          }
         />
       </div>
 
@@ -366,7 +380,13 @@ export function TripHistoryPanel({
                   const dayFuel =
                     Math.round(items.reduce((s, f) => s + f.trip.estimated_fuel_liters, 0) * 10) /
                     10;
-                  const dayCost = items.reduce((s, f) => s + f.trip.estimated_cost_ngn, 0);
+                  const dayCost = items.reduce<number | null>(
+                    (s, f) =>
+                      f.trip.estimated_cost_ngn == null || s == null
+                        ? null
+                        : s + f.trip.estimated_cost_ngn,
+                    0
+                  );
                   return [
                     <tr key={`day-${day}`} className="bg-panel-deep">
                       <td
@@ -382,7 +402,7 @@ export function TripHistoryPanel({
                       <td className="px-6 py-2" colSpan={2} />
                       <td className="px-6 py-2 font-mono text-xs text-ink-dim">{dayFuel} L</td>
                       <td className="px-6 py-2 font-mono text-xs text-ink-dim">
-                        {formatNgn(dayCost)}
+                        {dayCost != null ? formatNgn(dayCost) : '—'}
                       </td>
                       <td className="px-6 py-2" />
                     </tr>,
@@ -431,7 +451,9 @@ export function TripHistoryPanel({
                           {trip.estimated_fuel_liters} L
                         </td>
                         <td className="px-6 py-2.5 font-mono">
-                          {formatNgn(trip.estimated_cost_ngn)}
+                          {trip.estimated_cost_ngn != null
+                            ? formatNgn(trip.estimated_cost_ngn)
+                            : '—'}
                         </td>
                         <td className="px-6 py-2.5">
                           <button

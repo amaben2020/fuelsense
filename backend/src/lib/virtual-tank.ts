@@ -10,6 +10,8 @@
 // since the last calibration because GPS-derived burn drifts from reality.
 import { db, vehicles, alerts, deviceEvents, eq, and, sql } from './db-helpers';
 import { virtualTanks } from '../db/schema';
+import { alertEmail, sendMail } from './mailer';
+import { resolveAlertRecipient } from './alert-mail';
 
 export const FUEL_USED_GPS_AVL_ID = 12;
 export const FUEL_RATE_GPS_AVL_ID = 13;
@@ -296,19 +298,69 @@ export async function processFuelGpsReading(
     levelMl / capacityMl <= LOW_FUEL_PERCENT / 100 &&
     !(await hasOpenAlert(customerId, vehicleId, 'low_fuel'))
   ) {
+    const percent = (levelMl / capacityMl) * 100;
     await db.insert(alerts).values({
       imei,
       customerId,
       vehicleId,
       alertType: 'low_fuel',
-      message: `Low fuel on ${ctx.licensePlate ?? 'vehicle'}: virtual tank at ${((levelMl / capacityMl) * 100).toFixed(0)}% (~${levelLiters.toFixed(1)}L). Plan a refuel.`,
+      message: `Low fuel on ${ctx.licensePlate ?? 'vehicle'}: virtual tank at ${percent.toFixed(0)}% (~${levelLiters.toFixed(1)}L). Plan a refuel.`,
       fuelLevelLiters: levelLiters.toFixed(2),
       latitude: ctx.latitude,
       longitude: ctx.longitude,
     });
+
+    // Not awaited: ingestion must never wait on SMTP, and a failed
+    // notification must not cost us the telemetry record that triggered it.
+    void emailLowFuel({
+      customerId,
+      licensePlate: ctx.licensePlate ?? 'Vehicle',
+      levelLiters,
+      capacityLiters: state.capacityLiters,
+      percent,
+      confidence,
+      latitude: ctx.latitude,
+      longitude: ctx.longitude,
+    }).catch((err) => console.error('[virtual_tank] low fuel email failed:', err));
   }
 
   return { levelLiters, confidence, deltaMl, accumulatorReset };
+}
+
+/** Emails the low-fuel warning, when this customer has opted in to it. */
+async function emailLowFuel(ctx: {
+  customerId: string;
+  licensePlate: string;
+  levelLiters: number;
+  capacityLiters: number;
+  percent: number;
+  confidence: number;
+  latitude: string | null;
+  longitude: string | null;
+}): Promise<void> {
+  const to = await resolveAlertRecipient(ctx.customerId, 'low_fuel');
+  if (!to) return;
+
+  // The level is modelled from GPS fuel use, not read from a sender, so the
+  // mail states the confidence rather than presenting it as a measurement.
+  const { text, html } = alertEmail({
+    title: `${ctx.licensePlate} is low on fuel`,
+    lines: [
+      ['Vehicle', ctx.licensePlate],
+      ['Estimated level', `${ctx.levelLiters.toFixed(1)} L of ${ctx.capacityLiters} L`],
+      ['Tank', `${ctx.percent.toFixed(0)}%`],
+      ['Model confidence', `${ctx.confidence}%`],
+      ['Basis', 'Calculated from GPS fuel use since the last calibration, not a tank sensor'],
+    ],
+    linkUrl:
+      ctx.latitude && ctx.longitude
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${ctx.latitude},${ctx.longitude}`)}`
+        : null,
+    linkLabel: 'Where the vehicle is now',
+    footer: 'FuelSense · turn these off in Settings → Notifications',
+  });
+
+  await sendMail({ to, subject: `${ctx.licensePlate}: fuel low (~${ctx.levelLiters.toFixed(1)}L)`, text, html });
 }
 
 // Manager action: anchor the model to a known level. liters == null → full tank.

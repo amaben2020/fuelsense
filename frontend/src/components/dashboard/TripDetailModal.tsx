@@ -200,7 +200,9 @@ export function TripDetailModal({
                         <div className="text-right">
                           <p className="font-mono text-sm text-ink">{trip.distance_km} km</p>
                           <p className="font-mono text-xs text-good">
-                            ~{trip.estimated_fuel_liters} L · {formatNgn(trip.estimated_cost_ngn)}
+                            ~{trip.estimated_fuel_liters} L
+                            {trip.estimated_cost_ngn != null &&
+                              ` · ${formatNgn(trip.estimated_cost_ngn)}`}
                           </p>
                         </div>
                       </div>

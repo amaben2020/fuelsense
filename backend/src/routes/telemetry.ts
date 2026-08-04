@@ -33,6 +33,7 @@ import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '..
 import { creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase, consumptionTrend } from '../lib/fuel-calibration';
 import { lookupPlace } from '../lib/place-lookup';
+import { latestReceiptPrice } from '../lib/fuel-price';
 import { googleUsageSnapshot } from '../lib/google-usage';
 
 const router = express.Router();
@@ -214,7 +215,11 @@ router.get('/tracks', async (req: Request, res: Response) => {
 router.get('/trips', async (req: Request, res: Response) => {
   const minutes = Math.min(Number(req.query.minutes) || 1440, 43200); // up to 30 days
   const customerId = req.user.customerId;
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
+  // Money shown against a trip is only as real as the price behind it, so the
+  // rate comes from this fleet's most recent logged receipt. No receipt means
+  // no price, and the response carries null rather than an assumed rate.
+  const price = await latestReceiptPrice(customerId);
+  const pricePerLiter = price?.ngnPerLiter ?? null;
 
   // Explicit calendar range wins over the rolling `minutes` window when both
   // ends parse. Used by the date-range picker; `minutes` stays the default so
@@ -307,7 +312,11 @@ router.get('/trips', async (req: Request, res: Response) => {
             return {
               ...trip,
               estimated_fuel_liters: fuel,
-              estimated_cost_ngn: Math.round(fuel * pricePerLiter),
+              // null until a real receipt establishes a price — see
+              // lib/fuel-price.ts. Litres are measured; money is not, and an
+              // assumed rate must not be shown as though it were.
+              estimated_cost_ngn:
+                pricePerLiter != null ? Math.round(fuel * pricePerLiter) : null,
               speed_bucket: speedBucketLabel(trip.avg_speed_kph),
               speed_bucket_multiplier: multiplier,
             };
@@ -321,7 +330,10 @@ router.get('/trips', async (req: Request, res: Response) => {
             total_distance_km:
               Math.round(trips.reduce((s, t) => s + t.distance_km, 0) * 10) / 10,
             total_fuel_liters: round1(trips.reduce((s, t) => s + t.estimated_fuel_liters, 0)),
-            total_cost_ngn: trips.reduce((s, t) => s + t.estimated_cost_ngn, 0),
+            total_cost_ngn:
+              pricePerLiter != null
+                ? trips.reduce((s, t) => s + (t.estimated_cost_ngn ?? 0), 0)
+                : null,
           };
         });
       };
@@ -385,6 +397,7 @@ router.get('/trips', async (req: Request, res: Response) => {
         to: useRange ? toDate!.toISOString() : null,
         source,
         price_per_liter_ngn: pricePerLiter,
+        price_as_of: price?.asOf ?? null,
         vehicles: vehicleTrips,
       };
     });

@@ -72,9 +72,9 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     severity: 'warning',
     meaning: 'The modelled tank has fallen to a level worth planning a refuel around.',
     trigger:
-      'Virtual tank drops to 15% or less of capacity. Based on the calculated level, not a tank sensor.',
+      'Virtual tank drops to 15% or less of capacity. Based on the calculated level, not a tank sensor. The email states the model confidence alongside the level.',
     source: 'analysis',
-    emailable: false,
+    emailable: true,
   },
   {
     type: 'excessive_idle',
