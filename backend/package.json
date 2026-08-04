@@ -12,6 +12,7 @@
     "mock-device": "tsx src/mock-device.ts",
     "simulate-fleet": "tsx src/fleet-simulator.ts",
     "backfill-device-events": "tsx src/backfill-device-events.ts",
+    "backfill-idle-events": "tsx src/backfill-idle-events.ts",
     "test": "jest --runInBand",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"

@@ -9,6 +9,7 @@ import { invalidate } from './lib/redis';
 import { getIoValue, serializeIo } from './lib/avl-io';
 import { decodeScenarioEvent, recordDeviceEvent, resolveClosedAlert } from './lib/device-event-decoder';
 import { handleIgnitionForTripStart, closeTripStartAlert } from './lib/trip-notifier';
+import { handleIdleForRecord } from './lib/idle-detector';
 import {
   FUEL_USED_GPS_AVL_ID,
   FUEL_RATE_GPS_AVL_ID,
@@ -290,6 +291,29 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       if (!ignitionOn) await closeTripStartAlert(device.customerId!, device.vehicleId!);
     } catch (err) {
       console.error(`[trip_notifier] failed for ${device.imei}:`, err);
+    }
+
+    try {
+      const idle = await handleIdleForRecord({
+        imei: device.imei,
+        customerId: device.customerId!,
+        vehicleId: device.vehicleId!,
+        latitude: telemetryRow.latitude,
+        longitude: telemetryRow.longitude,
+        ignitionOn,
+        speedKph: telemetryRow.speedKph,
+        recordedAt,
+      });
+      for (const emission of idle) {
+        logReal(
+          device.imei,
+          emission.minutes != null
+            ? `${emission.eventType} (${emission.minutes} min)`
+            : emission.eventType
+        );
+      }
+    } catch (err) {
+      console.error(`[idle_detector] failed for ${device.imei}:`, err);
     }
 
     await db

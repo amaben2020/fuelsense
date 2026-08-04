@@ -635,6 +635,50 @@ export async function getFuelHistory(
   );
 }
 
+export interface VehicleSignal {
+  avl_id: number;
+  label: string;
+  group: 'engine' | 'fuel' | 'movement' | 'electrical' | 'network' | 'gnss' | 'other';
+  raw: number;
+  value: number | null;
+  unit: string | null;
+  display: string;
+  known: boolean;
+}
+
+export interface VehicleActivity {
+  records: number;
+  engine_on_seconds: string | number;
+  moving_seconds: string | number;
+  idle_seconds: string | number;
+  ignition_cycles: number;
+  max_speed_kph: number | null;
+  avg_moving_speed_kph: number | null;
+  first_moved_at: string | null;
+  last_moved_at: string | null;
+  distance_km: number | null;
+  fuel_used_liters: string | number | null;
+}
+
+export interface VehicleSignalsResponse {
+  imei: string | null;
+  frame_at: string | null;
+  gps_satellites: number | null;
+  gps_valid: boolean | null;
+  signals: VehicleSignal[];
+  activity: VehicleActivity | null;
+  days: number;
+}
+
+export async function getVehicleSignals(
+  vehicleId: string,
+  days = 1
+): Promise<VehicleSignalsResponse> {
+  return api<VehicleSignalsResponse>(
+    `/telemetry/vehicle-signals?vehicle_id=${vehicleId}&days=${days}`
+  );
+}
+
 export interface TelemetryReadingsResponse {
   page: number;
   limit: number;

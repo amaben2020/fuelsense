@@ -35,6 +35,9 @@ import { reconcileFuelPurchase, consumptionTrend } from '../lib/fuel-calibration
 import { lookupPlace } from '../lib/place-lookup';
 import { latestReceiptPrice } from '../lib/fuel-price';
 import { googleUsageSnapshot } from '../lib/google-usage';
+import { getSerializedIoValue } from '../lib/avl-io';
+import { decodeSignal } from '../lib/avl-catalogue';
+import { serializeForApi } from '../lib/serialize';
 
 const router = express.Router();
 
@@ -1199,6 +1202,116 @@ router.get('/efficiency', async (req: Request, res: Response) => {
     `);
 
     res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Everything the tracker reports about one vehicle, in two parts:
+//   signals  — every IO element in the newest frame, decoded and named
+//   activity — how the day was actually spent, derived from telemetry
+//
+// The signal list is driven by the frame, not by a fixed set of columns, so a
+// newly enabled element in the configurator shows up here on its own.
+router.get('/vehicle-signals', async (req: Request, res: Response) => {
+  const vehicleId = String(req.query.vehicle_id || '').trim();
+  const days = Math.min(Math.max(Number(req.query.days) || 1, 1), 30);
+  const customerId = req.user.customerId;
+
+  if (!vehicleId) {
+    return res.status(400).json({ error: 'vehicle_id is required' });
+  }
+
+  try {
+    const key = cacheKey(customerId, 'vehicle-signals', `${vehicleId}:${days}`);
+    const cached = await withCache(key, 10, async () => {
+      const [frame] = (
+        await db.execute(sql`
+          SELECT f.imei, f.received_at, f.io_raw, f.gps_satellites, f.gps_valid, f.event_id
+          FROM device_frames f
+          JOIN devices d ON d.imei = f.imei
+          WHERE d.vehicle_id = ${vehicleId}::uuid
+            AND d.customer_id = ${customerId}::uuid
+          ORDER BY f.received_at DESC
+          LIMIT 1
+        `)
+      ).rows as Array<Record<string, unknown>>;
+
+      const ioRaw = (frame?.io_raw as Record<string, unknown> | null) ?? null;
+      const signals = ioRaw
+        ? Object.keys(ioRaw)
+            .map(Number)
+            .filter((id) => Number.isFinite(id))
+            .sort((a, b) => a - b)
+            .flatMap((id) => {
+              const raw = getSerializedIoValue(ioRaw, id);
+              return raw == null ? [] : [decodeSignal(id, raw)];
+            })
+        : [];
+
+      // Time is attributed to the state at the START of each gap — a frame
+      // saying "ignition off" closes the running period, it does not describe
+      // it. Gaps are capped at the device's one-hour idle heartbeat so a
+      // tracker that goes offline for a day cannot report a day of driving.
+      const [activity] = (
+        await db.execute(sql`
+          WITH readings AS (
+            SELECT
+              t.recorded_at,
+              COALESCE(t.ignition_on, false) AS ignition_on,
+              COALESCE(t.speed_kph, 0) AS speed_kph,
+              t.odometer_km,
+              t.fuel_used_gps_ml
+            FROM telemetry t
+            WHERE t.vehicle_id = ${vehicleId}::uuid
+              AND t.customer_id = ${customerId}::uuid
+              AND t.recorded_at > NOW() - (${days} || ' days')::INTERVAL
+          ),
+          spans AS (
+            SELECT
+              *,
+              LAG(ignition_on) OVER w AS prev_ignition,
+              LEAST(
+                EXTRACT(EPOCH FROM (LEAD(recorded_at) OVER w - recorded_at)),
+                3600
+              ) AS span_s
+            FROM readings
+            WINDOW w AS (ORDER BY recorded_at)
+          )
+          SELECT
+            COUNT(*)::int AS records,
+            COALESCE(SUM(span_s) FILTER (WHERE ignition_on), 0)::numeric AS engine_on_seconds,
+            COALESCE(SUM(span_s) FILTER (WHERE speed_kph >= 2), 0)::numeric AS moving_seconds,
+            COALESCE(
+              SUM(span_s) FILTER (WHERE ignition_on AND speed_kph < 2), 0
+            )::numeric AS idle_seconds,
+            COUNT(*) FILTER (WHERE prev_ignition = false AND ignition_on)::int AS ignition_cycles,
+            MAX(speed_kph)::int AS max_speed_kph,
+            ROUND(AVG(speed_kph) FILTER (WHERE speed_kph >= 2))::int AS avg_moving_speed_kph,
+            MIN(recorded_at) FILTER (WHERE speed_kph >= 2) AS first_moved_at,
+            MAX(recorded_at) FILTER (WHERE speed_kph >= 2) AS last_moved_at,
+            GREATEST(MAX(odometer_km) - MIN(odometer_km), 0)::int AS distance_km,
+            -- The GPS fuel accumulator resets on a power cycle, which would
+            -- read as a negative burn. Clamp rather than report a refund.
+            GREATEST(
+              (MAX(fuel_used_gps_ml) - MIN(fuel_used_gps_ml)) / 1000.0, 0
+            )::numeric AS fuel_used_liters
+          FROM spans
+        `)
+      ).rows as Array<Record<string, unknown>>;
+
+      return {
+        imei: frame?.imei ?? null,
+        frame_at: frame?.received_at ?? null,
+        gps_satellites: frame?.gps_satellites ?? null,
+        gps_valid: frame?.gps_valid ?? null,
+        signals,
+        activity: activity ?? null,
+        days,
+      };
+    });
+
+    res.json(serializeForApi(cached));
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

@@ -7,6 +7,7 @@ import { FleetVehicle, formatNgn, formatOdometerMiles } from '@/lib/api';
 import { useEstimatedConsumption } from './EstimatedConsumptionTable';
 import { VirtualFuelGauge } from './VirtualFuelGauge';
 import { FuelLevelChart } from './FuelLevelChart';
+import { VehicleSignalsTable } from './VehicleSignalsTable';
 
 const Vehicle3D = dynamic(() => import('./Vehicle3D').then((m) => m.Vehicle3D), {
   ssr: false,
@@ -374,6 +375,12 @@ export function VehicleShowcase({
           />
         </div>
       </div>
+
+      <VehicleSignalsTable
+        key={vehicle.id}
+        vehicleId={vehicle.id}
+        refreshKey={vehicle.last_telemetry_at ?? 0}
+      />
     </div>
   );
 }

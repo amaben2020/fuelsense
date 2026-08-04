@@ -48,7 +48,7 @@ interface DecodeContext {
 }
 
 export const SCENARIO_EVENT_IO_IDS = [
-  246, 247, 249, 250, 251, 252, 253, 255, 175, 155, 156, 157, 158,
+  239, 246, 247, 249, 250, 251, 252, 253, 255, 175, 155, 156, 157, 158,
 ];
 
 export function decodeScenarioEvent(
@@ -59,6 +59,19 @@ export function decodeScenarioEvent(
   const state = getIoValue(ctx.io, eventIoId);
 
   switch (eventIoId) {
+    case 239: {
+      // The one scenario the tracker does report as an event. Recording it
+      // gives the feed a truthful "engine was running from here to here" even
+      // when the vehicle never moves and no trip is ever segmented.
+      const on = state === 1;
+      return {
+        eventType: on ? 'ignition_on' : 'ignition_off',
+        severity: 'info',
+        value: null,
+        unit: null,
+        alertMessage: null,
+      };
+    }
     case 253: {
       const kind = GREEN_DRIVING_TYPES[state ?? 0];
       if (!kind) return null;
