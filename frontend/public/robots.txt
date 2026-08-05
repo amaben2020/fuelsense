@@ -1,0 +1,36 @@
+# FuelSense crawler policy.
+#
+# Marketing pages are open to everything, search engines and AI assistants
+# alike: being quotable in an answer is how a product like this gets found.
+# Assistant crawlers are named explicitly rather than left to a default some
+# of them read as a refusal.
+#
+# Everything behind authentication is disallowed. It is private customer
+# telemetry and renders nothing useful without a session.
+
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /driver
+Disallow: /onboarding
+Disallow: /api/
+
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-User
+User-agent: anthropic-ai
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: CCBot
+User-agent: meta-externalagent
+Allow: /
+Disallow: /dashboard
+Disallow: /driver
+Disallow: /onboarding
+Disallow: /api/
+
+Sitemap: https://fuelsense.ng/sitemap.xml

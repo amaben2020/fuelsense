@@ -1,9 +1,10 @@
-name: Deploy frontend to Netlify
+name: Deploy frontend to EC2
 
-# Netlify's own git integration has silently stopped shipping commits before,
-# leaving the live site several builds behind with no visible failure. Building
-# here makes the deploy explicit: it either succeeds in a log you can read, or
-# it fails loudly.
+# Netlify paused production deploys when the team ran out of credits, leaving
+# the live site several builds behind while reporting nothing but "Skipped".
+# The site is a static export, so it now ships to the same EC2 box that
+# already serves the API, behind the Caddy that is already there. One host,
+# one pipeline, no build minutes to run out of.
 on:
   push:
     branches: [main]
@@ -19,9 +20,6 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
 
@@ -31,34 +29,54 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - name: Install
+        working-directory: frontend
+        run: npm ci
 
       - name: Typecheck
+        working-directory: frontend
         run: npx tsc --noEmit
 
       - name: Build
+        working-directory: frontend
         env:
-          # Baked in at build time by next.config, so it has to be present here
-          # or the landing map renders its fallback instead.
+          # Read by next.config at build time, so the landing map falls back to
+          # its drawn trace if this is missing.
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_SITE_URL: https://fuelsense.ng
         run: npx next build
 
-      - name: Publish to Netlify
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        run: npx netlify-cli@17 deploy --build --prod --dir=.next
-
-      - name: Confirm the new pages are live
+      - name: Load the deploy key
         run: |
-          sleep 12
-          for path in / /pricing /robots.txt; do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://fuelsense.ng$path")
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
+          chmod 600 ~/.ssh/deploy.pem
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Publish
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes" \
+            frontend/out/ \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/var/www/fuelsense/"
+
+      # Checked against the box directly rather than the public name, so a
+      # deploy can be verified before DNS is cut over and stays verifiable if
+      # DNS is ever the thing that breaks.
+      - name: Confirm the pages answer
+        run: |
+          IP=$(dig +short "${{ secrets.EC2_HOST }}" | tail -1)
+          for path in / /pricing /contact /robots.txt; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --resolve "fuelsense.ng:443:$IP" "https://fuelsense.ng$path")
             echo "$path -> $CODE"
             if [ "$CODE" != "200" ]; then
-              echo "::error::https://fuelsense.ng$path returned $CODE"
+              echo "::error::$path returned $CODE"
               exit 1
             fi
           done
+
+      - name: Clean up the key
+        if: always()
+        run: rm -f ~/.ssh/deploy.pem
