@@ -48,8 +48,22 @@ const BURN_FACTOR_MIN = 0.5;
 const BURN_FACTOR_MAX = 4;
 // Enough stationary samples that the ratio reflects a pattern, not one ping.
 const BURN_FACTOR_MIN_SAMPLES = 10;
-// Below this the two elements effectively agree — leave the device alone.
+// Below this the two elements effectively agree, so leave the device alone.
 const BURN_FACTOR_DEADBAND = 0.15;
+
+/**
+ * A factor measured against litres a driver actually paid for outranks one
+ * inferred from the device's own two estimates. Once receipts have calibrated
+ * a vehicle, the cross-check stops overriding them.
+ */
+export const RECEIPT_BURN_FACTOR_SOURCE = 'receipt_tank_to_tank';
+
+// How far the tank model may be wrong before a refuel is worth questioning.
+// A driver cannot put more into a tank than its empty space, so litres beyond
+// the modelled headroom mean the vehicle held less than the model believed.
+// The allowance covers partial fills, splashing and rounding on the pump.
+const REFUEL_GAP_TOLERANCE_FRACTION = 0.08;
+const REFUEL_GAP_TOLERANCE_MIN_LITERS = 2;
 
 export interface VirtualTankState {
   vehicleId: string;
@@ -78,8 +92,15 @@ export interface VirtualTankState {
 export function deriveBurnFactor(
   learnedIdleLph: number | null,
   accumulatorIdleLph: number | null,
-  samples: number
+  samples: number,
+  /** Anything already measured from receipts is left alone. */
+  existingSource?: string | null,
+  existingFactor?: number
 ): { factor: number; source: string | null } {
+  if (existingSource === RECEIPT_BURN_FACTOR_SOURCE && existingFactor) {
+    return { factor: existingFactor, source: existingSource };
+  }
+
   if (
     learnedIdleLph == null ||
     accumulatorIdleLph == null ||
@@ -342,7 +363,9 @@ export async function processFuelGpsReading(
   const { factor: burnFactor, source: burnFactorSource } = deriveBurnFactor(
     learnedIdleLph,
     accumulatorIdleLph,
-    burnFactorSamples
+    burnFactorSamples,
+    state.burnFactorSource,
+    state.burnFactor
   );
 
   // Correct the delta before it touches the tank, so level, consumption and
@@ -498,19 +521,85 @@ export async function calibrateTank(
 // Refuel credit from a submitted/verified fuel receipt. Clamped to capacity;
 // a declared amount that would overflow the tank is itself a fraud signal the
 // receipt-reconciliation flow surfaces separately.
+/**
+ * How far the tank model was out, judged by a fill it could not physically
+ * have accepted.
+ *
+ * The tank is the source of truth for how much fuel a vehicle has, so a refuel
+ * is the moment that truth gets audited: a driver cannot pour 45 litres into a
+ * tank the model says has 30 litres of space. The excess is the amount the
+ * model over-estimated, which is the same figure as fuel that left the vehicle
+ * without being accounted for.
+ *
+ * Deliberately not called theft. Without a fuel-level sensor this is an
+ * inference from paid-for litres against modelled burn, and it has honest
+ * innocent explanations: a wrong consumption profile, an uncalibrated
+ * accumulator, or a tank that was never as full as assumed.
+ */
+export function refuelDiscrepancyLiters(
+  capacityLiters: number,
+  levelLiters: number,
+  addedLiters: number
+): number {
+  const headroom = Math.max(0, capacityLiters - levelLiters);
+  const tolerance = Math.max(
+    REFUEL_GAP_TOLERANCE_MIN_LITERS,
+    capacityLiters * REFUEL_GAP_TOLERANCE_FRACTION
+  );
+  const excess = addedLiters - headroom;
+  return excess > tolerance ? Number(excess.toFixed(2)) : 0;
+}
+
+export interface RefuelResult {
+  state: VirtualTankState | null;
+  /** Litres the model believed were in the tank but could not have been. */
+  discrepancyLiters: number;
+}
+
+/**
+ * Stores a correction measured from receipts, which then outranks the device
+ * cross-check for good. Kept here so the tank owns every write to its own row.
+ */
+export async function applyReceiptBurnFactor(
+  vehicleId: string,
+  factor: number,
+  intervals: number
+): Promise<void> {
+  await db
+    .update(virtualTanks)
+    .set({
+      burnFactor: factor.toFixed(3),
+      burnFactorSource: RECEIPT_BURN_FACTOR_SOURCE,
+      burnFactorSamples: intervals,
+      updatedAt: sql`NOW()`,
+    })
+    .where(eq(virtualTanks.vehicleId, vehicleId));
+}
+
 export async function creditRefuel(
   vehicleId: string,
   customerId: string,
-  liters: number
-): Promise<VirtualTankState | null> {
-  if (!(liters > 0)) return null;
+  liters: number,
+  options: { pricePerLiter?: number | null; licensePlate?: string } = {}
+): Promise<RefuelResult> {
+  if (!(liters > 0)) return { state: null, discrepancyLiters: 0 };
   const state = await getVirtualTank(vehicleId);
-  if (!state) return null;
+  if (!state) return { state: null, discrepancyLiters: 0 };
 
-  const levelMl = Math.min(
-    Math.round(state.capacityLiters * 1000),
-    state.levelMl + Math.round(liters * 1000)
+  const capacityMl = Math.round(state.capacityLiters * 1000);
+  const discrepancyLiters = refuelDiscrepancyLiters(
+    state.capacityLiters,
+    state.levelMl / 1000,
+    liters
   );
+
+  // The fill is the better evidence, so the model is corrected to it rather
+  // than the other way round: a tank that just took `liters` was holding
+  // capacity minus that amount, whatever the model had been carrying.
+  const levelMl =
+    discrepancyLiters > 0
+      ? capacityMl
+      : Math.min(capacityMl, state.levelMl + Math.round(liters * 1000));
 
   const [row] = await db
     .update(virtualTanks)
@@ -518,5 +607,47 @@ export async function creditRefuel(
     .where(and(eq(virtualTanks.vehicleId, vehicleId), eq(virtualTanks.customerId, customerId)))
     .returning();
 
-  return row ? rowToState(row) : null;
+  if (discrepancyLiters > 0) {
+    await recordDiscrepancy(vehicleId, customerId, state, discrepancyLiters, options);
+  }
+
+  return { state: row ? rowToState(row) : null, discrepancyLiters };
+}
+
+async function recordDiscrepancy(
+  vehicleId: string,
+  customerId: string,
+  state: VirtualTankState,
+  discrepancyLiters: number,
+  options: { pricePerLiter?: number | null; licensePlate?: string }
+): Promise<void> {
+  const plate = options.licensePlate ?? 'Vehicle';
+  const value =
+    options.pricePerLiter && options.pricePerLiter > 0
+      ? Math.round(discrepancyLiters * options.pricePerLiter)
+      : null;
+
+  await db.insert(deviceEvents).values({
+    customerId,
+    vehicleId,
+    eventType: 'fuel_discrepancy',
+    severity: 'warning',
+    value: discrepancyLiters.toString(),
+    unit: 'L',
+    occurredAt: new Date(),
+  });
+
+  if (await hasOpenAlert(customerId, vehicleId, 'fuel_discrepancy')) return;
+
+  const worth = value != null ? ` (about ₦${value.toLocaleString('en-NG')})` : '';
+  await db.insert(alerts).values({
+    customerId,
+    vehicleId,
+    alertType: 'fuel_discrepancy',
+    message:
+      `${plate} took on more fuel than its tank had room for by ${discrepancyLiters.toFixed(1)} L` +
+      `${worth}. The vehicle was running emptier than the model showed, so either its ` +
+      `consumption profile needs calibrating or fuel left the vehicle unaccounted for. ` +
+      `Check the recent receipts before drawing a conclusion.`,
+  });
 }

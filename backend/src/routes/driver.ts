@@ -467,7 +467,8 @@ router.post('/receipts', async (req: Request, res: Response) => {
     await creditRefuel(
       vehicleId,
       req.driver.customerId,
-      reconciliation.obdLitersActual ?? declared
+      reconciliation.obdLitersActual ?? declared,
+      { pricePerLiter: price }
     ).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
 
     // Reconcile this fill against the previous one and refresh the vehicle's

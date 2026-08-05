@@ -1114,9 +1114,11 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     // on vehicles without a fuel sensor. Prefer the OBD-matched volume when a
     // sensor exists; otherwise trust the declared litres (reconciliation flags
     // inflated receipts separately).
-    await creditRefuel(vehicleId, customerId, litersActual ?? declared).catch((err) =>
-      console.error('[virtual_tank] refuel credit failed:', err)
-    );
+    // A fill larger than the tank's modelled headroom is the audit moment for
+    // the model, so the price rides along to value any gap it exposes.
+    await creditRefuel(vehicleId, customerId, litersActual ?? declared, {
+      pricePerLiter,
+    }).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
 
     // Fill-to-fill reconciliation: compares this odometer reading against the
     // previous fill and against GPS, then refreshes the vehicle's rate.

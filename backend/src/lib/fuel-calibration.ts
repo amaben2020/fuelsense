@@ -18,6 +18,7 @@ import {
   sql,
 } from './db-helpers';
 import { CALIBRATION_MIN_PURCHASES, presetForVehicleType, round1, round2 } from './fuel-metrics';
+import { applyReceiptBurnFactor } from './virtual-tank';
 
 /** Odometer vs GPS may legitimately differ (tunnels, tracker gaps, wheel size). */
 export const DISTANCE_MISMATCH_TOLERANCE = Number(
@@ -43,6 +44,82 @@ export interface ReconcileResult {
   /** Rate now in force for the vehicle, and where it came from. */
   vehicle_rate_l_per_100km: number | null;
   rate_source: 'preset' | 'calibrated';
+}
+
+/**
+ * Burn correction measured against litres someone actually paid for.
+ *
+ * Between two fills, the accumulator claims some number of litres burned and
+ * the receipts say how many were bought. On a vehicle that is filled to the
+ * same point each time those two are the same quantity, so their ratio is a
+ * direct measurement of how far the device's estimate is out. That beats the
+ * device's own AVL 13 cross-check, which only compares one firmware guess
+ * against another.
+ *
+ * Returns null until there are enough intervals to be worth trusting.
+ */
+export async function deriveBurnFactorFromReceipts(
+  vehicleId: string
+): Promise<{ factor: number; intervals: number } | null> {
+  const purchases = await db
+    .select({ at: fuelPurchases.purchasedAt, liters: fuelPurchases.litersActual })
+    .from(fuelPurchases)
+    .where(and(eq(fuelPurchases.vehicleId, vehicleId), sql`${fuelPurchases.litersActual} > 0`))
+    .orderBy(desc(fuelPurchases.purchasedAt))
+    .limit(CALIBRATION_WINDOW + 1);
+
+  if (purchases.length < CALIBRATION_MIN_PURCHASES + 1) return null;
+
+  // Oldest first, so each interval runs from one fill to the next.
+  const ordered = [...purchases].reverse();
+  const ratios: number[] = [];
+
+  for (let i = 1; i < ordered.length; i++) {
+    const from = ordered[i - 1].at;
+    const to = ordered[i].at;
+    const litersBought = Number(ordered[i].liters);
+    if (!from || !to || !(litersBought > 0)) continue;
+
+    // Accumulator litres over the same window. The element resets on a power
+    // cycle, so only forward steps are summed; a reset contributes nothing
+    // rather than a spurious negative.
+    const [row] = (
+      await db.execute(sql`
+        WITH ordered AS (
+          SELECT
+            fuel_used_gps_ml,
+            LAG(fuel_used_gps_ml) OVER (ORDER BY recorded_at) AS prev_ml
+          FROM telemetry
+          WHERE vehicle_id = ${vehicleId}::uuid
+            AND fuel_used_gps_ml IS NOT NULL
+            AND recorded_at > ${from.toISOString()}::timestamp
+            AND recorded_at <= ${to.toISOString()}::timestamp
+        )
+        SELECT COALESCE(
+          SUM(CASE WHEN fuel_used_gps_ml >= prev_ml THEN fuel_used_gps_ml - prev_ml ELSE 0 END),
+          0
+        )::numeric / 1000.0 AS accumulator_liters
+        FROM ordered
+        WHERE prev_ml IS NOT NULL
+      `)
+    ).rows as Array<{ accumulator_liters: string }>;
+
+    const accumulatorLiters = Number(row?.accumulator_liters ?? 0);
+    // Too little movement between fills to say anything useful.
+    if (accumulatorLiters < 1) continue;
+
+    ratios.push(litersBought / accumulatorLiters);
+  }
+
+  if (ratios.length < CALIBRATION_MIN_PURCHASES) return null;
+
+  // Median, so one short-filled tank cannot drag the correction.
+  ratios.sort((a, b) => a - b);
+  const middle = Math.floor(ratios.length / 2);
+  const factor =
+    ratios.length % 2 === 0 ? (ratios[middle - 1] + ratios[middle]) / 2 : ratios[middle];
+
+  return { factor: round2(Math.min(4, Math.max(0.5, factor))), intervals: ratios.length };
 }
 
 /** GPS distance the vehicle covered between two instants. */
@@ -286,6 +363,21 @@ export async function reconcileFuelPurchase(purchaseId: string): Promise<Reconci
     .where(eq(fuelPurchases.id, purchaseId));
 
   const { rate, source } = await recalculateVehicleRate(current.vehicleId);
+
+  // Each new fill is another measurement of how far the device's accumulator
+  // is out, so the tank's correction is refreshed here rather than waiting for
+  // the next telemetry ping to infer one from the device's own estimates.
+  const receiptFactor = await deriveBurnFactorFromReceipts(current.vehicleId!).catch((err) => {
+    console.error('[calibration] receipt burn factor failed:', err);
+    return null;
+  });
+  if (receiptFactor) {
+    await applyReceiptBurnFactor(
+      current.vehicleId!,
+      receiptFactor.factor,
+      receiptFactor.intervals
+    ).catch((err) => console.error('[calibration] burn factor write failed:', err));
+  }
 
   return {
     odometer_delta_km: odometerDelta,
