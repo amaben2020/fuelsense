@@ -1,7 +1,10 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { gsap } from 'gsap';
+import { api, Customer, isAuthenticated } from '@/lib/api';
 import { LiveMapDemo } from '@/components/marketing/LiveMapDemo';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
 import { countUp, revealOnScroll, useGsapScope } from '@/components/marketing/useScrollReveal';
@@ -18,6 +21,28 @@ function Marker({ num, label }: { num: string; label: string }) {
 }
 
 export default function LandingPage() {
+  const router = useRouter();
+
+  // Someone already signed in has no use for the pitch — send them where they
+  // were going. Visitors without a token never touch this and see the page.
+  // The landing renders while the check runs, so there is no loading screen
+  // and no flash of blank page for the far more common signed-out case.
+  useEffect(() => {
+    if (!isAuthenticated()) return;
+
+    let cancelled = false;
+    api<Customer>('/auth/me')
+      .then((me) => {
+        if (!cancelled) router.replace(me.onboarding_completed ? '/dashboard' : '/onboarding');
+      })
+      // A stale or rejected token just means "treat them as a visitor".
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
   const scope = useGsapScope(({ scope }) => {
     // Hero: lines rise out of their masks, then everything else settles in.
     gsap.from('[data-hero-line] > span', {
