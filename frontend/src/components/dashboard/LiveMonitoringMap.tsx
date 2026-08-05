@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
+import { DateRangePicker } from './DateRangePicker';
 import { lerp, timeAgo, tripColor } from '@/lib/map-utils';
 import {
   FleetVehicle,
@@ -79,29 +80,12 @@ function formatDuration(minutes: number): string {
 }
 
 /** ISO → the `datetime-local` input format, in the viewer's own timezone. */
-function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 function formatRangeLabel({ from, to }: { from: string; to: string }): string {
   const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
   return `${new Date(from).toLocaleDateString([], opts)}–${new Date(to).toLocaleDateString([], opts)}`;
 }
 
 /** Null when the draft range is valid — otherwise why Apply is disabled. */
-function rangeError(from: string, to: string): string | null {
-  if (!from || !to) return null;
-  const a = new Date(from);
-  const b = new Date(to);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 'Enter both dates.';
-  if (a >= b) return 'From must be before To.';
-  if (b.getTime() - a.getTime() > 30 * 86_400_000) return 'Range cannot exceed 30 days.';
-  return null;
-}
-
 /** Wall-clock HH:MM for a stop's arrive/depart pair. */
 function clockTime(iso: string): string {
   const d = new Date(iso);
@@ -210,8 +194,6 @@ export function LiveMonitoringMap({
   const [rangeOpen, setRangeOpen] = useState(false);
   // Draft values for the date-range popover — only committed on Apply, so a
   // half-typed date never triggers a fetch.
-  const [draftFrom, setDraftFrom] = useState('');
-  const [draftTo, setDraftTo] = useState('');
   const [focusedTrip, setFocusedTrip] = useState<{ vehicleId: string; index: number } | null>(
     null
   );
@@ -544,8 +526,6 @@ export function LiveMonitoringMap({
               <button
                 type="button"
                 onClick={() => {
-                  setDraftFrom(dateRange ? toLocalInput(dateRange.from) : '');
-                  setDraftTo(dateRange ? toLocalInput(dateRange.to) : '');
                   setRangeOpen((v) => !v);
                 }}
                 className={`border-l border-edge px-2.5 py-1.5 transition-colors ${
@@ -558,55 +538,18 @@ export function LiveMonitoringMap({
             </div>
 
             {rangeOpen && (
-              <div className="absolute right-0 top-10 z-30 w-72 rounded-xl border border-edge bg-panel/95 p-3 shadow-xl backdrop-blur">
-                <p className="mb-2 text-xs font-semibold text-ink">Date range</p>
-                <label className="block text-[11px] text-ink-dim">
-                  From
-                  <input
-                    type="datetime-local"
-                    value={draftFrom}
-                    onChange={(e) => setDraftFrom(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-edge bg-canvas px-2 py-1.5 text-xs text-ink"
-                  />
-                </label>
-                <label className="mt-2 block text-[11px] text-ink-dim">
-                  To
-                  <input
-                    type="datetime-local"
-                    value={draftTo}
-                    onChange={(e) => setDraftTo(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-edge bg-canvas px-2 py-1.5 text-xs text-ink"
-                  />
-                </label>
-                {rangeError(draftFrom, draftTo) && (
-                  <p className="mt-2 text-[11px] text-error">{rangeError(draftFrom, draftTo)}</p>
-                )}
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    disabled={!draftFrom || !draftTo || Boolean(rangeError(draftFrom, draftTo))}
-                    onClick={() => {
-                      onDateRangeChange?.({
-                        from: new Date(draftFrom).toISOString(),
-                        to: new Date(draftTo).toISOString(),
-                      });
-                      setRangeOpen(false);
-                    }}
-                    className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onDateRangeChange?.(null);
-                      setRangeOpen(false);
-                    }}
-                    className="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-mid hover:text-ink"
-                  >
-                    Clear
-                  </button>
-                </div>
+              <div className="absolute right-0 top-10 z-30">
+                <DateRangePicker
+                  value={dateRange ?? null}
+                  onApply={(range) => {
+                    onDateRangeChange?.(range);
+                    setRangeOpen(false);
+                  }}
+                  onClear={() => {
+                    onDateRangeChange?.(null);
+                    setRangeOpen(false);
+                  }}
+                />
               </div>
             )}
             {/* POI toggle */}

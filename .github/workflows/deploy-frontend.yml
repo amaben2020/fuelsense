@@ -1,0 +1,64 @@
+name: Deploy frontend to Netlify
+
+# Netlify's own git integration has silently stopped shipping commits before,
+# leaving the live site several builds behind with no visible failure. Building
+# here makes the deploy explicit: it either succeeds in a log you can read, or
+# it fails loudly.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        env:
+          # Baked in at build time by next.config, so it has to be present here
+          # or the landing map renders its fallback instead.
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_SITE_URL: https://fuelsense.ng
+        run: npx next build
+
+      - name: Publish to Netlify
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: npx netlify-cli@17 deploy --build --prod --dir=.next
+
+      - name: Confirm the new pages are live
+        run: |
+          sleep 12
+          for path in / /pricing /robots.txt; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://fuelsense.ng$path")
+            echo "$path -> $CODE"
+            if [ "$CODE" != "200" ]; then
+              echo "::error::https://fuelsense.ng$path returned $CODE"
+              exit 1
+            fi
+          done

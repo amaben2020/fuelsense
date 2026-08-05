@@ -1,0 +1,116 @@
+name: Deploy backend to EC2
+
+# Replaces deploying by hand over SSH. Every push that touches the backend
+# runs the checks first and only ships if they pass, so a broken build cannot
+# reach the box that the tracker is streaming to.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  # Available for a manual redeploy without an empty commit.
+  workflow_dispatch:
+
+concurrency:
+  # A second push while one deploy is mid-rsync would interleave file writes.
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Test and typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Tests
+        run: npx jest --runInBand
+
+      # The repo carries a known set of pre-existing type errors, so this
+      # fails only when a change adds more rather than on the backlog itself.
+      - name: Typecheck (no new errors)
+        run: |
+          BASELINE=23
+          COUNT=$(npx tsc --noEmit 2>&1 | grep -c "error TS" || true)
+          echo "TypeScript errors: $COUNT (baseline $BASELINE)"
+          if [ "$COUNT" -gt "$BASELINE" ]; then
+            echo "::error::$COUNT type errors, above the baseline of $BASELINE"
+            npx tsc --noEmit 2>&1 | grep "error TS" || true
+            exit 1
+          fi
+
+  deploy:
+    name: Ship to EC2
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load the deploy key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
+          chmod 600 ~/.ssh/deploy.pem
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # --exclude .env is not optional: the server holds the production
+      # environment file and nothing in the repo should ever overwrite it.
+      - name: Sync backend
+        run: |
+          rsync -az --delete \
+            --exclude node_modules \
+            --exclude .git \
+            --exclude .env \
+            --exclude dist \
+            -e "ssh -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes" \
+            backend/ \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/backend/"
+
+      # Dependencies are installed only when the lockfile actually changed.
+      # A plain `npm ci` on every deploy would be slow, and `--omit=dev` would
+      # delete tsx, which is what the systemd unit executes.
+      - name: Install dependencies if the lockfile changed
+        run: |
+          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
+            cd ~/backend
+            if ! cmp -s package-lock.json .deployed-lock; then
+              echo "Lockfile changed, installing"
+              npm install --no-audit --no-fund
+              cp package-lock.json .deployed-lock
+            else
+              echo "Lockfile unchanged, skipping install"
+            fi
+          '
+
+      - name: Restart and verify
+        run: |
+          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
+            sudo systemctl restart fuelsense-backend
+            for i in $(seq 1 20); do
+              sleep 3
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5001/api/health || true)
+              if [ "$CODE" = "200" ]; then
+                echo "Healthy after $((i * 3))s"
+                exit 0
+              fi
+            done
+            echo "Service did not come back healthy"
+            sudo journalctl -u fuelsense-backend -n 40 --no-pager
+            exit 1
+          '
+
+      - name: Clean up the key
+        if: always()
+        run: rm -f ~/.ssh/deploy.pem
