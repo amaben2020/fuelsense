@@ -161,7 +161,7 @@ export function EstimatedConsumptionTableView({
                 <th className="px-6 py-3">Distance</th>
                 <th className="px-6 py-3">Baseline km/L</th>
                 <th className="px-6 py-3">Idle</th>
-                <th className="px-6 py-3">Est. fuel used</th>
+                <th className="px-6 py-3">Fuel used</th>
                 <th className="px-6 py-3">Est. cost</th>
               </tr>
             </thead>

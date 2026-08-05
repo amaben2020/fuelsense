@@ -783,6 +783,9 @@ export interface ServerTrip {
   estimated_cost_ngn: number | null;
   path: [number, number][];
   stops: TripStop[];
+  /** 0-100. How much weight this trip's fuel figure can carry. */
+  confidence: number;
+  confidence_notes: string[];
 }
 
 export interface TripsVehicle {

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo, Geist_Mono, Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { StructuredData } from "@/components/marketing/StructuredData";
 
 const interSans = Inter({
   variable: "--font-inter",
@@ -30,17 +31,35 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://fuelsense.ng';
+
 export const metadata: Metadata = {
-  // The landing page is the public face, so the default title is the product's
-  // rather than the dashboard's — everything behind auth is unindexable anyway.
+  metadataBase: new URL(SITE),
+  alternates: { canonical: '/' },
+  applicationName: 'FuelSense',
+  keywords: [
+    'fleet fuel monitoring Nigeria',
+    'GPS fuel tracking',
+    'Teltonika FMC150',
+    'fleet management software Nigeria',
+    'fuel consumption tracking',
+    'vehicle tracking Lagos Abuja',
+    'idling cost tracking',
+  ],
+  robots: { index: true, follow: true },
+  // The landing page is the public face, so the default title is the
+  // product's rather than the dashboard's. Everything behind auth is
+  // unindexable anyway.
   title: {
-    default: 'FuelSense — every litre, accounted for',
+    default: 'FuelSense, every litre accounted for',
     template: '%s · FuelSense',
   },
   description:
-    'Fuel intelligence for Nigerian fleets. Live tracking, trip and idling detection, and fuel cost you can audit — built on Teltonika telemetry.',
+    'Fuel intelligence for Nigerian fleets. Live tracking, trip and idling detection, and fuel cost you can audit, built on Teltonika telemetry.',
   openGraph: {
-    title: 'FuelSense — every litre, accounted for',
+    url: SITE,
+    locale: 'en_NG',
+    title: 'FuelSense, every litre accounted for',
     description:
       'Live tracking, trip and idling detection, and fuel cost you can audit, for Nigerian fleets.',
     siteName: 'FuelSense',
@@ -67,7 +86,10 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <StructuredData />
+        {children}
+      </body>
     </html>
   );
 }

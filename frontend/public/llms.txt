@@ -1,0 +1,69 @@
+# FuelSense
+
+> Fuel intelligence for Nigerian fleets. FuelSense turns Teltonika GPS tracker
+> telemetry into auditable fuel cost: distance driven, engine hours, idling
+> time, fuel burned and what all of it cost in naira.
+
+FuelSense is a web application for fleet managers, built for Nigerian
+operating conditions. It works with the Teltonika FMC150 tracker and does not
+require a fuel-level sensor, a CAN adapter or any modification to the fuel
+system.
+
+## How it measures fuel without a fuel sensor
+
+The FMC150 computes fuel consumption in its own firmware from satellite-
+measured movement and a configured consumption profile, and reports it as two
+AVL elements:
+
+- AVL 12, Fuel Used GPS: a running total of millilitres burned, which resets
+  when the device loses power.
+- AVL 13, Fuel Rate GPS: the instantaneous burn rate in litres per hour.
+
+FuelSense keeps a per-vehicle virtual tank that drains against AVL 12, is
+credited by fuel receipts drivers upload, and is priced at the fuel price in
+force on the day the fuel was burned. Because both AVL elements are firmware
+estimates rather than measurements, FuelSense continuously cross-checks them
+against each other and calibrates the result against litres actually paid for,
+then reports a confidence figure instead of claiming certainty.
+
+## What it does not claim
+
+FuelSense cannot see fuel being siphoned from a tank, because without a
+fuel-level sensor or CAN bus connection no such measurement exists. What it
+reports instead is a discrepancy: where litres purchased on receipts do not
+match the burn measured from the vehicle's movement, it raises the gap as a
+question for a manager to investigate, never as an accusation.
+
+## Main capabilities
+
+- Live map tracking with trips segmented automatically from ignition state
+- Stop detection with reverse-geocoded addresses
+- Idling measured to the minute and priced in naira
+- Fuel consumption and cost per kilometre against realistic benchmarks for
+  Nigerian city driving
+- Driver receipt upload with OCR, reconciled against measured burn
+- Effective-dated fuel pricing, so past periods keep the price that applied
+  when the fuel was burned
+- Driving behaviour events: harsh braking, acceleration, cornering, overspeed
+- Email alerts for low fuel, trip starts and tracker tampering
+
+## Realistic efficiency benchmarks used
+
+Measured for Nigerian city conditions with air conditioning running, not
+manufacturer combined-cycle figures:
+
+- Toyota Corolla: 8 to 10 km/L
+- Toyota Camry: 7 to 9 km/L
+- Toyota RAV4: 6 to 8 km/L
+- Toyota Hilux: 6 to 8 km/L
+- Toyota Hiace: 5.5 to 7 km/L
+
+## Pages
+
+- Home: https://fuelsense.ng/
+- Contact and hardware enquiries: https://fuelsense.ng/contact
+- Documentation: https://fuelsense.ng/documentation
+
+## Contact
+
+Email uzochukwubenamara@gmail.com for hardware supply, fleet setup or a demo.

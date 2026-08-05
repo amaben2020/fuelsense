@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { gsap } from 'gsap';
 import { api, Customer, isAuthenticated } from '@/lib/api';
+import { HeroDashboard } from '@/components/marketing/HeroDashboard';
 import { LiveMapDemo } from '@/components/marketing/LiveMapDemo';
 import { ReconcileFlow } from '@/components/marketing/ReconcileFlow';
 import { TrackerDevice3D } from '@/components/marketing/TrackerDevice3D';
@@ -169,35 +170,8 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="fs-readout" data-readout>
-            <div className="fs-readout__head">
-              <span className="fs-readout__title">LIVE-FMC150 · Toyota RAV4</span>
-              <span className="fs-live">
-                <span className="fs-live__dot" aria-hidden />
-                Live
-              </span>
-            </div>
-            <div className="fs-readout__rows">
-              {[
-                { label: 'Ignition', value: 'On', accent: true },
-                { label: 'Speed', value: '38 km/h', accent: false },
-                { label: 'Fuel left', value: '31.4 L · 52%', accent: false },
-                { label: 'Burn rate', value: '9.4 L/100km', accent: false },
-                { label: 'Today', value: '48.2 km · ₦8,120', accent: false },
-                { label: 'Idling today', value: '22 min · 0.9 L', accent: false },
-              ].map((row) => (
-                <div className="fs-readrow" key={row.label}>
-                  <span className="fs-readrow__label">{row.label}</span>
-                  <span
-                    className={`fs-readrow__value${
-                      row.accent ? ' fs-readrow__value--accent' : ''
-                    }`}
-                  >
-                    {row.value}
-                  </span>
-                </div>
-              ))}
-            </div>
+          <div data-readout>
+            <HeroDashboard />
           </div>
         </div>
       </section>
@@ -346,11 +320,13 @@ export default function LandingPage() {
                 burn rate, it separates a hard-driven hour from an easy one on the same route.
               </p>
               <p className="fs-body">
-                It is still a model, and we say so. Its accuracy depends on the consumption profile
-                configured on the device, so FuelSense cross-checks the two elements against each
-                other and against the receipts you log, then shows a confidence figure rather than
-                pretending to certainty. That is the honest version, and the one you can argue
-                from.
+                It is still a model, and we say so. Rather than claim a fuel figure is exact,
+                every trip carries a <strong>confidence score</strong>. Three hours crawling
+                through Lagos gridlock registers almost no distance while the engine keeps
+                burning, so FuelSense reads that state from the tracker, estimates the idle burn,
+                and lowers the score with the reason attached. Receipts you log calibrate the
+                model further. Managing expectations honestly is what makes the outliers worth
+                acting on.
               </p>
             </div>
 

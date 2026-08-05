@@ -48,6 +48,32 @@ const STOP_DOT: Record<TripStop['kind'], string> = {
 
 /** Full breakdown of every trip in the window — distance, idling, estimated
  *  fuel and cost, plus each stop the driver made, openable for its address. */
+/**
+ * How much weight a trip's fuel figure carries.
+ *
+ * Fuel is modelled from movement rather than measured from a tank, so the
+ * honest thing to publish is a score with its reasons attached. It is never
+ * coloured green: a high score is not a saving, it only means the estimate is
+ * built on good data.
+ */
+function ConfidenceBadge({ score, notes }: { score: number; notes: string[] }) {
+  const tone =
+    score >= 85 ? 'text-ink-dim' : score >= 65 ? 'text-warn' : 'text-bad';
+
+  return (
+    <p
+      className={`mt-0.5 font-mono text-[10px] uppercase tracking-wider ${tone}`}
+      title={
+        notes.length > 0
+          ? notes.join(' ')
+          : 'Built on dense position data with no reporting gaps.'
+      }
+    >
+      Confidence {score}%
+    </p>
+  );
+}
+
 export function TripDetailModal({
   trips,
   licensePlate,
@@ -130,11 +156,12 @@ export function TripDetailModal({
           <div className="grid grid-cols-2 gap-3 border-b border-edge px-6 py-4 sm:grid-cols-4">
             <Summary icon={Route} label="Distance" value={`${totals?.distance_km ?? 0} km`} />
             <Summary icon={Clock} label="Idling" value={formatDuration(totalIdle)} tone="text-warn" />
+            {/* Fuel burned is a cost, not an achievement: green is reserved
+                for money kept. */}
             <Summary
               icon={Droplet}
-              label="Est. fuel"
+              label="Fuel used"
               value={`${totals?.fuel_liters ?? 0} L`}
-              tone="text-good"
             />
             <Summary icon={MapPin} label="Stops" value={String(totalStops)} />
           </div>
@@ -199,11 +226,17 @@ export function TripDetailModal({
                         </div>
                         <div className="text-right">
                           <p className="font-mono text-sm text-ink">{trip.distance_km} km</p>
-                          <p className="font-mono text-xs text-good">
+                          <p className="font-mono text-xs text-ink-dim">
                             ~{trip.estimated_fuel_liters} L
                             {trip.estimated_cost_ngn != null &&
                               ` · ${formatNgn(trip.estimated_cost_ngn)}`}
                           </p>
+                          {trip.confidence != null && (
+                            <ConfidenceBadge
+                              score={trip.confidence}
+                              notes={trip.confidence_notes ?? []}
+                            />
+                          )}
                         </div>
                       </div>
 

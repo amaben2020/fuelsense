@@ -53,6 +53,93 @@ export interface Trip {
   active: boolean;
   path: [number, number][];
   stops: TripStop[];
+  /** 0-100. How much weight the fuel figure for this trip can carry. */
+  confidence: number;
+  /** Plain-language reasons the score is not higher. */
+  confidence_notes: string[];
+}
+
+// Never 100. Fuel here is modelled from movement, not measured from a tank,
+// so a perfect score would be a promise the hardware cannot keep.
+const CONFIDENCE_CEILING = 99;
+const CONFIDENCE_FLOOR = 35;
+
+// Above this share of the trip spent stationary with the engine running, the
+// distance-derived part of the estimate is covering less and less of the fuel
+// actually burned.
+const IDLE_SHARE_TOLERANCE = 0.2;
+const IDLE_PENALTY_MAX = 32;
+
+// A gap this long between fixes means both distance and burn across it are
+// interpolated rather than observed.
+const GAP_TOLERANCE_S = 300;
+const GAP_PENALTY_MAX = 26;
+
+// Fewer fixes than this per minute and the shape of the trip is a guess.
+const SPARSE_POINTS_PER_MIN = 0.5;
+const SPARSE_PENALTY_MAX = 18;
+
+export interface ConfidenceInput {
+  durationMinutes: number;
+  idleMinutes: number;
+  points: number;
+  longestGapSeconds: number;
+  distanceKm: number;
+}
+
+/**
+ * How much the fuel figure for a trip can be leaned on.
+ *
+ * Three things erode it, and each is something the FMC150's own data reveals:
+ *
+ *  1. Idling. Ignition on with movement off is the case the model handles
+ *     worst, because GNSS registers no distance while the engine keeps
+ *     burning. Three hours crawling in Lagos traffic is mostly this.
+ *  2. Reporting gaps. Anything the tracker did not send is interpolated.
+ *  3. Sparse fixes. Too few points and the route itself is approximate.
+ *
+ * The score is deliberately explainable: every deduction comes back as a note
+ * a fleet manager can read, so a low number prompts a question rather than
+ * suspicion of the software.
+ */
+export function tripConfidence(input: ConfidenceInput): {
+  score: number;
+  notes: string[];
+} {
+  const notes: string[] = [];
+  let score = CONFIDENCE_CEILING;
+
+  const duration = Math.max(input.durationMinutes, 1);
+  const idleShare = Math.min(1, input.idleMinutes / duration);
+  if (idleShare > IDLE_SHARE_TOLERANCE) {
+    const over = (idleShare - IDLE_SHARE_TOLERANCE) / (1 - IDLE_SHARE_TOLERANCE);
+    score -= Math.round(over * IDLE_PENALTY_MAX);
+    notes.push(
+      `${Math.round(idleShare * 100)}% of this trip was spent stationary with the engine ` +
+        'running, where fuel burns but no distance is recorded.'
+    );
+  }
+
+  if (input.longestGapSeconds > GAP_TOLERANCE_S) {
+    const gapShare = Math.min(1, input.longestGapSeconds / (duration * 60));
+    score -= Math.round(gapShare * GAP_PENALTY_MAX);
+    notes.push(
+      `The tracker went quiet for ${Math.round(input.longestGapSeconds / 60)} minutes, so that ` +
+        'stretch is estimated rather than observed.'
+    );
+  }
+
+  const density = input.points / duration;
+  if (density < SPARSE_POINTS_PER_MIN) {
+    const shortfall = 1 - density / SPARSE_POINTS_PER_MIN;
+    score -= Math.round(shortfall * SPARSE_PENALTY_MAX);
+    notes.push('Few position fixes for the length of this trip, so the route is approximate.');
+  }
+
+  return {
+    score: Math.max(CONFIDENCE_FLOOR, Math.min(CONFIDENCE_CEILING, score)),
+    notes,
+  };
 }
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -230,6 +317,7 @@ function buildTrip(segment: TelemetryTripPoint[], nowMs: number): Trip | null {
   let distanceKm = 0;
   let maxSpeed = 0;
   let idleSeconds = 0;
+  let longestGapSeconds = 0;
   for (let i = 1; i < segment.length; i++) {
     const a = segment[i - 1];
     const b = segment[i];
@@ -242,6 +330,7 @@ function buildTrip(segment: TelemetryTripPoint[], nowMs: number): Trip | null {
     if (!isJitter && hop <= MAX_HOP_KM && impliedKph <= MAX_PLAUSIBLE_KPH) {
       distanceKm += hop;
     }
+    if (gapS > longestGapSeconds) longestGapSeconds = gapS;
     if (b.speedKph != null && b.speedKph > maxSpeed) maxSpeed = b.speedKph;
     if (b.ignitionOn === true && (b.speedKph ?? 0) < 2) {
       idleSeconds += Math.min(gapS, IDLE_HOP_CAP_S);
@@ -252,6 +341,14 @@ function buildTrip(segment: TelemetryTripPoint[], nowMs: number): Trip | null {
   const startMs = segment[0].recordedAt.getTime();
   const endMs = segment[segment.length - 1].recordedAt.getTime();
   const durationMin = (endMs - startMs) / 60000;
+
+  const { score, notes } = tripConfidence({
+    durationMinutes: durationMin,
+    idleMinutes: idleSeconds / 60,
+    points: segment.length,
+    longestGapSeconds,
+    distanceKm,
+  });
 
   return {
     start_at: segment[0].recordedAt.toISOString(),
@@ -264,6 +361,8 @@ function buildTrip(segment: TelemetryTripPoint[], nowMs: number): Trip | null {
     active: nowMs - endMs < TRIP_BREAK_MS,
     path: downsamplePath(segment),
     stops: findStops(segment),
+    confidence: score,
+    confidence_notes: notes,
   };
 }
 

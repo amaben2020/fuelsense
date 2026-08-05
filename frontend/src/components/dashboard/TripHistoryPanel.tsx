@@ -368,7 +368,7 @@ export function TripHistoryPanel({
                   <th className="px-6 py-3">Distance</th>
                   <th className="px-6 py-3">Avg / top speed</th>
                   <th className="px-6 py-3">Idle</th>
-                  <th className="px-6 py-3">Est. fuel</th>
+                  <th className="px-6 py-3">Fuel used</th>
                   <th className="px-6 py-3">Est. cost</th>
                   <th className="px-6 py-3" />
                 </tr>
@@ -447,7 +447,7 @@ export function TripHistoryPanel({
                         <td className="px-6 py-2.5 font-mono">
                           {trip.idle_minutes > 0 ? `${trip.idle_minutes}m` : '—'}
                         </td>
-                        <td className="px-6 py-2.5 font-mono text-good">
+                        <td className="px-6 py-2.5 font-mono">
                           {trip.estimated_fuel_liters} L
                         </td>
                         <td className="px-6 py-2.5 font-mono">

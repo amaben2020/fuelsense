@@ -289,56 +289,113 @@ function TripLayer({
   return null;
 }
 
-/** Street View for a stop, falling back when Nigeria has no panorama nearby. */
+/**
+ * A close look at where the vehicle actually sat.
+ *
+ * Satellite rather than Street View: Google's car has driven very little of
+ * Nigeria, so a panorama request outside the main corridors returns nothing
+ * and the visitor gets a black rectangle. Imagery from above exists
+ * everywhere, and for "where did my vehicle stop for fourteen minutes" it is
+ * the more useful picture anyway. Street View is offered only when coverage
+ * genuinely exists.
+ */
 function StopView({ stop }: { stop: Stop }) {
   const mount = useRef<HTMLDivElement>(null);
-  const [available, setAvailable] = useState<boolean | null>(null);
+  const [panoId, setPanoId] = useState<string | null>(null);
+  const [mode, setMode] = useState<'satellite' | 'street'>('satellite');
+
+  useEffect(() => {
+    if (typeof google === 'undefined') return;
+
+    let cancelled = false;
+    new google.maps.StreetViewService()
+      .getPanorama({ location: stop.position, radius: 120 })
+      .then((result) => {
+        const id = result.data.location?.pano;
+        if (!cancelled && id) setPanoId(id);
+      })
+      .catch(() => {
+        // Expected across most of the country, so it is not an error state.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stop]);
 
   useEffect(() => {
     const container = mount.current;
     if (!container || typeof google === 'undefined') return;
 
-    let panorama: google.maps.StreetViewPanorama | null = null;
-    const service = new google.maps.StreetViewService();
+    if (mode === 'street' && panoId) {
+      const panorama = new google.maps.StreetViewPanorama(container, {
+        pano: panoId,
+        pov: { heading: 30, pitch: 0 },
+        addressControl: false,
+        fullscreenControl: false,
+        motionTracking: false,
+        motionTrackingControl: false,
+        linksControl: false,
+        panControl: false,
+        zoomControl: false,
+        enableCloseButton: false,
+      });
+      return () => {
+        panorama.setVisible(false);
+        container.innerHTML = '';
+      };
+    }
 
-    service
-      .getPanorama({ location: stop.position, radius: 220 })
-      .then((result) => {
-        setAvailable(true);
-        panorama = new google.maps.StreetViewPanorama(container, {
-          pano: result.data.location?.pano,
-          pov: { heading: 30, pitch: 0 },
-          zoom: 0,
-          addressControl: false,
-          fullscreenControl: false,
-          motionTracking: false,
-          motionTrackingControl: false,
-          linksControl: false,
-          panControl: false,
-          zoomControl: false,
-          enableCloseButton: false,
-        });
-      })
-      // Street View coverage outside the major corridors is patchy, so this is
-      // an expected outcome rather than an error worth surfacing loudly.
-      .catch(() => setAvailable(false));
+    const map = new google.maps.Map(container, {
+      center: stop.position,
+      zoom: 18,
+      mapTypeId: google.maps.MapTypeId.HYBRID,
+      disableDefaultUI: true,
+      gestureHandling: 'cooperative',
+    });
+
+    // A ring rather than a pin, so the imagery underneath stays readable.
+    const marker = new google.maps.Marker({
+      position: stop.position,
+      map,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 12,
+        fillColor: '#00e599',
+        fillOpacity: 0.18,
+        strokeColor: '#00e599',
+        strokeWeight: 2.5,
+      },
+    });
 
     return () => {
-      panorama?.setVisible(false);
-      if (container) container.innerHTML = '';
+      marker.setMap(null);
+      container.innerHTML = '';
     };
-  }, [stop]);
+  }, [stop, mode, panoId]);
 
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${stop.position.lat},${stop.position.lng}`;
 
   return (
     <div className="fs-pano">
       <div className="fs-pano__frame" ref={mount} />
-      {available === false && (
-        <div className="fs-pano__empty">
-          No street view imagery covers this spot. Open it on Google Maps to see the location.
+
+      {panoId && (
+        <div className="fs-pano__modes">
+          {(['satellite', 'street'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="fs-pano__mode"
+              aria-pressed={mode === option}
+              onClick={() => setMode(option)}
+            >
+              {option === 'satellite' ? 'Satellite' : 'Street view'}
+            </button>
+          ))}
         </div>
       )}
+
       <div className="fs-pano__bar">
         <span>
           <strong>{stop.name}</strong>{' '}
@@ -418,7 +475,7 @@ export function LiveMapDemo() {
           ))}
         </div>
 
-        {selected && <StopView stop={selected} />}
+        {selected && <StopView key={selected.id} stop={selected} />}
       </div>
 
       <aside className="fs-trace__gauge">
