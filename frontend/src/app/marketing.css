@@ -1,0 +1,932 @@
+/*
+ * Marketing surface — deliberately not the dashboard.
+ *
+ * The dashboard is a dark instrument panel. This is its opposite: a printed
+ * technical broadsheet. Paper ground, ink type, hairline rules, monospace for
+ * anything that came off a device. Green is used sparingly and means the same
+ * thing it means in the product — a measured, verified figure.
+ *
+ * Everything is scoped under .fs-landing so the dashboard theme is untouched.
+ */
+
+.fs-landing {
+  /* Ground: warm paper, never clinical #fff */
+  --paper: #f7f6f1;
+  --paper-raised: #fffefb;
+  --paper-sunk: #efeee7;
+
+  /* Ink: near-black with a green cast, so type sits in the same family */
+  --ink-900: #0b1410;
+  --ink-700: #24322b;
+  --ink-500: #5a6b62;
+  --ink-300: #94a09a;
+
+  /* Green scale: deep carries authority on paper, electric is the accent
+     and matches the product's own --brand exactly. */
+  --green-900: #073b2a;
+  --green-700: #0a5c3e;
+  --green-500: #00885d;
+  --green-300: #35c795;
+  --green-electric: #00e599;
+
+  --amber: #b26a00;
+  --clay: #a63d2f;
+
+  --rule: rgba(11, 20, 16, 0.14);
+  --rule-strong: rgba(11, 20, 16, 0.28);
+
+  --font-display: var(--font-instrument-serif), Georgia, serif;
+  --font-body: var(--font-archivo), system-ui, sans-serif;
+  --font-data: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  background: var(--paper);
+  color: var(--ink-900);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+/* Paper grain — depth without imagery. */
+.fs-landing::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E");
+}
+
+.fs-landing > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.fs-shell {
+  width: min(1200px, 100% - 2.5rem);
+  margin-inline: auto;
+}
+
+.fs-section {
+  padding-block: clamp(5rem, 12vh, 9rem);
+  border-top: 1px solid var(--rule);
+}
+
+.fs-section--flush {
+  border-top: 0;
+}
+
+/* Section marker: a number and a drawn hairline, like a plate caption. */
+.fs-marker {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+
+.fs-marker__num {
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  color: var(--green-700);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.fs-marker__label {
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  white-space: nowrap;
+}
+
+.fs-marker__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--rule-strong);
+  transform-origin: left center;
+}
+
+/* ------------------------------------------------------------ typography */
+
+.fs-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  font-size: clamp(2.75rem, 7.5vw, 6.5rem);
+}
+
+.fs-h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 1.02;
+  letter-spacing: -0.015em;
+  font-size: clamp(2rem, 4.6vw, 3.75rem);
+  max-width: 20ch;
+}
+
+.fs-h3 {
+  font-family: var(--font-display);
+  font-size: clamp(1.375rem, 2.2vw, 1.875rem);
+  line-height: 1.15;
+  font-weight: 400;
+}
+
+.fs-lede {
+  font-size: clamp(1.0625rem, 1.5vw, 1.3125rem);
+  line-height: 1.55;
+  color: var(--ink-700);
+  max-width: 46ch;
+}
+
+.fs-body {
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--ink-700);
+  max-width: 60ch;
+}
+
+.fs-small {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--ink-500);
+}
+
+.fs-mono {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+.fs-em {
+  color: var(--green-700);
+}
+
+/* Italic display for the one word per headline that should sing. */
+.fs-display em,
+.fs-h2 em {
+  font-style: italic;
+  color: var(--green-700);
+}
+
+/* Masked line reveal — the hero's opening move. */
+.fs-reveal {
+  display: block;
+  overflow: hidden;
+}
+
+.fs-reveal > span {
+  display: block;
+  will-change: transform;
+}
+
+/* ----------------------------------------------------------------- chrome */
+
+.fs-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  border-bottom: 1px solid var(--rule);
+}
+
+.fs-nav__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding-block: 1rem;
+}
+
+.fs-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  text-decoration: none;
+}
+
+.fs-wordmark__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--green-electric);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green-electric) 22%, transparent);
+}
+
+.fs-navlinks {
+  display: none;
+  gap: 1.75rem;
+}
+
+@media (min-width: 900px) {
+  .fs-navlinks {
+    display: flex;
+  }
+}
+
+.fs-navlink {
+  font-family: var(--font-data);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.fs-navlink:hover {
+  color: var(--green-700);
+}
+
+/* ---------------------------------------------------------------- buttons */
+
+.fs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8125rem 1.375rem;
+  border-radius: 999px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-decoration: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.18s, color 0.18s,
+    border-color 0.18s;
+}
+
+.fs-btn:hover {
+  transform: translateY(-2px);
+}
+
+.fs-btn--primary {
+  background: var(--ink-900);
+  color: var(--paper-raised);
+}
+
+.fs-btn--primary:hover {
+  background: var(--green-900);
+}
+
+.fs-btn--ghost {
+  border-color: var(--rule-strong);
+  color: var(--ink-900);
+}
+
+.fs-btn--ghost:hover {
+  border-color: var(--green-700);
+  color: var(--green-700);
+}
+
+/* ------------------------------------------------------------------ hero */
+
+.fs-hero {
+  padding-block: clamp(3.5rem, 9vh, 7rem) clamp(4rem, 10vh, 7rem);
+}
+
+.fs-hero__grid {
+  display: grid;
+  gap: clamp(2.5rem, 5vw, 4rem);
+}
+
+@media (min-width: 1000px) {
+  .fs-hero__grid {
+    grid-template-columns: 1.15fr 0.85fr;
+    align-items: end;
+  }
+}
+
+.fs-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--green-700);
+  padding: 0.375rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--green-700) 28%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--green-electric) 8%, transparent);
+}
+
+.fs-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+/* --------------------------------------------------------------- readout */
+/* A device readout rendered as an object on the page, not a screenshot. */
+
+.fs-readout {
+  background: var(--ink-900);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  color: #e8ece9;
+  box-shadow: 0 30px 60px -30px rgba(11, 20, 16, 0.5), 0 2px 0 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.fs-readout__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.875rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.fs-readout__title {
+  font-family: var(--font-data);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(232, 236, 233, 0.6);
+}
+
+.fs-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--green-electric);
+}
+
+.fs-live__dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--green-electric);
+  animation: fs-pulse 2s ease-in-out infinite;
+}
+
+@keyframes fs-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green-electric) 60%, transparent);
+  }
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+.fs-readout__rows {
+  display: grid;
+  gap: 0.125rem;
+  margin-top: 1rem;
+}
+
+.fs-readrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.5rem;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.09);
+}
+
+.fs-readrow:last-child {
+  border-bottom: 0;
+}
+
+.fs-readrow__label {
+  font-size: 0.8125rem;
+  color: rgba(232, 236, 233, 0.55);
+}
+
+.fs-readrow__value {
+  font-family: var(--font-data);
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  color: #f2f5f3;
+}
+
+.fs-readrow__value--accent {
+  color: var(--green-electric);
+}
+
+/* ------------------------------------------------------------- big stats */
+
+.fs-stats {
+  display: grid;
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+@media (min-width: 700px) {
+  .fs-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.fs-stat {
+  background: var(--paper-raised);
+  padding: 1.75rem 1.5rem;
+}
+
+.fs-stat__value {
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 4vw, 3.25rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--green-900);
+}
+
+.fs-stat__label {
+  margin-top: 0.625rem;
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.fs-stat__note {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--ink-500);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------ step cards */
+
+.fs-steps {
+  display: grid;
+  gap: 1.5rem;
+}
+
+@media (min-width: 950px) {
+  .fs-steps {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.fs-step {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 1.25rem;
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.fs-step__index {
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  color: var(--green-700);
+  text-transform: uppercase;
+}
+
+.fs-step__figure {
+  margin-top: auto;
+  padding-top: 1.25rem;
+  border-top: 1px dashed var(--rule-strong);
+}
+
+/* ---------------------------------------------------------- panel mockup */
+/* Faithful, lightweight recreations of real dashboard panels. */
+
+.fs-panel {
+  background: #0e1219;
+  border: 1px solid #28303d;
+  border-radius: 1rem;
+  padding: 1.25rem;
+  color: #e8ecf4;
+  font-size: 0.875rem;
+}
+
+.fs-panel__title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #e8ecf4;
+}
+
+.fs-panel__sub {
+  font-size: 0.75rem;
+  color: #7d8697;
+  margin-top: 0.125rem;
+}
+
+.fs-panelgrid {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (min-width: 640px) {
+  .fs-panelgrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.fs-tile {
+  background: #12161e;
+  border: 1px solid #28303d;
+  border-radius: 0.625rem;
+  padding: 0.75rem;
+}
+
+.fs-tile__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7d8697;
+}
+
+.fs-tile__value {
+  font-family: var(--font-data);
+  font-size: 1.0625rem;
+  margin-top: 0.25rem;
+  color: #e8ecf4;
+}
+
+.fs-tile__value--good {
+  color: #00e599;
+}
+
+.fs-tile__value--warn {
+  color: #ffb95f;
+}
+
+.fs-tile__note {
+  font-size: 0.6875rem;
+  color: #7d8697;
+  margin-top: 0.125rem;
+}
+
+.fs-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.4375rem;
+  border-top: 1px solid rgba(40, 48, 61, 0.7);
+  font-size: 0.8125rem;
+}
+
+.fs-row__value {
+  font-family: var(--font-data);
+  color: #e8ecf4;
+}
+
+.fs-row__muted {
+  color: #7d8697;
+}
+
+/* --------------------------------------------------------------- feature */
+
+.fs-featgrid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+@media (min-width: 900px) {
+  .fs-featgrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem 3rem;
+  }
+}
+
+.fs-feat {
+  border-top: 1px solid var(--rule-strong);
+  padding-top: 1.125rem;
+}
+
+.fs-feat__name {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  margin-bottom: 0.375rem;
+}
+
+/* ------------------------------------------------------------------- cta */
+
+.fs-cta {
+  background: var(--ink-900);
+  color: var(--paper-raised);
+  border-radius: 1.75rem;
+  padding: clamp(2.5rem, 6vw, 4.5rem);
+  position: relative;
+  overflow: hidden;
+}
+
+.fs-cta::after {
+  content: '';
+  position: absolute;
+  inset: auto -20% -60% auto;
+  width: 60%;
+  aspect-ratio: 1;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--green-electric) 26%, transparent),
+    transparent 68%
+  );
+  pointer-events: none;
+}
+
+.fs-cta .fs-h2 {
+  color: var(--paper-raised);
+}
+
+.fs-cta .fs-h2 em {
+  color: var(--green-electric);
+}
+
+/* ---------------------------------------------------------------- footer */
+
+.fs-footer {
+  border-top: 1px solid var(--rule);
+  padding-block: 2.5rem 3.5rem;
+}
+
+.fs-footer__inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ----------------------------------------------------------------- forms */
+
+.fs-field {
+  display: block;
+}
+
+.fs-field__label {
+  display: block;
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  margin-bottom: 0.5rem;
+}
+
+.fs-input,
+.fs-select,
+.fs-textarea {
+  width: 100%;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 0.75rem;
+  padding: 0.8125rem 0.9375rem;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  color: var(--ink-900);
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+
+.fs-input:focus,
+.fs-select:focus,
+.fs-textarea:focus {
+  outline: none;
+  border-color: var(--green-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green-electric) 22%, transparent);
+}
+
+.fs-textarea {
+  min-height: 9rem;
+  resize: vertical;
+}
+
+.fs-note {
+  font-size: 0.875rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+}
+
+.fs-note--ok {
+  background: color-mix(in srgb, var(--green-electric) 14%, transparent);
+  color: var(--green-900);
+  border: 1px solid color-mix(in srgb, var(--green-500) 40%, transparent);
+}
+
+.fs-note--bad {
+  background: color-mix(in srgb, var(--clay) 10%, transparent);
+  color: var(--clay);
+  border: 1px solid color-mix(in srgb, var(--clay) 34%, transparent);
+}
+
+/* --------------------------------------------------------------- a11y */
+
+@media (prefers-reduced-motion: reduce) {
+  .fs-landing *,
+  .fs-landing *::before,
+  .fs-landing *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ------------------------------------------------------------ gnss trace */
+
+.fs-trace {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 2.5rem;
+}
+
+@media (min-width: 900px) {
+  .fs-trace {
+    grid-template-columns: 1fr 190px;
+    align-items: stretch;
+  }
+}
+
+.fs-trace__map {
+  background: #0b0e13;
+  border: 1px solid #28303d;
+  border-radius: 1.25rem;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.fs-trace__map svg {
+  width: 100%;
+  height: auto;
+  border-radius: 0.75rem;
+  display: block;
+}
+
+.fs-trace__legend {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+@media (min-width: 700px) {
+  .fs-trace__legend {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.fs-trace__legenditem {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  font-size: 0.75rem;
+  color: #b7bfcc;
+  line-height: 1.4;
+}
+
+.fs-trace__legenditem strong {
+  display: block;
+  color: #e8ecf4;
+  font-weight: 600;
+}
+
+.fs-trace__pip {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  margin-top: 0.3rem;
+  flex-shrink: 0;
+}
+
+.fs-trace__detail {
+  display: block;
+  color: #7d8697;
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  margin-top: 0.125rem;
+}
+
+.fs-trace__gauge {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 1.25rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-trace__gaugelabel {
+  font-family: var(--font-data);
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.fs-trace__tube {
+  margin-top: 0.75rem;
+  height: 8rem;
+  border-radius: 0.75rem;
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+.fs-trace__fill {
+  width: 100%;
+  height: 100%;
+  transform-origin: bottom center;
+  background: linear-gradient(to top, var(--green-500), var(--green-electric));
+}
+
+.fs-trace__reading {
+  font-family: var(--font-data);
+  font-size: 1.5rem;
+  color: var(--green-900);
+  margin-top: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------- map frame */
+
+.fs-mapframe {
+  position: relative;
+  height: clamp(320px, 46vh, 460px);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #151a28;
+}
+
+.fs-mapbadge {
+  position: absolute;
+  top: 0.875rem;
+  left: 0.875rem;
+  background: rgba(11, 14, 19, 0.86);
+  border: 1px solid #28303d;
+  border-radius: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.fs-mapbadge__sub {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.6875rem;
+  color: #b7bfcc;
+}
+
+/* --------------------------------------------------------------- contact */
+
+.fs-contact {
+  display: grid;
+  gap: clamp(2.5rem, 5vw, 4rem);
+}
+
+@media (min-width: 1000px) {
+  .fs-contact {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+
+.fs-contactfacts {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 2.5rem;
+}
+
+.fs-form {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 1.25rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  box-shadow: 0 24px 48px -32px rgba(11, 20, 16, 0.35);
+}
+
+.fs-form__grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 560px) {
+  .fs-form__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.fs-btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

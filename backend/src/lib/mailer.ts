@@ -27,15 +27,27 @@ export interface MailInput {
   subject: string;
   text: string;
   html?: string;
+  /**
+   * Ignore ALERT_EMAIL_OVERRIDE. The override exists because seeded accounts
+   * carry placeholder addresses, but mail addressed to a real, known inbox —
+   * a contact-form enquiry, say — must not be swallowed by it.
+   */
+  bypassOverride?: boolean;
 }
 
-export async function sendMail({ to, subject, text, html }: MailInput): Promise<boolean> {
+export async function sendMail({
+  to,
+  subject,
+  text,
+  html,
+  bypassOverride,
+}: MailInput): Promise<boolean> {
   if (!API_KEY) {
     console.warn('[mailer] SENDGRID_API_KEY not set — skipping:', subject);
     return false;
   }
 
-  const recipient = OVERRIDE_TO || to;
+  const recipient = bypassOverride ? to : OVERRIDE_TO || to;
   if (!isDeliverable(recipient)) {
     console.warn(`[mailer] "${recipient}" is not a deliverable address — skipping.`);
     return false;
