@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { gsap } from 'gsap';
 import { api, Customer, isAuthenticated } from '@/lib/api';
 import { LiveMapDemo } from '@/components/marketing/LiveMapDemo';
+import { ReconcileFlow } from '@/components/marketing/ReconcileFlow';
+import { TrackerDevice3D } from '@/components/marketing/TrackerDevice3D';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
 import { countUp, revealOnScroll, useGsapScope } from '@/components/marketing/useScrollReveal';
 import './marketing.css';
@@ -23,7 +25,7 @@ function Marker({ num, label }: { num: string; label: string }) {
 export default function LandingPage() {
   const router = useRouter();
 
-  // Someone already signed in has no use for the pitch — send them where they
+  // Someone already signed in has no use for the pitch, so send them where they
   // were going. Visitors without a token never touch this and see the page.
   // The landing renders while the check runs, so there is no loading screen
   // and no flash of blank page for the far more common signed-out case.
@@ -97,7 +99,7 @@ export default function LandingPage() {
       );
     });
 
-    // Step cards arrive at slightly different rates — depth without moving the
+    // Step cards arrive at slightly different rates: depth without moving the
     // whole section, which would fight the reading rhythm.
     gsap.utils.toArray<HTMLElement>('[data-step]', scope).forEach((card, i) => {
       gsap.from(card, {
@@ -128,7 +130,7 @@ export default function LandingPage() {
     <div className="fs-landing" ref={scope}>
       <MarketingNav />
 
-      {/* 01 — hero ------------------------------------------------------ */}
+      {/* 01. hero ------------------------------------------------------ */}
       <section className="fs-shell fs-hero">
         <div className="fs-hero__grid">
           <div>
@@ -149,8 +151,8 @@ export default function LandingPage() {
 
             <p className="fs-lede" style={{ marginTop: '1.75rem' }} data-hero-tail>
               Fuel is the second-largest cost in a Nigerian fleet and the least visible. FuelSense
-              reads your vehicles directly — distance, engine hours, idling and fuel burn — and
-              turns it into naira you can check.
+              reads your vehicles directly, tracking distance, engine hours, idling and fuel burn,
+              then turns it into naira you can check.
             </p>
 
             <div className="fs-hero__actions" data-hero-tail>
@@ -200,7 +202,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 02 — the problem ----------------------------------------------- */}
+      {/* 02. the problem ----------------------------------------------- */}
       <section className="fs-shell fs-section">
         <Marker num="02" label="The problem" />
         <h2 className="fs-h2" data-reveal>
@@ -235,7 +237,7 @@ export default function LandingPage() {
             <p className="fs-stat__label">Burned going nowhere</p>
             <p className="fs-stat__note">
               A 2.5L engine idling in traffic. Twenty minutes at a gate is fuel spent on zero
-              kilometres — invisible without engine data.
+              kilometres, and invisible without engine data.
             </p>
           </div>
           <div className="fs-stat">
@@ -251,7 +253,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 03 — how it works ---------------------------------------------- */}
+      {/* 03. how it works ---------------------------------------------- */}
       <section className="fs-shell fs-section" id="how">
         <Marker num="03" label="How it works" />
         <h2 className="fs-h2" data-reveal>
@@ -269,7 +271,7 @@ export default function LandingPage() {
             <h3 className="fs-h3">The tracker is fitted</h3>
             <p className="fs-small">
               An FMC150 wires into the vehicle&rsquo;s power and ignition. From that moment it
-              reports position, speed, ignition and movement over the mobile network — every few
+              reports position, speed, ignition and movement over the mobile network: every few
               seconds while driving, hourly at rest.
             </p>
             <div className="fs-step__figure">
@@ -306,7 +308,7 @@ export default function LandingPage() {
             <p className="fs-small">
               FuelSense keeps a virtual tank per vehicle, drains it against real burn, credits it
               from the receipts you log, and prices the result at the fuel price in force that day
-              — so last month&rsquo;s spend never changes when today&rsquo;s price does.
+              so last month&rsquo;s spend never changes when today&rsquo;s price does.
             </p>
             <div className="fs-step__figure">
               <p className="fs-small fs-mono" style={{ color: 'var(--green-700)' }}>
@@ -317,38 +319,47 @@ export default function LandingPage() {
           </article>
         </div>
 
-        {/* The AVL 12 explanation, stated plainly */}
+        {/* The AVL 12 explanation, stated plainly, beside the device itself */}
         <div
           className="fs-step"
           style={{ marginTop: '1.5rem', background: 'var(--paper-sunk)' }}
           data-reveal
         >
-          <span className="fs-step__index">Why this beats a number someone typed in</span>
-          <h3 className="fs-h3" style={{ maxWidth: '28ch' }}>
-            AVL 12 is measured behaviour, not an assumption.
-          </h3>
-          <p className="fs-body">
-            The easy way to estimate fleet fuel is to multiply distance by a figure from a brochure.
-            That figure assumes smooth roads, steady speeds and no air conditioning — none of which
-            describe Lagos or Abuja. It cannot tell a crawling hour from a flowing one, and it
-            reports nothing at all for a vehicle that sat idling the whole afternoon.
-          </p>
-          <p className="fs-body">
-            <strong>AVL 12</strong> is the tracker&rsquo;s own running total of fuel consumed, built
-            up continuously from how the vehicle actually moved — every acceleration, every crawl,
-            every minute of idling. Paired with <strong>AVL 13</strong>, the live burn rate, it
-            separates a hard-driven hour from an easy one on the same route.
-          </p>
-          <p className="fs-body">
-            It is still a model, and we say so. Its accuracy depends on the consumption profile
-            configured on the device, so FuelSense cross-checks the two elements against each other
-            and against the receipts you log, then shows a confidence figure rather than pretending
-            to certainty. That is the honest version — and the one you can argue from.
-          </p>
+          <div className="fs-avl">
+            <div>
+              <span className="fs-step__index">Why this beats a number someone typed in</span>
+              <h3 className="fs-h3" style={{ maxWidth: '28ch', marginBlock: '0.5rem 0.875rem' }}>
+                AVL 12 is measured behaviour, not an assumption.
+              </h3>
+              <p className="fs-body">
+                The easy way to estimate fleet fuel is to multiply distance by a figure from a
+                brochure. That figure assumes smooth roads, steady speeds and no air conditioning,
+                none of which describe Lagos or Abuja. It cannot tell a crawling hour from a
+                flowing one, and it reports nothing at all for a vehicle that sat idling the whole
+                afternoon.
+              </p>
+              <p className="fs-body">
+                <strong>AVL 12</strong>{' '}
+                is the tracker&rsquo;s own running total of fuel consumed,
+                built up continuously from how the vehicle actually moved: every acceleration,
+                every crawl, every minute of idling. Paired with <strong>AVL 13</strong>, the live
+                burn rate, it separates a hard-driven hour from an easy one on the same route.
+              </p>
+              <p className="fs-body">
+                It is still a model, and we say so. Its accuracy depends on the consumption profile
+                configured on the device, so FuelSense cross-checks the two elements against each
+                other and against the receipts you log, then shows a confidence figure rather than
+                pretending to certainty. That is the honest version, and the one you can argue
+                from.
+              </p>
+            </div>
+
+            <TrackerDevice3D />
+          </div>
         </div>
       </section>
 
-      {/* 04 — live monitoring ------------------------------------------- */}
+      {/* 04. live monitoring ------------------------------------------- */}
       <section className="fs-shell fs-section" id="live">
         <Marker num="04" label="Live monitoring" />
         <h2 className="fs-h2" data-reveal>
@@ -378,7 +389,7 @@ export default function LandingPage() {
             },
             {
               name: 'Alerts that stay honest',
-              body: 'Low fuel, sudden drops, towing, tracker unplugged. Each is a flag for investigation with the evidence attached — never a verdict.',
+              body: 'Low fuel, tracker unplugged, movement without ignition. Each is a flag for investigation with the evidence attached, never a verdict.',
             },
           ].map((feature) => (
             <div className="fs-feat" key={feature.name} data-reveal>
@@ -389,9 +400,51 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 05 — dashboard -------------------------------------------------- */}
+      {/* 05. receipts and reconciliation -------------------------------- */}
+      <section className="fs-shell fs-section" id="receipts">
+        <Marker num="05" label="Receipts and reconciliation" />
+        <h2 className="fs-h2" data-reveal>
+          What was burned, against what was <em>bought</em>.
+        </h2>
+        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
+          There is no sensor in your tank, so FuelSense never claims to have watched fuel leave it.
+          What it can do is measure the burn from the vehicle&rsquo;s own movement and set it beside
+          the receipts your drivers upload. Where the two disagree, you have a specific number and a
+          specific day to ask about.
+        </p>
+
+        <ReconcileFlow />
+
+        <div className="fs-featgrid" style={{ marginTop: '3rem' }}>
+          {[
+            {
+              name: 'Drivers upload from their phone',
+              body: 'A photo of the pump slip at the forecourt. OCR reads the merchant, litres and amount, so nobody types figures into a spreadsheet a week later.',
+            },
+            {
+              name: 'Matched to the tank automatically',
+              body: 'A logged purchase is matched against the refuel the tracker saw at that time, then credited to the vehicle’s virtual tank.',
+            },
+            {
+              name: 'The price you actually paid',
+              body: 'Receipts set the real naira-per-litre for the day they cover, and every cost figure for that period is valued at it.',
+            },
+            {
+              name: 'Calibration that improves with use',
+              body: 'Each verified fill-up sharpens the vehicle’s consumption model, so the estimate stops being a class average and becomes this vehicle.',
+            },
+          ].map((feature) => (
+            <div className="fs-feat" key={feature.name} data-reveal>
+              <h3 className="fs-feat__name">{feature.name}</h3>
+              <p className="fs-small">{feature.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 06. dashboard -------------------------------------------------- */}
       <section className="fs-shell fs-section" id="dashboard">
-        <Marker num="05" label="Inside the dashboard" />
+        <Marker num="06" label="Inside the dashboard" />
         <h2 className="fs-h2" data-reveal>
           The numbers, and <em>how</em> they were reached.
         </h2>
@@ -427,7 +480,7 @@ export default function LandingPage() {
             </div>
             <p className="fs-panel__sub" style={{ marginTop: '0.875rem' }}>
               286 km at the 7.0 km/L benchmark = 40.9 L, which at ₦1,330/L is ₦54,720. Actual spend
-              was ₦48,300 — a saving of ₦6,420.
+              was ₦48,300, a saving of ₦6,420.
             </p>
           </div>
 
@@ -459,14 +512,14 @@ export default function LandingPage() {
           </div>
 
           <div className="fs-panel" data-panel>
-            <p className="fs-panel__title">Efficiency, behaviour and receipts</p>
+            <p className="fs-panel__title">Efficiency and driving behaviour</p>
             <p className="fs-panel__sub">Per vehicle and per driver, against a realistic baseline</p>
             <div style={{ marginTop: '0.875rem' }}>
               {[
                 { label: 'LIVE-FMC150 · Benneth', mid: '286 km · 38.6 L', right: '7.4 km/L', warn: false },
                 { label: 'Harsh braking', mid: 'this week', right: '4 events', warn: true },
-                { label: 'Receipt reconciled', mid: '₦42,000 declared', right: 'matched', warn: false },
-                { label: 'Possible siphon', mid: '−15 L while parked', right: 'needs review', warn: true },
+                { label: 'Idling', mid: '3h 40m engine-on, stationary', right: '₦10,500', warn: true },
+                { label: 'Driver score', mid: 'against fleet baseline', right: '92 / 100', warn: false },
               ].map((row) => (
                 <div className="fs-row" key={row.label}>
                   <span>{row.label}</span>
@@ -489,7 +542,7 @@ export default function LandingPage() {
         </p>
       </section>
 
-      {/* 06 — cta -------------------------------------------------------- */}
+      {/* 07. cta -------------------------------------------------------- */}
       <section className="fs-shell fs-section" style={{ borderTop: 0 }}>
         <div className="fs-cta" data-reveal>
           <h2 className="fs-h2">

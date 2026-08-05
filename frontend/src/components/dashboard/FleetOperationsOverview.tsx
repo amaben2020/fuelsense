@@ -228,7 +228,7 @@ export function FleetOperationsOverview({
         vehicle: flag.vehicle_plate,
         detail:
           obd != null
-            ? `Receipt ${flag.declared_liters}L · OBD ${obd}L — ${TRUST_COPY.requiresReview}`
+            ? `Receipt ${flag.declared_liters}L · OBD ${obd}L · ${TRUST_COPY.requiresReview}`
             : `${flag.merchant_name ?? 'Station'} · OBD match pending`,
         reasons: receiptMismatchContextLines(flag),
         confidence,
@@ -300,7 +300,7 @@ export function FleetOperationsOverview({
         severity: 'warning',
         title: TRUST_COPY.siphonTitle,
         vehicle: row.license_plate,
-        detail: `Possible loss ${formatNgn(row.theft_loss_ngn)} — verify with replay`,
+        detail: `Possible loss ${formatNgn(row.theft_loss_ngn)}, verify with replay`,
         reasons: ['Receipt or OBD pattern flagged', TRUST_COPY.requiresReview],
         confidence: 70,
         severityLevel: 'MEDIUM',
@@ -548,7 +548,7 @@ export function FleetOperationsOverview({
               {fuelContext.benchmarkLiters?.toFixed(1)} L, which at{' '}
               {formatNgn(fuelContext.pricePerLiter)}/L is{' '}
               {formatNgn(fuelContext.benchmarkCost)}. Actual spend was{' '}
-              {formatNgn(fuelSpend)} — a {fuelContext.savedNgn >= 0 ? 'saving' : 'shortfall'} of{' '}
+              {formatNgn(fuelSpend)}, a {fuelContext.savedNgn >= 0 ? 'saving' : 'shortfall'} of{' '}
               {formatNgn(Math.abs(fuelContext.savedNgn))}.
             </p>
           </div>
@@ -621,7 +621,7 @@ export function FleetOperationsOverview({
             <header className="border-b border-edge px-5 py-4">
               <h2 className="text-lg font-semibold text-ink">What needs attention?</h2>
               <p className="mt-0.5 text-xs text-ink-dim">
-                Operational intelligence for investigations — use evidence replay before deciding
+                Operational intelligence for investigations. Use evidence replay before deciding
               </p>
             </header>
             {attentionItems.length === 0 ? (
@@ -698,7 +698,7 @@ export function FleetOperationsOverview({
                 onClick={onOpenAnomalies}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
               >
-                <Play className="h-3.5 w-3.5" /> {TRUST_COPY.viewEvidenceCta} — all events
+                <Play className="h-3.5 w-3.5" /> {TRUST_COPY.viewEvidenceCta}, all events
               </button>
             </footer>
           </section>

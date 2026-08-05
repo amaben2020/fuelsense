@@ -46,7 +46,7 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
     scale: 1000,
     precision: 2,
     description:
-      'Running total of fuel burned, estimated by the tracker from engine load and speed. It counts up until the device loses power, then restarts at zero — the virtual tank is built from the increases, not from the total itself.',
+      'Running total of fuel burned, estimated by the tracker from engine load and speed. It counts up until the device loses power, then restarts at zero. The virtual tank is built from the increases, not from the total itself.',
   },
   13: {
     label: 'Fuel rate (GPS)',
@@ -64,7 +64,7 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
     scale: 1000,
     precision: 1,
     description:
-      'Distance the tracker has measured since it was fitted, from GPS. This is not the dashboard odometer — it started at zero on installation day.',
+      'Distance the tracker has measured since it was fitted, from GPS. This is not the dashboard odometer, and it started at zero on installation day.',
   },
   17: { label: 'Accelerometer X', group: 'movement', unit: 'mG' },
   18: { label: 'Accelerometer Y', group: 'movement', unit: 'mG' },
@@ -74,7 +74,7 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
     group: 'network',
     unit: '/5',
     description:
-      'Mobile signal where the vehicle is, from 0 to 5. Low signal does not lose data — the tracker stores records and sends them in a burst once it reconnects, so they arrive late rather than never.',
+      'Mobile signal where the vehicle is, from 0 to 5. Low signal does not lose data. The tracker stores records and sends them in a burst once it reconnects, so they arrive late rather than never.',
   },
   24: {
     label: 'Speed',
@@ -127,14 +127,14 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
     group: 'electrical',
     unit: 'mA',
     description:
-      'Current flowing into or out of the tracker’s backup battery. Zero means it is neither charging nor discharging — normal for a fully charged device on vehicle power.',
+      'Current flowing into or out of the tracker’s backup battery. Zero means it is neither charging nor discharging, which is normal for a fully charged device on vehicle power.',
   },
   69: {
     label: 'GNSS status',
     group: 'gnss',
     states: { 0: 'Off', 1: 'On, no fix', 2: 'On, fix', 3: 'Sleep' },
     description:
-      'Whether the satellite receiver is on and whether it has locked onto a position. “On, no fix” means it is still searching — common under cover, in a garage, or in the first minute after waking.',
+      'Whether the satellite receiver is on and whether it has locked onto a position. “On, no fix” means it is still searching, which is common under cover, in a garage, or in the first minute after waking.',
   },
   113: { label: 'Battery level', group: 'electrical', unit: '%' },
 
@@ -152,7 +152,7 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
     scale: 10,
     precision: 1,
     description:
-      'The same quality measure limited to horizontal accuracy — the part that matters for where the vehicle is on the map. Lower is better; below 1 is excellent.',
+      'The same quality measure limited to horizontal accuracy, the part that matters for where the vehicle is on the map. Lower is better; below 1 is excellent.',
   },
   199: {
     label: 'Trip odometer',
@@ -206,7 +206,7 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
     description:
       'The real dashboard odometer, read from the vehicle’s own computer. Unlike the tracker odometer, this is the number a buyer or mechanic would see.',
   },
-  390: { label: 'OEM fuel level', group: 'fuel', unit: 'L', scale: 100, precision: 2, description: 'Litres in the tank as reported by the vehicle itself — the most trustworthy fuel reading available, when the hardware supports it.' },
+  390: { label: 'OEM fuel level', group: 'fuel', unit: 'L', scale: 100, precision: 2, description: 'Litres in the tank as reported by the vehicle itself, the most trustworthy fuel reading available when the hardware supports it.' },
 };
 
 // MCC+MNC of the networks this fleet roams on. Anything unmapped falls back to

@@ -151,6 +151,12 @@
   max-width: 60ch;
 }
 
+/* Stacked paragraphs need air between them; a single one keeps its own
+   spacing from whatever sits above it. */
+.fs-body + .fs-body {
+  margin-top: 1rem;
+}
+
 .fs-small {
   font-size: 0.875rem;
   line-height: 1.6;
@@ -929,4 +935,357 @@
 .fs-btn[disabled] {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------ slosh tank */
+
+.fs-tank {
+  margin-top: 0.75rem;
+  height: 8rem;
+  border-radius: 0.75rem;
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule);
+  overflow: hidden;
+}
+
+.fs-tank svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Two wavelengths drifting at different speeds: crests meet and part instead
+   of travelling together, which is what stops it reading as a moving stripe. */
+.fs-tank__wave--back {
+  animation: fs-slosh-back 9s linear infinite;
+}
+
+.fs-tank__wave--front {
+  animation: fs-slosh-front 6s linear infinite;
+}
+
+@keyframes fs-slosh-back {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(120px);
+  }
+}
+
+@keyframes fs-slosh-front {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-80px);
+  }
+}
+
+/* ------------------------------------------------------------ 3d device */
+
+.fs-device {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+  min-height: 320px;
+}
+
+.fs-device__stage {
+  flex: 1;
+  min-height: 240px;
+  border-radius: 1rem;
+  background: linear-gradient(160deg, #0e1219 0%, #151d26 100%);
+  border: 1px solid var(--rule);
+  overflow: hidden;
+}
+
+.fs-device__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.fs-device__legend li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--ink-500);
+  line-height: 1.45;
+}
+
+.fs-device__pip {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  margin-top: 0.4rem;
+  flex-shrink: 0;
+}
+
+/* The AVL panel becomes two columns once the device has room to breathe. */
+.fs-avl {
+  display: grid;
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (min-width: 950px) {
+  .fs-avl {
+    grid-template-columns: 1.05fr 0.95fr;
+  }
+}
+
+/* ---------------------------------------------------------- stop details */
+
+.fs-stops {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.875rem;
+}
+
+@media (min-width: 700px) {
+  .fs-stops {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.fs-stopbtn {
+  text-align: left;
+  background: #12161e;
+  border: 1px solid #28303d;
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  cursor: pointer;
+  color: #e8ecf4;
+  font: inherit;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s;
+}
+
+.fs-stopbtn:hover,
+.fs-stopbtn:focus-visible {
+  border-color: #00e599;
+  background: #161d27;
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.fs-stopbtn[aria-pressed='true'] {
+  border-color: #00e599;
+  background: #16241f;
+}
+
+.fs-stopbtn__name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  display: block;
+}
+
+.fs-stopbtn__meta {
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  color: #7d8697;
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.fs-stopbtn__cue {
+  font-family: var(--font-data);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #00e599;
+  display: block;
+  margin-top: 0.375rem;
+}
+
+.fs-pano {
+  position: relative;
+  margin-top: 0.875rem;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid #28303d;
+  height: clamp(220px, 30vh, 300px);
+  background: #0b0e13;
+}
+
+.fs-pano__frame {
+  width: 100%;
+  height: 100%;
+}
+
+.fs-pano__bar {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.875rem;
+  background: linear-gradient(to top, rgba(11, 14, 19, 0.92), transparent);
+  font-size: 0.75rem;
+  color: #e8ecf4;
+}
+
+.fs-pano__link {
+  color: #00e599;
+  text-decoration: none;
+  font-family: var(--font-data);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fs-pano__link:hover {
+  text-decoration: underline;
+}
+
+.fs-pano__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1.5rem;
+  text-align: center;
+  color: #7d8697;
+  font-size: 0.8125rem;
+}
+
+/* --------------------------------------------------- reconciliation flow */
+
+.fs-recon {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 2.5rem;
+}
+
+@media (min-width: 950px) {
+  .fs-recon {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2.25rem;
+  }
+}
+
+.fs-recon__slot {
+  position: relative;
+}
+
+.fs-recon__card {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-recon__card--gap {
+  background: var(--ink-900);
+  border-color: var(--ink-900);
+  color: var(--paper-raised);
+}
+
+.fs-recon__tag {
+  font-family: var(--font-data);
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--green-700);
+}
+
+.fs-recon__card--gap .fs-recon__tag {
+  color: var(--green-electric);
+}
+
+.fs-recon__rows {
+  margin: 1rem 0 0;
+  display: grid;
+  gap: 0.125rem;
+}
+
+.fs-recon__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.5rem;
+  border-bottom: 1px dashed var(--rule);
+  font-size: 0.875rem;
+}
+
+.fs-recon__card--gap .fs-recon__row {
+  border-bottom-color: rgba(255, 254, 251, 0.16);
+}
+
+.fs-recon__row dt {
+  color: var(--ink-500);
+}
+
+.fs-recon__card--gap .fs-recon__row dt {
+  color: rgba(255, 254, 251, 0.6);
+}
+
+.fs-recon__row dd {
+  margin: 0;
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums;
+}
+
+.fs-recon__card--gap .fs-recon__row dd {
+  color: var(--paper-raised);
+}
+
+.fs-recon__row:last-child dd {
+  color: var(--green-700);
+  font-weight: 600;
+}
+
+.fs-recon__card--gap .fs-recon__row:last-child dd {
+  color: var(--green-electric);
+}
+
+.fs-recon__foot {
+  margin-top: auto;
+  padding-top: 1rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-500);
+}
+
+.fs-recon__card--gap .fs-recon__foot {
+  color: rgba(255, 254, 251, 0.6);
+}
+
+/* Connector between cards, horizontal on wide screens only. */
+.fs-recon__link {
+  display: none;
+}
+
+@media (min-width: 950px) {
+  .fs-recon__link {
+    display: block;
+    position: absolute;
+    top: 50%;
+    right: -2.25rem;
+    width: 2.25rem;
+    height: 1px;
+    background: var(--rule-strong);
+  }
+
+  .fs-recon__link::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: -3px;
+    width: 7px;
+    height: 7px;
+    border-top: 1px solid var(--rule-strong);
+    border-right: 1px solid var(--rule-strong);
+    transform: rotate(45deg);
+  }
 }

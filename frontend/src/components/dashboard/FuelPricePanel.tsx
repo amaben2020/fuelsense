@@ -77,7 +77,7 @@ export function FuelPricePanel() {
         <h2 className="font-semibold text-ink">Fuel price benchmark</h2>
       </div>
       <p className="mt-1 text-xs text-ink-dim">
-        Sets expected cost and cost per km. Changing it applies from today onward — periods
+        Sets expected cost and cost per km. Changing it applies from today onward, so periods
         already reported keep the price that applied when the fuel was burned.
       </p>
 

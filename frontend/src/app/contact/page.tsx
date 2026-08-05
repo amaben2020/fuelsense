@@ -162,7 +162,7 @@ export default function ContactPage() {
 
             {status.kind === 'sent' && (
               <p className="fs-note fs-note--ok" style={{ marginTop: '1rem' }} role="status">
-                Thank you — your message is on its way. We reply to every enquiry.
+                Thank you. Your message is on its way, and we reply to every enquiry.
               </p>
             )}
             {status.kind === 'error' && (

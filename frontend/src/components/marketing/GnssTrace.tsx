@@ -27,7 +27,7 @@ interface Marker {
 const MARKERS: Marker[] = [
   { at: 0.02, label: 'Ignition on', detail: '06:12 · trip opens', tone: 'good' },
   { at: 0.36, label: 'Moving', detail: '38 km/h · burn 9.4 L/100km', tone: 'neutral' },
-  { at: 0.63, label: 'Stop · 14 min', detail: 'engine running — idling', tone: 'warn' },
+  { at: 0.63, label: 'Stop · 14 min', detail: 'engine running, idling', tone: 'warn' },
   { at: 0.97, label: 'Ignition off', detail: '07:21 · 30.4 km · 3.1 L', tone: 'good' },
 ];
 

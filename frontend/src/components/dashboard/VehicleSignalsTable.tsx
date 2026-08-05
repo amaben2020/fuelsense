@@ -354,7 +354,7 @@ export function VehicleSignalsTable({
               ? `Signals from the frame received ${new Date(data.frame_at).toLocaleString()}.`
               : 'No frame stored for this device yet.'}{' '}
             Engine, coolant, RPM and tyre-pressure rows require a CAN adapter or
-            TPMS sensors — the tracker alone cannot report them, so they appear
+            TPMS sensors. The tracker alone cannot report them, so they appear
             here only once that hardware is fitted.
           </p>
         </>
