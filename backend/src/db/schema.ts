@@ -250,6 +250,15 @@ export const virtualTanks = pgTable('virtual_tanks', {
   burnFactor: numeric('burn_factor', { precision: 5, scale: 3 }).notNull().default('1'),
   burnFactorSource: varchar('burn_factor_source', { length: 30 }),
   burnFactorSamples: integer('burn_factor_samples').notNull().default(0),
+  // Anchored model. Level is computed from the anchor and the accumulator's
+  // absolute travel since it, rather than by subtracting each ping's delta:
+  // that way fuel burned while the tracker was offline is still counted, and
+  // a single bad write cannot drift the tank permanently.
+  anchorLevelMl: bigint('anchor_level_ml', { mode: 'number' }),
+  anchorAccumulatorMl: bigint('anchor_accumulator_ml', { mode: 'number' }),
+  // AVL 12 restarts at zero on every power cycle, so the running total is the
+  // raw reading plus everything counted before the resets.
+  accumulatorOffsetMl: bigint('accumulator_offset_ml', { mode: 'number' }).notNull().default(0),
   confidence: integer('confidence').notNull().default(30),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

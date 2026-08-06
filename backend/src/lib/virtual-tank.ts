@@ -80,7 +80,49 @@ export interface VirtualTankState {
   burnFactor: number;
   burnFactorSource: string | null;
   burnFactorSamples: number;
+  anchorLevelMl: number | null;
+  anchorAccumulatorMl: number | null;
+  accumulatorOffsetMl: number;
   confidence: number;
+}
+
+/**
+ * Running total the accumulator has reached, across every power cycle.
+ *
+ * AVL 12 restarts at zero whenever the device loses power, so the raw reading
+ * alone understates lifetime burn. Anything counted before a reset is banked
+ * into the offset, which is what makes an absolute anchor safe to use: the
+ * naive `current - start` goes negative after a reset and the tank appears to
+ * refill itself.
+ */
+export function accumulatorTotalMl(readingMl: number, offsetMl: number): number {
+  return readingMl + offsetMl;
+}
+
+/** True when the accumulator has restarted rather than merely ticked back. */
+export function isAccumulatorReset(readingMl: number, lastReadingMl: number | null): boolean {
+  if (lastReadingMl == null) return false;
+  return readingMl <= lastReadingMl * ACCUMULATOR_RESET_MAX_FRACTION;
+}
+
+/**
+ * Level from the anchor, not from a running subtraction.
+ *
+ * Everything burned since the tank was last anchored is the distance the
+ * accumulator has travelled since then, corrected by k. Computing it this way
+ * means a telemetry gap costs nothing: the accumulator kept counting while the
+ * tracker was offline, and the next packet to arrive carries the whole total.
+ */
+export function levelFromAnchor(
+  anchorLevelMl: number,
+  anchorAccumulatorMl: number,
+  totalAccumulatorMl: number,
+  burnFactor: number,
+  capacityMl: number
+): number {
+  const travelled = Math.max(0, totalAccumulatorMl - anchorAccumulatorMl);
+  const consumed = Math.round(travelled * burnFactor);
+  return Math.max(0, Math.min(capacityMl, anchorLevelMl - consumed));
 }
 
 /**
@@ -151,6 +193,10 @@ const rowToState = (row: typeof virtualTanks.$inferSelect): VirtualTankState => 
   burnFactor: row.burnFactor != null ? Number(row.burnFactor) : 1,
   burnFactorSource: row.burnFactorSource,
   burnFactorSamples: row.burnFactorSamples ?? 0,
+  anchorLevelMl: row.anchorLevelMl != null ? Number(row.anchorLevelMl) : null,
+  anchorAccumulatorMl:
+    row.anchorAccumulatorMl != null ? Number(row.anchorAccumulatorMl) : null,
+  accumulatorOffsetMl: Number(row.accumulatorOffsetMl ?? 0),
   confidence: row.confidence,
 });
 
@@ -372,8 +418,24 @@ export async function processFuelGpsReading(
   // every naira figure downstream all rest on the same corrected burn.
   const correctedDeltaMl = Math.round(deltaMl * burnFactor);
 
-  const levelMl = Math.max(0, state.levelMl - correctedDeltaMl);
-  const consumedSinceCalibrationMl = state.consumedSinceCalibrationMl + correctedDeltaMl;
+  // Bank the pre-reset total so the running figure survives a power cycle.
+  const accumulatorOffsetMl = accumulatorReset
+    ? state.accumulatorOffsetMl + (state.lastFuelUsedMl ?? 0)
+    : state.accumulatorOffsetMl;
+  const totalAccumulatorMl = accumulatorTotalMl(reading.fuelUsedMl, accumulatorOffsetMl);
+
+  // Anchor on first sight, or after a calibration that left none behind.
+  const anchorAccumulatorMl = state.anchorAccumulatorMl ?? totalAccumulatorMl;
+  const anchorLevelMl = state.anchorLevelMl ?? state.levelMl;
+
+  const levelMl = levelFromAnchor(
+    anchorLevelMl,
+    anchorAccumulatorMl,
+    totalAccumulatorMl,
+    burnFactor,
+    capacityMlLimit
+  );
+  const consumedSinceCalibrationMl = Math.max(0, anchorLevelMl - levelMl);
 
   const nextState: VirtualTankState = {
     ...state,
@@ -393,6 +455,9 @@ export async function processFuelGpsReading(
       lastFuelUsedMl: reading.fuelUsedMl,
       lastReadingAt: reading.recordedAt,
       consumedSinceCalibrationMl,
+      anchorLevelMl,
+      anchorAccumulatorMl,
+      accumulatorOffsetMl,
       learnedIdleLph: learnedIdleLph != null ? learnedIdleLph.toFixed(3) : null,
       accumulatorIdleLph: accumulatorIdleLph != null ? accumulatorIdleLph.toFixed(3) : null,
       burnFactor: burnFactor.toFixed(3),
@@ -603,7 +668,18 @@ export async function creditRefuel(
 
   const [row] = await db
     .update(virtualTanks)
-    .set({ levelMl, updatedAt: sql`NOW()` })
+    .set({
+      levelMl,
+      // Re-anchor: everything the accumulator counts from here is measured
+      // against this fill, not against a calibration weeks ago.
+      anchorLevelMl: levelMl,
+      anchorAccumulatorMl: accumulatorTotalMl(
+        state.lastFuelUsedMl ?? 0,
+        state.accumulatorOffsetMl
+      ),
+      consumedSinceCalibrationMl: 0,
+      updatedAt: sql`NOW()`,
+    })
     .where(and(eq(virtualTanks.vehicleId, vehicleId), eq(virtualTanks.customerId, customerId)))
     .returning();
 
