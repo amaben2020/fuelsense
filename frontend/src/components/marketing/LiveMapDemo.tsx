@@ -489,6 +489,13 @@ export function LiveMapDemo() {
         <p className="fs-trace__reading">{km.toFixed(1)} km</p>
 
         <p className="fs-trace__gaugelabel" style={{ marginTop: '1.25rem' }}>
+          Burn rate
+        </p>
+        <p className="fs-trace__reading">
+          {fraction > 0.02 ? ((USED_LITERS * fraction) / Math.max(km, 0.1) * 100).toFixed(1) : '0.0'} L/100km
+        </p>
+
+        <p className="fs-trace__gaugelabel" style={{ marginTop: '1.25rem' }}>
           Fuel spent
         </p>
         <p className="fs-trace__reading">₦{spend.toLocaleString('en-NG')}</p>
