@@ -22,6 +22,7 @@ import {
 import {
   Alert,
   api,
+  ApiError,
   clearToken,
   Customer,
   DashboardSummary,
@@ -322,9 +323,9 @@ export default function DashboardPage() {
         return fleetRows[0]?.id ?? null;
       });
     } catch (err) {
-      if (err instanceof Error && err.message.includes('401')) {
+      if (err instanceof ApiError && err.status === 401) {
         clearToken();
-        router.replace('/login');
+        window.location.replace('/login');
         return;
       }
       // The error object is kept whole, not flattened to a string: the banner
@@ -337,7 +338,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace('/login');
+      window.location.replace('/login');
       return;
     }
 
