@@ -23,6 +23,21 @@ export interface DriverSession {
   model: string | null;
 }
 
+export interface ReceiptCheck {
+  code: 'vehicle_present' | 'volume_fits_tank' | 'bought_vs_burned';
+  label: string;
+  outcome: 'pass' | 'fail' | 'unknown';
+  detail: string;
+}
+
+export interface ReceiptVerification {
+  status: 'matched' | 'pending' | 'flagged_theft';
+  checks: ReceiptCheck[];
+  summary: string;
+  distance_meters?: number | null;
+  estimatedLossNgn?: number;
+}
+
 export interface DriverReceipt {
   id: string;
   merchant_name: string | null;
@@ -32,6 +47,7 @@ export interface DriverReceipt {
   obd_liters_actual: string | number | null;
   difference_liters: string | number | null;
   reconciliation_status: string;
+  verification?: ReceiptVerification | null;
   total_amount: string | number | null;
   uploaded_at: string;
   license_plate: string;
@@ -153,6 +169,17 @@ export async function parseDriverReceiptText(ocrText: string, merchantHint?: str
     method: 'POST',
     body: JSON.stringify({ ocr_text: ocrText, merchant_hint: merchantHint }),
   });
+}
+
+export interface AddressSuggestion {
+  description: string;
+  place_id: string;
+}
+
+export async function fetchAddressSuggestions(query: string) {
+  return driverApi<AddressSuggestion[]>(
+    `/places/autocomplete?q=${encodeURIComponent(query)}`
+  );
 }
 
 export async function submitDriverReceipt(body: Record<string, unknown>) {

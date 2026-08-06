@@ -116,7 +116,7 @@ export function FuelPricePanel() {
             step={10}
             value={price}
             onChange={(e) => setPrice(e.target.value)}
-            placeholder="1330"
+            placeholder="1300"
             className="mt-1 w-full rounded-md border border-edge bg-canvas px-3 py-2 font-mono text-sm text-ink outline-none focus:border-brand"
           />
         </label>

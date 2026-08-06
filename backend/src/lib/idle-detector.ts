@@ -13,6 +13,9 @@
 // its "on stop" cadence and can go an hour between frames. Timestamp maths
 // still reports that hour correctly; counting frames would report nothing.
 import { recordDeviceEvent } from './device-event-decoder';
+import { db, alerts } from './db-helpers';
+import { idleFuelBurnLiters, DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics';
+import { latestReceiptPrice } from './fuel-price';
 
 // Below this the vehicle is not travelling — GNSS reports a few km/h of
 // Doppler noise while stationary. Matches the idle definition already used by
@@ -24,6 +27,10 @@ const IDLE_SPEED_KPH = 2;
 // with the ignition on is not reported as idling.
 const IDLE_MIN_MS = Number(process.env.IDLE_MIN_SECONDS || 120) * 1000;
 
+// Idling past this is money burning with nothing moving, so the manager is
+// told while it is still happening rather than at the end of the day.
+const IDLE_ALERT_MINUTES = Number(process.env.IDLE_ALERT_MINUTES || 5);
+
 export interface IdleReading {
   ignitionOn: boolean;
   speedKph: number | null;
@@ -34,6 +41,8 @@ export interface IdleState {
   idleSince: Date;
   /** True once `idling_start` has been written for this stretch. */
   startEmitted: boolean;
+  /** True once the long-idle alert has been raised for this stretch. */
+  alerted?: boolean;
 }
 
 export interface IdleEmission {
@@ -115,6 +124,37 @@ export interface IdleContext {
   ignitionOn: boolean;
   speedKph: number | null;
   recordedAt: Date;
+  licensePlate?: string | null;
+}
+
+/**
+ * One alert per idle stretch that runs past the threshold.
+ *
+ * Deliberately not deduped against still-open alerts the way scenario events
+ * are: each stretch is a separate cost the manager is entitled to see, and
+ * suppressing the second one because the first was never dismissed would hide
+ * exactly the repeat behaviour worth acting on.
+ */
+async function raiseIdleAlert(ctx: IdleContext, minutes: number): Promise<void> {
+  const liters = idleFuelBurnLiters(minutes / 60);
+  const price = await latestReceiptPrice(ctx.customerId).catch(() => null);
+  // Priced off the last receipt a driver actually paid, so the naira figure
+  // tracks the pump rather than an assumed rate.
+  const ngnPerLiter = price?.ngnPerLiter ?? DEFAULT_FUEL_PRICE_NGN_LITER;
+  const cost = Math.round(liters * ngnPerLiter);
+  const plate = ctx.licensePlate ?? 'vehicle';
+
+  await db.insert(alerts).values({
+    imei: ctx.imei,
+    customerId: ctx.customerId,
+    vehicleId: ctx.vehicleId,
+    alertType: 'excessive_idle',
+    message: `${plate} idled ${Math.round(minutes)} min with the engine running and the vehicle stationary — about ${liters.toFixed(1)}L burned (₦${cost.toLocaleString('en-NG')} at ₦${Math.round(ngnPerLiter)}/L).`,
+    fuelDropLiters: liters.toFixed(2),
+    estimatedLossNgn: cost,
+    latitude: ctx.latitude,
+    longitude: ctx.longitude,
+  });
 }
 
 /**
@@ -126,14 +166,32 @@ export interface IdleContext {
  * cursor state for a signal this cheap to recompute.
  */
 export async function handleIdleForRecord(ctx: IdleContext): Promise<IdleEmission[]> {
-  const { state, emissions } = stepIdle(stateByImei.get(ctx.imei) ?? null, {
+  const prior = stateByImei.get(ctx.imei) ?? null;
+  const { state, emissions } = stepIdle(prior, {
     ignitionOn: ctx.ignitionOn,
     speedKph: ctx.speedKph,
     recordedAt: ctx.recordedAt,
   });
 
-  if (state) stateByImei.set(ctx.imei, state);
-  else stateByImei.delete(ctx.imei);
+  if (state) {
+    // Alert while the engine is still running, not in hindsight: parked with
+    // the ignition on, the FMC150 slows to its stop cadence, so the crossing
+    // is detected on whichever frame arrives after the threshold passes.
+    const minutes = (ctx.recordedAt.getTime() - state.idleSince.getTime()) / 60000;
+    if (!state.alerted && minutes >= IDLE_ALERT_MINUTES) {
+      await raiseIdleAlert(ctx, minutes);
+      state.alerted = true;
+    }
+    stateByImei.set(ctx.imei, state);
+  } else {
+    // A stretch that began and ended between two frames never had a chance to
+    // cross the threshold live — its true length is only known now.
+    const ended = emissions.find((e) => e.eventType === 'idling_end');
+    if (!prior?.alerted && ended?.minutes != null && ended.minutes >= IDLE_ALERT_MINUTES) {
+      await raiseIdleAlert(ctx, ended.minutes);
+    }
+    stateByImei.delete(ctx.imei);
+  }
 
   for (const emission of emissions) {
     await recordDeviceEvent(

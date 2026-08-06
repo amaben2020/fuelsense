@@ -309,6 +309,117 @@ export async function fetchStreetView(
   );
 }
 
+export interface FuelStation {
+  name: string;
+  placeId: string | null;
+  /** Metres from the queried point to the station Google returned. */
+  distanceMeters: number | null;
+  /** Proxied through our API, so the key stays server-side. */
+  photoUrl: string | null;
+}
+
+// One answer per ~11 m cell, kept for a day: filling stations do not move, and
+// a vehicle that parks at the same depot every night must not re-bill the
+// lookup each time.
+const stationCache = new Map<string, { at: number; station: FuelStation | null }>();
+const STATION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Is there a filling station where this vehicle stopped?
+ *
+ * The tracker cannot see fuel entering the tank, so the next best evidence
+ * that a fill happened is the vehicle standing still on a forecourt. Radius is
+ * deliberately tight — a station 200 m up the road is not where it parked.
+ */
+export async function nearbyFuelStation(lat: number, lng: number): Promise<FuelStation | null> {
+  const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const cached = stationCache.get(key);
+  if (cached && Date.now() - cached.at < STATION_TTL_MS) return cached.station;
+
+  if (!GOOGLE_KEY) return null;
+
+  const data = await fetchJson(
+    `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=120&type=gas_station&key=${GOOGLE_KEY}`,
+    'places_nearby'
+  );
+
+  // A refused or failed call is not evidence of absence, so it is not cached.
+  if (!data) return null;
+
+  const results = data.results as Array<Record<string, unknown>> | undefined;
+  const top = results?.[0];
+  let station: FuelStation | null = null;
+
+  if (top) {
+    const geometry = (top.geometry as Record<string, unknown> | undefined)?.location as
+      | { lat: number; lng: number }
+      | undefined;
+    const photos = top.photos as Array<Record<string, unknown>> | undefined;
+    station = {
+      name: (top.name as string) ?? 'Filling station',
+      placeId: (top.place_id as string) ?? null,
+      photoUrl: photoUrlFor((photos?.[0]?.photo_reference as string) ?? null),
+      distanceMeters: geometry
+        ? Math.round(
+            Math.hypot(
+              (geometry.lat - lat) * 111_320,
+              (geometry.lng - lng) * 111_320 * Math.cos((lat * Math.PI) / 180)
+            )
+          )
+        : null,
+    };
+  }
+
+  stationCache.set(key, { at: Date.now(), station });
+  return station;
+}
+
+/**
+ * A map of the claim: the receipt's pin and, when known, where the tracker
+ * actually put the vehicle.
+ *
+ * Street View and forecourt photos do not exist everywhere — Google has
+ * neither for stretches of the Keffi–Abuja expressway, where this fleet
+ * fuels. A map always renders, so evidence never degrades to an empty box.
+ */
+export function staticMapPath(
+  lat: number,
+  lng: number,
+  fix?: { lat: number; lng: number } | null
+): string {
+  const params = new URLSearchParams({ lat: lat.toFixed(6), lng: lng.toFixed(6) });
+  if (fix) {
+    params.set('flat', fix.lat.toFixed(6));
+    params.set('flng', fix.lng.toFixed(6));
+  }
+  return `/api/places/staticmap?${params.toString()}`;
+}
+
+export async function fetchStaticMap(
+  lat: number,
+  lng: number,
+  fix?: { lat: number; lng: number } | null
+): Promise<ProxiedImage | null> {
+  const key = `map:${lat.toFixed(5)},${lng.toFixed(5)}:${fix ? `${fix.lat.toFixed(5)},${fix.lng.toFixed(5)}` : 'solo'}`;
+
+  const markers = [
+    `markers=color:red%7Clabel:R%7C${lat},${lng}`,
+    fix ? `markers=color:0x00e599%7Clabel:V%7C${fix.lat},${fix.lng}` : '',
+  ]
+    .filter(Boolean)
+    .join('&');
+
+  // No explicit zoom: with two markers Google frames both, which is the point
+  // — the manager sees the gap between the claim and the vehicle.
+  const zoom = fix ? '' : '&zoom=16';
+
+  return proxyImage(
+    key,
+    `https://maps.googleapis.com/maps/api/staticmap?size=480x300&scale=2&maptype=roadmap&${markers}${zoom}&key=${GOOGLE_KEY}`,
+    'static_map'
+  );
+}
+
 export interface AddressSuggestion {
   description: string;
   place_id: string;

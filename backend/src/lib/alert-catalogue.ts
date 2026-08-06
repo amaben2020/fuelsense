@@ -60,9 +60,20 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     label: 'Receipt does not match',
     severity: 'critical',
     meaning:
-      'A driver claimed more fuel than the vehicle actually received or could hold.',
+      'A receipt the tracker contradicts — the vehicle was not at that station, or the claimed volume could not have fitted in the tank.',
     trigger:
-      'Declared litres exceed the measured or expected amount beyond tolerance when the receipt is reconciled.',
+      'Verification finds the vehicle more than 3 km from the receipt location at the purchase time, or declared litres above the tank’s available room.',
+    source: 'analysis',
+    emailable: false,
+  },
+  {
+    type: 'unlogged_fill',
+    label: 'Fill with no receipt',
+    severity: 'warning',
+    meaning:
+      'The vehicle stopped at a filling station and no receipt was ever logged for it, so whatever was bought is unaccounted for.',
+    trigger:
+      'A stop of 3–45 minutes at a place Google identifies as a filling station, with no receipt within ±2 hours of it.',
     source: 'analysis',
     emailable: false,
   },

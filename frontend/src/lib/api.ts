@@ -547,8 +547,41 @@ export interface FuelPurchaseEventAssessment {
   difference_liters: number | null;
 }
 
+export interface ReceiptVerificationCheck {
+  code: 'vehicle_present' | 'volume_fits_tank' | 'bought_vs_burned';
+  label: string;
+  outcome: 'pass' | 'fail' | 'unknown';
+  detail: string;
+}
+
+export interface ReceiptStationEvidence {
+  placeName: string | null;
+  formattedAddress: string | null;
+  photoUrl: string | null;
+  imageKind: 'street_view' | 'place_photo' | 'map' | null;
+  streetViewDate: string | null;
+  source: 'receipt' | 'tracker';
+}
+
+/** What the tracker could and could not confirm about a receipt. */
+export interface ReceiptVerification {
+  status: 'matched' | 'pending' | 'flagged_theft';
+  checks: ReceiptVerificationCheck[];
+  summary: string;
+  station: ReceiptStationEvidence | null;
+  distanceMeters: number | null;
+  nearestFixAt: string | null;
+  tankLevelBeforeLiters: number | null;
+  headroomLiters: number | null;
+  overclaimedLiters: number | null;
+  estimatedLossNgn: number;
+  verifiedAt: string;
+}
+
 export interface FuelPurchase {
   id: string;
+  verification?: ReceiptVerification | null;
+  merchant_address?: string | null;
   vehicle_id: string;
   license_plate: string;
   driver_name?: string | null;

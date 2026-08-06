@@ -355,7 +355,12 @@ export function assessReceiptEvent({
 
   if (actual == null) {
     probability = Math.min(probability, 35);
-    reasons.push('No OBD refuel was matched within ±2 hours — we cannot fully verify this receipt yet.');
+    // No tank sensor on this hardware, so there is no measured volume to put
+    // against the claim. The receipt's own verification carries the checks
+    // that can be made — see receipt-verification.ts.
+    reasons.push(
+      'This vehicle has no tank sensor, so the litres cannot be measured — the receipt is judged on the vehicle’s position and the tank’s capacity instead.'
+    );
   }
 
   probability = Math.max(0, Math.min(99, Math.round(probability)));

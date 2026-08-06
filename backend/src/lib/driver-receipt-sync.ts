@@ -41,6 +41,8 @@ interface ReceiptRow {
   ignitionOnAt?: Date | string | null;
   odometer_km?: number | null;
   odometerKm?: number | null;
+  total_amount?: number | string | null;
+  totalAmount?: number | string | null;
   reconciliation_status?: string;
   reconciliationStatus?: string;
 }
@@ -56,6 +58,7 @@ export function buildPurchaseValuesFromReceipt(receipt: ReceiptRow): {
   obdRefuelDetectedAt: Date | null;
   ignitionOnAt: Date | null;
   costPerLiterNgn: number;
+  totalAmountNgn: number | null;
   odometerKm: number | null;
   status: string;
   source: string;
@@ -79,6 +82,11 @@ export function buildPurchaseValuesFromReceipt(receipt: ReceiptRow): {
     obdRefuelDetectedAt: toDate(receipt.obd_refuel_detected_at ?? receipt.obdRefuelDetectedAt),
     ignitionOnAt: toDate(receipt.ignition_on_at ?? receipt.ignitionOnAt),
     costPerLiterNgn: Math.round(price),
+    // The slip's own total when we have it; the reconstruction otherwise.
+    totalAmountNgn:
+      receipt.total_amount != null || receipt.totalAmount != null
+        ? Math.round(Number(receipt.total_amount ?? receipt.totalAmount))
+        : Math.round(declared * price),
     odometerKm: receipt.odometer_km ?? receipt.odometerKm ?? null,
     status: purchaseStatusFromReceipt(reconciliationStatus),
     source: 'driver_upload',
@@ -99,6 +107,7 @@ export async function backfillDriverReceiptPurchases(db: typeof DbType): Promise
       r.obd_refuel_detected_at,
       r.ignition_on_at,
       r.odometer_km,
+      r.total_amount,
       r.reconciliation_status
     FROM fuel_receipts r
     WHERE NOT EXISTS (

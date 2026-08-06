@@ -23,6 +23,11 @@ const ANOMALY_META: Record<string, { type: string; severity: string; title: stri
     severity: 'warning',
     title: 'Excessive idling',
   },
+  unlogged_fill: {
+    type: 'fraud',
+    severity: 'warning',
+    title: 'Fill with no receipt',
+  },
   poor_efficiency: {
     type: 'efficiency',
     severity: 'warning',

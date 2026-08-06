@@ -6,6 +6,7 @@ import {
   FleetVehicle,
   FuelPurchase,
   FuelPurchasesResponse,
+  ReceiptVerification,
   formatNgn,
   api,
 } from '@/lib/api';
@@ -232,9 +233,10 @@ export function ReceiptsPanel({
               <p className="mt-1 text-xs text-ink-dim">Driver-entered at fuel station</p>
             </div>
             <div className="rounded-lg border border-edge bg-panel p-4">
-              <p className="text-xs text-ink-dim">OBD actual (FMC150)</p>
+              <p className="text-xs text-ink-dim">Checked against the tracker</p>
               <p className="mt-1 font-mono text-2xl font-bold text-good">
-                {summary.grand_total.total_obd_liters.toFixed(1)} L
+                {purchases.filter((p) => p.status === 'verified').length}/
+                {purchases.length}
               </p>
               <p className="mt-1 text-xs text-bad">
                 {theftCount} flagged for review on this page
@@ -263,7 +265,7 @@ export function ReceiptsPanel({
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </p>
               <p className="mt-1 text-xs text-ink-dim">
-                Switch to Reconciled to compare against FMC150 OBD
+                Switch to Reconciled to see what the tracker confirms
               </p>
             </div>
           </div>
@@ -280,7 +282,7 @@ export function ReceiptsPanel({
             <p className="mt-1 text-xs text-ink-dim">
               {activeTab === 'station'
                 ? 'Exact pump purchase times — when the driver paid and logged liters at the station'
-                : 'Timestamp reconciliation — use View event for pump, OBD, and ignition timeline'}
+                : 'Each receipt against the tracker — was the vehicle at that station, and could the tank take that much'}
             </p>
           </div>
           <button
@@ -365,7 +367,7 @@ export function ReceiptsPanel({
               onClick={submitReceipt}
               className="mt-3 rounded-lg bg-good px-4 py-2 text-xs font-medium text-canvas"
             >
-              {submitting ? 'Saving…' : 'Save receipt — match OBD actual'}
+              {submitting ? 'Saving…' : 'Save receipt — check against tracker'}
             </button>
           </div>
         )}
@@ -507,7 +509,7 @@ function ReconciledReceiptsTable({
             <th className="px-6 py-3">Driver</th>
             <th className="px-6 py-3">Merchant</th>
             <th className="px-6 py-3">Receipt (L)</th>
-            <th className="px-6 py-3">OBD actual (L)</th>
+            <th className="px-6 py-3">Tracker check</th>
             <th className="px-6 py-3">Difference</th>
             <th className="px-6 py-3">Cost</th>
             <th className="px-6 py-3">Status</th>
@@ -539,21 +541,11 @@ function ReconciledReceiptsTable({
               <td className="px-6 py-4 font-mono font-semibold text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </td>
-              <td className="px-6 py-4 font-mono font-semibold text-good">
-                {summary.grand_total.total_obd_liters.toFixed(1)} L
-              </td>
-              <td className="px-6 py-4 font-mono text-bad">
-                −
-                {Math.max(
-                  0,
-                  Math.round(
-                    (summary.grand_total.total_receipt_liters -
-                      summary.grand_total.total_obd_liters) *
-                      10
-                  ) / 10
-                )}{' '}
-                L
-              </td>
+              {/* No measured-litres total to sum: the check is per receipt,
+                  and a fleet-wide "missing litres" figure derived from a tank
+                  sensor this vehicle does not have would be fiction. */}
+              <td className="px-6 py-4 text-xs text-ink-dim">Per receipt</td>
+              <td className="px-6 py-4 text-xs text-ink-dim">—</td>
               <td className="px-6 py-4 font-mono font-bold text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
               </td>
@@ -565,6 +557,46 @@ function ReconciledReceiptsTable({
         )}
       </table>
     </div>
+  );
+}
+
+// What the tracker could confirm about a receipt, in the space of a table
+// cell. The vehicle has no tank sensor, so there is no measured litre figure
+// to put here — the honest answer is which checks passed and which did not.
+function TrackerCheckCell({
+  verification,
+}: {
+  verification?: ReceiptVerification | null;
+}) {
+  if (!verification) {
+    return <span className="text-xs text-ink-dim">Not checked</span>;
+  }
+
+  const decisive = verification.checks.filter((c) => c.code !== 'bought_vs_burned');
+  const failed = decisive.find((c) => c.outcome === 'fail');
+
+  if (failed) {
+    return (
+      <span className="text-xs text-bad" title={failed.detail}>
+        {failed.label} — failed
+      </span>
+    );
+  }
+
+  const unknown = decisive.filter((c) => c.outcome === 'unknown');
+  if (unknown.length > 0) {
+    return (
+      <span className="text-xs text-warn" title={unknown.map((c) => c.detail).join(' ')}>
+        Waiting on {unknown.length === decisive.length ? 'tracker data' : unknown[0].label.toLowerCase()}
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-xs text-good" title={verification.summary}>
+      At station · volume fits
+      {verification.distanceMeters != null ? ` (${verification.distanceMeters} m)` : ''}
+    </span>
   );
 }
 
@@ -731,12 +763,6 @@ function ReconciledReceiptRow({
   const isTheft = purchase.status === 'flagged_theft';
   const isPending = purchase.status === 'pending_receipt';
   const purchaseTime = purchase.purchased_at ?? purchase.timestamp;
-  const obdDisplay =
-    purchase.liters_actual != null
-      ? `${purchase.liters_actual} L`
-      : isPending
-        ? '0 L'
-        : 'Pending OBD';
 
   if (compact) {
     return (
@@ -744,8 +770,8 @@ function ReconciledReceiptRow({
         <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
         <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
         <td className="px-6 py-3 font-mono">{purchase.liters_declared} L</td>
-        <td className={`px-6 py-3 font-mono ${isPending ? 'text-warn' : 'text-good'}`}>
-          {obdDisplay}
+        <td className="px-6 py-3">
+          <TrackerCheckCell verification={purchase.verification} />
         </td>
         <td
           className={`px-6 py-3 font-mono ${isTheft ? 'font-bold text-bad' : purchase.difference_liters > 0 ? 'text-bad' : 'text-good'}`}
@@ -781,8 +807,8 @@ function ReconciledReceiptRow({
       <td className="px-6 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
       <td className="px-6 py-3">{purchase.merchant}</td>
       <td className="px-6 py-3 font-mono">{purchase.liters_declared} L</td>
-      <td className={`px-6 py-3 font-mono ${isPending ? 'text-warn' : 'text-good'}`}>
-        {obdDisplay}
+      <td className="px-6 py-3">
+        <TrackerCheckCell verification={purchase.verification} />
       </td>
       <td
         className={`px-6 py-3 font-mono ${isTheft ? 'font-bold text-bad' : purchase.difference_liters > 0 ? 'text-bad' : 'text-good'}`}
@@ -836,7 +862,8 @@ export function FuelPurchaseTable({
             <Receipt className="h-4 w-4" /> Fuel purchase reconciliation
           </h2>
           <p className="mt-1 text-xs text-ink-dim">
-            Receipt liters (manual) vs actual liters from FMC150 OBD fuel sensor at refuel time
+            Driver-entered litres against what the tracker can confirm — vehicle position at the
+            purchase time, and whether the volume fits the tank
           </p>
         </div>
         {onOpenReceipts && (
@@ -859,7 +886,7 @@ export function FuelPurchaseTable({
                 <th className="px-6 py-3">Date</th>
                 <th className="px-6 py-3">Vehicle</th>
                 <th className="px-6 py-3">Receipt (L)</th>
-                <th className="px-6 py-3">OBD actual (L)</th>
+                <th className="px-6 py-3">Tracker check</th>
                 <th className="px-6 py-3">Difference</th>
                 <th className="px-6 py-3">Cost</th>
                 <th className="px-6 py-3">Status</th>

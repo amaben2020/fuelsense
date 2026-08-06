@@ -6,7 +6,12 @@
 // server instead of embedding it in markup the browser can read.
 import express, { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { fetchPlacePhoto, fetchStreetView, suggestAddresses } from '../lib/place-lookup';
+import {
+  fetchPlacePhoto,
+  fetchStaticMap,
+  fetchStreetView,
+  suggestAddresses,
+} from '../lib/place-lookup';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../middleware/auth';
 
@@ -49,6 +54,38 @@ router.get('/photo', async (req: Request, res: Response) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('X-Image-Cache', photo.cached ? 'HIT' : 'MISS');
     res.send(photo.body);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+router.get('/staticmap', async (req: Request, res: Response) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  const fixLat = Number(req.query.flat);
+  const fixLng = Number(req.query.flng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    res.status(400).json({ error: 'valid lat and lng are required' });
+    return;
+  }
+
+  const fix =
+    Number.isFinite(fixLat) && Number.isFinite(fixLng) && Math.abs(fixLat) <= 90
+      ? { lat: fixLat, lng: fixLng }
+      : null;
+
+  try {
+    const img = await fetchStaticMap(lat, lng, fix);
+    if (!img) {
+      res.status(404).json({ error: 'Map unavailable' });
+      return;
+    }
+    res.setHeader('Content-Type', img.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('X-Image-Cache', img.cached ? 'HIT' : 'MISS');
+    res.send(img.body);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

@@ -1,7 +1,7 @@
 'use client';
 
-import { AlertTriangle, Key, Receipt, Shield, X, Zap } from 'lucide-react';
-import { FuelPurchase, formatNgn } from '@/lib/api';
+import { AlertTriangle, Check, HelpCircle, Key, Receipt, Shield, X, Zap } from 'lucide-react';
+import { FuelPurchase, ReceiptVerification, formatNgn, placePhotoSrc } from '@/lib/api';
 
 function formatReceiptDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-NG', {
@@ -29,6 +29,89 @@ const EVENT_COLORS = {
   ignition: 'text-warn bg-warn/15 border-warn/30',
 } as const;
 
+const VERDICT_LABEL: Record<string, string> = {
+  verified: 'Verified',
+  pending_receipt: 'Awaiting evidence',
+  flagged_theft: 'Flagged',
+};
+
+const CHECK_TONE = {
+  pass: { icon: Check, className: 'border-good/30 bg-good/10 text-good' },
+  fail: { icon: AlertTriangle, className: 'border-bad-deep/40 bg-bad-deep/15 text-bad' },
+  unknown: { icon: HelpCircle, className: 'border-warn/30 bg-warn/10 text-warn' },
+} as const;
+
+/**
+ * The checks behind the verdict, with a photograph of the place the receipt
+ * claims. A manager confronting a driver needs something to point at, and on
+ * a vehicle with no tank sensor the forecourt itself is the evidence.
+ */
+function VerificationEvidence({ verification }: { verification: ReceiptVerification }) {
+  const station = verification.station;
+
+  return (
+    <section className="rounded-lg border border-edge bg-panel p-4">
+      <h3 className="text-sm font-semibold text-ink">What the tracker confirms</h3>
+      <p className="mt-1 text-sm leading-relaxed text-ink-mid">{verification.summary}</p>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,200px)_1fr]">
+        {station?.photoUrl ? (
+          <figure className="overflow-hidden rounded-lg border border-edge">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={placePhotoSrc(station.photoUrl) ?? station.photoUrl}
+              alt={station.placeName ?? 'Location of the purchase'}
+              className={`w-full ${station.imageKind === 'map' ? 'h-40 object-contain bg-canvas' : 'h-32 object-cover'}`}
+              loading="lazy"
+            />
+            <figcaption className="px-2 py-1.5 text-[11px] leading-tight text-ink-dim">
+              {station.imageKind === 'street_view'
+                ? 'Street View'
+                : station.imageKind === 'map'
+                  ? 'R = receipt pin, V = where the tracker put the vehicle'
+                  : 'Place photo'}
+              {station.streetViewDate ? ` · ${station.streetViewDate}` : ''} ·{' '}
+              {station.source === 'receipt'
+                ? "the receipt's own pin"
+                : "the tracker's position"}
+            </figcaption>
+          </figure>
+        ) : (
+          <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-edge text-xs text-ink-dim">
+            No imagery for this location
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {station?.placeName && (
+            <p className="text-xs text-ink-dim">
+              Google calls this place{' '}
+              <span className="text-ink">{station.placeName}</span>
+              {station.formattedAddress ? ` — ${station.formattedAddress}` : ''}
+            </p>
+          )}
+          {verification.checks.map((check) => {
+            const tone = CHECK_TONE[check.outcome];
+            const Icon = tone.icon;
+            return (
+              <div
+                key={check.code}
+                className={`flex items-start gap-2 rounded-lg border p-2.5 ${tone.className}`}
+              >
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="text-xs font-medium">{check.label}</p>
+                  <p className="mt-0.5 text-xs leading-snug opacity-90">{check.detail}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function probabilityTone(probability: number) {
   if (probability >= 70) return 'text-bad bg-bad-deep/20 border-bad-deep/40';
   if (probability >= 40) return 'text-warn bg-warn/10 border-warn/30';
@@ -44,6 +127,7 @@ export function ReceiptEventModal({
   onClose: () => void;
 }) {
   const assessment = purchase.event_assessment;
+  const verification = purchase.verification ?? null;
   const purchaseTime = purchase.purchased_at ?? purchase.timestamp;
   const isTheft = purchase.status === 'flagged_theft';
   const probability = assessment?.theft_probability ?? (isTheft ? 78 : 0);
@@ -87,22 +171,28 @@ export function ReceiptEventModal({
           <div className="grid gap-3 sm:grid-cols-3">
             <MetricCard label="Receipt (declared)" value={`${purchase.liters_declared} L`} accent="text-brand" />
             <MetricCard
-              label="OBD actual"
-              value={
-                purchase.liters_actual != null ? `${purchase.liters_actual} L` : 'Not matched'
+              label="Verdict"
+              value={VERDICT_LABEL[purchase.status] ?? purchase.status}
+              accent={
+                purchase.status === 'flagged_theft'
+                  ? 'text-bad'
+                  : purchase.status === 'verified'
+                    ? 'text-good'
+                    : 'text-warn'
               }
-              accent="text-good"
             />
             <MetricCard
-              label="Difference"
+              label="Could not have fitted"
               value={
-                purchase.difference_liters > 0
-                  ? `−${purchase.difference_liters} L`
-                  : '0 L'
+                verification?.overclaimedLiters
+                  ? `${verification.overclaimedLiters} L`
+                  : '—'
               }
-              accent={purchase.difference_liters > 0 ? 'text-bad' : 'text-good'}
+              accent={verification?.overclaimedLiters ? 'text-bad' : 'text-good'}
             />
           </div>
+
+          {verification && <VerificationEvidence verification={verification} />}
 
           {assessment && (
             <div className={`rounded-lg border p-4 ${probabilityTone(probability)}`}>

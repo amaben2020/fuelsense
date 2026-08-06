@@ -171,11 +171,13 @@ export const initDatabase = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_fuel_purchases_customer_purchased
       ON fuel_purchases (customer_id, purchased_at DESC)
   `);
+  await ensureColumn('fuel_purchases', 'total_amount_ngn', 'INTEGER');
   await ensureColumn('fuel_purchases', 'obd_refuel_detected_at', 'TIMESTAMP');
   await ensureColumn('fuel_purchases', 'ignition_on_at', 'TIMESTAMP');
   await ensureColumn('fuel_receipts', 'obd_refuel_detected_at', 'TIMESTAMP');
   await ensureColumn('fuel_receipts', 'ignition_on_at', 'TIMESTAMP');
   await ensureColumn('fuel_receipts', 'client_receipt_id', 'VARCHAR(64)');
+  await ensureColumn('fuel_receipts', 'verification', 'JSONB');
   await db.execute(sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_fuel_receipts_client_receipt_id
       ON fuel_receipts (client_receipt_id)

@@ -103,7 +103,7 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
         fp.vehicle_id,
         COALESCE(SUM(fp.liters_declared::numeric), 0)::numeric AS purchase_liters_declared,
         COALESCE(
-          SUM(fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${fuelPrice})),
+          SUM(COALESCE(fp.total_amount_ngn, fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${fuelPrice}))),
           0
         )::numeric AS purchase_cost_ngn,
         COALESCE(

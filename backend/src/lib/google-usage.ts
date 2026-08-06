@@ -16,7 +16,8 @@ export type GoogleCallKind =
   | 'streetview_meta'
   | 'streetview_image'
   | 'place_photo'
-  | 'places_autocomplete';
+  | 'places_autocomplete'
+  | 'static_map';
 
 // Rough published rates per 1000 calls, used only to report estimated spend.
 const USD_PER_1000: Record<GoogleCallKind, number> = {
@@ -28,6 +29,7 @@ const USD_PER_1000: Record<GoogleCallKind, number> = {
   // is the pessimistic reading, which is the right one for a cap.
   places_autocomplete: 3,
   place_photo: 7,
+  static_map: 2,
 };
 
 const DAILY_CALL_CAP = Number(process.env.GOOGLE_API_DAILY_CAP || 1500);

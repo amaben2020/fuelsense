@@ -8,7 +8,7 @@
 // by verified fuel receipts, and re-anchored when a manager calibrates it
 // ("driver just filled up"). Confidence decays with consumption and time
 // since the last calibration because GPS-derived burn drifts from reality.
-import { db, vehicles, alerts, deviceEvents, eq, and, sql } from './db-helpers';
+import { db, vehicles, alerts, deviceEvents, telemetry, eq, and, sql } from './db-helpers';
 import { virtualTanks } from '../db/schema';
 import { alertEmail, sendMail } from './mailer';
 import { resolveAlertRecipient } from './alert-mail';
@@ -686,6 +686,25 @@ export async function creditRefuel(
   if (discrepancyLiters > 0) {
     await recordDiscrepancy(vehicleId, customerId, state, discrepancyLiters, options);
   }
+
+  // Show the fill happening.
+  //
+  // The tank row is now correct, but every fuel curve on the dashboard is
+  // drawn from telemetry, and the next frame carrying the new level only
+  // arrives when the vehicle next reports — which can be the following day.
+  // Until then the vehicle panel read the credited tank while the map card
+  // read the stale telemetry row, and the two disagreed by the size of the
+  // fill. This writes the step into the series at the moment it is credited.
+  //
+  // Deliberately carries no position, speed or odometer: it is a fuel-level
+  // marker, and trip and distance maths must not see it as movement.
+  await db.insert(telemetry).values({
+    customerId,
+    vehicleId,
+    recordedAt: new Date(),
+    fuelLevelLiters: (levelMl / 1000).toFixed(2),
+    fuelSource: 'receipt',
+  });
 
   return { state: row ? rowToState(row) : null, discrepancyLiters };
 }

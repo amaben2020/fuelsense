@@ -553,8 +553,12 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
     // for periods before any price was declared — the SQL prices each litre by
     // the period it was burned in.
     const benchmark = await currentBenchmarkPrice(customerId);
+    // With no benchmark declared, the last price a driver actually paid beats
+    // a compiled-in constant — pump prices move, and the receipt is evidence.
+    const receipt = benchmark ? null : await latestReceiptPrice(customerId);
     const pricePerLiter =
       benchmark?.ngnPerLiter ??
+      receipt?.ngnPerLiter ??
       Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
     const [result, alertRows, siphonRows] = await Promise.all([
@@ -909,9 +913,12 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
         fp.liters_declared,
         fp.liters_actual,
         fp.cost_per_liter_ngn,
+        fp.total_amount_ngn,
         fp.odometer_km,
         fp.status,
-        fp.source
+        fp.source,
+        fr.verification,
+        fr.merchant_address
       FROM fuel_purchases fp
       JOIN vehicles v ON v.id = fp.vehicle_id
       LEFT JOIN drivers dr ON dr.id = v.driver_id
@@ -961,16 +968,25 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
           costPerLiter,
         }),
         merchant: r.merchant,
+        merchant_address: r.merchant_address ?? null,
         receipt_reference: r.receipt_reference,
         liters_declared: declared,
         liters_actual: actual,
         difference_liters: diff,
         cost_per_liter_ngn: costPerLiter,
-        total_cost_ngn: Math.round(declared * costPerLiter),
+        // The slip's own total when the driver logged one — litres × price is
+        // a reconstruction and lands a naira or two off what was paid.
+        total_cost_ngn:
+          r.total_amount_ngn != null
+            ? Number(r.total_amount_ngn)
+            : Math.round(declared * costPerLiter),
         odometer_km: r.odometer_km,
         status: r.status,
         source: r.source,
-        actual_from: 'obd_sensor',
+        // The checks behind the status: where the vehicle was, whether the
+        // volume fitted, how buying compares to burning.
+        verification: r.verification ?? null,
+        actual_from: 'tracker_evidence',
       };
     });
 
@@ -980,7 +996,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
         SELECT
           DATE(fp.purchased_at AT TIME ZONE 'Africa/Lagos') AS activity_date,
           COALESCE(submit_dr.full_name, dr.full_name, v.driver_name, 'Unassigned') AS driver_name,
-          SUM(fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${DEFAULT_FUEL_PRICE_NGN_LITER}))::int AS total_cost_ngn,
+          SUM(COALESCE(fp.total_amount_ngn, fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${DEFAULT_FUEL_PRICE_NGN_LITER})))::int AS total_cost_ngn,
           SUM(fp.liters_declared::numeric)::numeric AS total_receipt_liters,
           SUM(COALESCE(fp.liters_actual::numeric, 0))::numeric AS total_obd_liters,
           COUNT(*)::int AS receipt_count
@@ -997,7 +1013,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
 
       const grandResult = await db.execute(sql`
         SELECT
-          SUM(fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${DEFAULT_FUEL_PRICE_NGN_LITER}))::int AS total_cost_ngn,
+          SUM(COALESCE(fp.total_amount_ngn, fp.liters_declared::numeric * COALESCE(fp.cost_per_liter_ngn, ${DEFAULT_FUEL_PRICE_NGN_LITER})))::int AS total_cost_ngn,
           SUM(fp.liters_declared::numeric)::numeric AS total_receipt_liters,
           SUM(COALESCE(fp.liters_actual::numeric, 0))::numeric AS total_obd_liters,
           COUNT(*)::int AS receipt_count

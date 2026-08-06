@@ -103,6 +103,10 @@ export const fuelReceipts = pgTable('fuel_receipts', {
   obdRefuelDetectedAt: timestamp('obd_refuel_detected_at'),
   ignitionOnAt: timestamp('ignition_on_at'),
   reconciliationStatus: varchar('reconciliation_status', { length: 30 }).default('pending'),
+  // Why the receipt holds the status it does: the individual checks, their
+  // outcomes, and the numbers behind them. Stored so a manager reviewing a
+  // flag months later sees the evidence as it stood, not as it recomputes.
+  verification: jsonb('verification'),
   receiptLatitude: numeric('receipt_latitude', { precision: 10, scale: 8 }),
   receiptLongitude: numeric('receipt_longitude', { precision: 11, scale: 8 }),
   clientReceiptId: varchar('client_receipt_id', { length: 64 }),
@@ -153,6 +157,9 @@ export const fuelPurchases = pgTable('fuel_purchases', {
   obdRefuelDetectedAt: timestamp('obd_refuel_detected_at'),
   ignitionOnAt: timestamp('ignition_on_at'),
   costPerLiterNgn: integer('cost_per_liter_ngn'),
+  // What the driver actually paid. Litres × price is a reconstruction and
+  // drifts by a naira or two against the slip; this is the figure on it.
+  totalAmountNgn: integer('total_amount_ngn'),
   // Dashboard reading at the pump, in km. Everything downstream compares in km;
   // miles only ever appear as a secondary display.
   odometerKm: integer('odometer_km'),

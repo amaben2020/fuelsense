@@ -73,7 +73,7 @@ const STOPS: Stop[] = [
 const START_LITERS = 42;
 const USED_LITERS = 3.1;
 const TOTAL_KM = 30.4;
-const PRICE_PER_LITER = 1330;
+const PRICE_PER_LITER = 1300;
 
 // Top-down car silhouettes, drawn pointing north so Google's `rotation` can
 // aim them along the direction of travel. A tapered nose, wing mirrors and

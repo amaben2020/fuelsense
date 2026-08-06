@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './lib/timezone';
 import './config/env';
 
 import express, { Request, Response } from 'express';
@@ -23,6 +24,7 @@ import placesRoutes from './routes/places';
 import featureRoutes from './routes/features';
 import fuelPriceRoutes from './routes/fuel-price';
 import contactRoutes from './routes/contact';
+import { startReceiptSweep } from './lib/receipt-sweep';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -101,6 +103,10 @@ app.use('/api/contact', contactRoutes);
 const start = async () => {
   await initDatabase();
   await startTcpServer();
+
+  // Receipts whose evidence arrived after they were submitted, and forecourt
+  // stops nobody logged a receipt for.
+  startReceiptSweep();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {

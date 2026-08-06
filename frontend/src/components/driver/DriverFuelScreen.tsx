@@ -13,8 +13,10 @@ import {
   Wifi,
 } from 'lucide-react';
 import {
+  AddressSuggestion,
   DriverReceipt,
   DriverSession,
+  fetchAddressSuggestions,
   fetchDriverReceipts,
   submitDriverReceipt,
   syncPendingReceipt,
@@ -31,6 +33,13 @@ import {
 import { scanReceiptImage } from '@/lib/receipt-ocr';
 
 type FuelMode = 'home' | 'scanning' | 'form' | 'success';
+
+// "Pending" told a driver nothing about what was happening to their receipt.
+const RECEIPT_STATUS_LABEL: Record<string, string> = {
+  matched: 'Verified',
+  pending: 'Checking against tracker',
+  flagged_theft: 'Flagged for review',
+};
 
 export function DriverFuelScreen({
   driver,
@@ -53,7 +62,6 @@ export function DriverFuelScreen({
   const [pricePerLiter, setPricePerLiter] = useState('1300');
   const [totalAmount, setTotalAmount] = useState('');
   const [transactionDate, setTransactionDate] = useState('');
-  const [odometerKm, setOdometerKm] = useState('');
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
     null,
   );
@@ -214,7 +222,6 @@ export function DriverFuelScreen({
       declared_liters: declared,
       price_per_liter: price,
       total_amount: total,
-      odometer_km: odometerKm ? Number(odometerKm) : undefined,
       receipt_latitude: location?.lat,
       receipt_longitude: location?.lng,
       transaction_date: transactionDate
@@ -376,8 +383,7 @@ export function DriverFuelScreen({
             value={merchantName}
             onChange={setMerchantName}
           />
-          <Field
-            label="Address"
+          <AddressField
             value={merchantAddress}
             onChange={setMerchantAddress}
           />
@@ -405,12 +411,6 @@ export function DriverFuelScreen({
             label="Total (₦)"
             value={totalAmount}
             onChange={setTotalAmount}
-            type="number"
-          />
-          <Field
-            label="Odometer (km)"
-            value={odometerKm}
-            onChange={setOdometerKm}
             type="number"
           />
 
@@ -484,8 +484,6 @@ export function DriverFuelScreen({
                     month: 'short',
                   })}{' '}
                   · {Number(r.declared_liters)}L
-                  {r.obd_liters_actual != null &&
-                    ` · OBD ${Number(r.obd_liters_actual)}L`}
                 </p>
                 <span
                   className={`text-[10px] uppercase ${
@@ -496,8 +494,17 @@ export function DriverFuelScreen({
                         : 'text-warn'
                   }`}
                 >
-                  {r.reconciliation_status.replace('_', ' ')}
+                  {RECEIPT_STATUS_LABEL[r.reconciliation_status] ??
+                    r.reconciliation_status.replace('_', ' ')}
                 </span>
+                {/* The driver is the one who gets blamed for a flag, so the
+                    reason travels with it rather than living only on the
+                    manager's screen. */}
+                {r.verification?.summary && (
+                  <p className="mt-1 text-[11px] leading-snug text-ink-dim">
+                    {r.verification.summary}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -528,6 +535,83 @@ function Field({
         className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2.5 text-sm text-ink"
       />
     </label>
+  );
+}
+
+// Typed-address entry at a pump is slow and error-prone, and a free-text
+// station name is useless for grouping spend by forecourt. Suggestions come
+// from the server so the Google key stays there; the field stays a plain input
+// so a driver with no signal, or a station Google has never heard of, can still
+// type the address by hand.
+function AddressField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [open, setOpen] = useState(false);
+  const chosen = useRef('');
+
+  useEffect(() => {
+    const query = value.trim();
+    if (query.length < 3 || query === chosen.current) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await fetchAddressSuggestions(query);
+        setSuggestions(results);
+        setOpen(results.length > 0);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [value]);
+
+  return (
+    <div className="relative">
+      <label className="block text-xs text-ink-dim">
+        Address
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setOpen(suggestions.length > 0)}
+          // Blur fires before the suggestion's click, so closing is deferred
+          // long enough for the tap to register.
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          autoComplete="off"
+          className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2.5 text-sm text-ink"
+        />
+      </label>
+      {open && suggestions.length > 0 && (
+        <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-edge bg-panel shadow-lg">
+          {suggestions.map((s) => (
+            <li key={s.place_id}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  chosen.current = s.description;
+                  onChange(s.description);
+                  setSuggestions([]);
+                  setOpen(false);
+                }}
+                className="block w-full px-3 py-2.5 text-left text-xs text-ink-mid active:bg-canvas"
+              >
+                {s.description}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

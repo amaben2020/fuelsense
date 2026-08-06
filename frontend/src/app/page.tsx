@@ -192,7 +192,7 @@ export default function LandingPage() {
 
         <div className="fs-stats" style={{ marginTop: '2.5rem' }} data-reveal>
           <div className="fs-stat">
-            <p className="fs-stat__value fs-mono" data-count="1330" data-prefix="₦">
+            <p className="fs-stat__value fs-mono" data-count="1300" data-prefix="₦">
               ₦0
             </p>
             <p className="fs-stat__label">Per litre, and moving</p>
