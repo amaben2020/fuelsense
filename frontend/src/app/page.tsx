@@ -143,19 +143,19 @@ export default function LandingPage() {
 
             <h1 className="fs-display" style={{ marginTop: '1.5rem' }}>
               <span className="fs-reveal" data-hero-line>
-                <span>Every litre,</span>
+                <span>See where your</span>
               </span>
               <span className="fs-reveal" data-hero-line>
                 <span>
-                  <em>accounted</em> for.
+                  fuel <em>actually</em> goes.
                 </span>
               </span>
             </h1>
 
             <p className="fs-lede" style={{ marginTop: '1.75rem' }} data-hero-tail>
-              Fuel is the second-largest cost in a Nigerian fleet and the least visible. FuelSense
-              reads your vehicles directly, tracking distance, engine hours, idling and fuel burn,
-              then turns it into naira you can check.
+              Fit a tracker to your vehicle and FuelSense shows you how far it drove, how long
+              it sat idling with the engine running, roughly how much fuel that used, and what it
+              cost in naira.
             </p>
 
             <div className="fs-hero__actions" data-hero-tail>

@@ -208,6 +208,10 @@ export const telemetry = pgTable('telemetry', {
   // AVL ID 13 — instantaneous burn rate; device sends l/h ×100, stored as l/h
   fuelRateLph: numeric('fuel_rate_lph', { precision: 8, scale: 2 }),
   odometerKm: integer('odometer_km'),
+  // AVL 16 reports metres. Rounding to whole kilometres made any movement
+  // under 500 m invisible, which is most of a delivery round, so the raw
+  // value is kept alongside the rounded one every consumer already reads.
+  odometerM: bigint('odometer_m', { mode: 'number' }),
   latitude: numeric('latitude', { precision: 10, scale: 8 }),
   longitude: numeric('longitude', { precision: 11, scale: 8 }),
   speedKph: integer('speed_kph'),

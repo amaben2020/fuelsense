@@ -17,9 +17,9 @@
 
   /* Ink: near-black with a green cast, so type sits in the same family */
   --ink-900: #0b1410;
-  --ink-700: #24322b;
-  --ink-500: #5a6b62;
-  --ink-300: #94a09a;
+  --ink-700: #1c2823;
+  --ink-500: #47564f;
+  --ink-300: #78857e;
 
   /* Green scale: deep carries authority on paper, electric is the accent
      and matches the product's own --brand exactly. */
@@ -158,7 +158,7 @@
 }
 
 .fs-small {
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   line-height: 1.6;
   color: var(--ink-500);
 }
@@ -1827,4 +1827,10 @@
 
 .fs-auth__form {
   align-self: start;
+}
+
+.fs-math__link {
+  color: var(--green-electric);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }

@@ -221,6 +221,13 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
           : odometerMeters != null
             ? Math.round(odometerMeters / 1000)
             : null,
+      // Metre resolution, so a short trip is not rounded out of existence.
+      odometerM:
+        odometerMeters != null
+          ? Math.round(odometerMeters)
+          : obdMileageKm != null
+            ? Math.round(obdMileageKm * 1000)
+            : null,
       latitude: validGps ? rawLat!.toString() : null,
       longitude: validGps ? rawLng!.toString() : null,
       speedKph,

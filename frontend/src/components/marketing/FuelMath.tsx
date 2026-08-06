@@ -39,38 +39,6 @@ const EQUATIONS: Equation[] = [
     note: 'The device’s own two fuel elements, measured against each other while idling. Receipts override this once they exist.',
   },
   {
-    id: 'distance',
-    label: 'Distance covered',
-    formula: 'Σ haversine(pᵢ₋₁, pᵢ)',
-    substituted: 'hops > 10 m, ≤ 200 km/h implied',
-    result: '30.4 km',
-    note: 'Jitter while parked and impossible jumps are both discarded.',
-  },
-  {
-    id: 'economy',
-    label: 'Economy',
-    formula: 'd ÷ L,  and  100 ÷ (d ÷ L)',
-    substituted: '30.4 ÷ 3.9',
-    result: '7.8 km/L · 12.8 L/100km',
-    note: 'Compared against 7.0 km/L, the Nigerian city figure for this model.',
-  },
-  {
-    id: 'cost',
-    label: 'What it cost',
-    formula: 'Σ (Lᵢ × price(tᵢ))',
-    substituted: '3.9 × ₦1,330',
-    result: '₦5,187',
-    note: 'Priced at the rate in force on the day each litre burned, never today’s rate applied backwards.',
-  },
-  {
-    id: 'confidence',
-    label: 'Confidence in the figure',
-    formula: '99 − idle − gap − sparse',
-    substituted: '99 − 12 − 0 − 0',
-    result: '87%',
-    note: 'Idling costs the most: fuel burns while GNSS records no distance.',
-  },
-  {
     id: 'gap',
     label: 'Unaccounted fuel at a fill',
     formula: 'added − (capacity − level)',
@@ -117,7 +85,7 @@ export function FuelMath() {
 
   return (
     <div className="fs-math" ref={root}>
-      <p className="fs-math__head">The whole model, in seven lines</p>
+      <p className="fs-math__head">The three lines that matter</p>
 
       <ol className="fs-math__list">
         {EQUATIONS.map((eq) => (
@@ -140,9 +108,12 @@ export function FuelMath() {
       </ol>
 
       <p className="fs-math__foot">
-        Figures from one day on the live RAV4. Nothing here is hidden behind a
+        Figures from one day on the live RAV4. Nothing is hidden behind a
         &ldquo;proprietary algorithm&rdquo;, because a number you cannot check is a number you
-        cannot act on.
+        cannot act on.{' '}
+        <a className="fs-math__link" href="/documentation">
+          See all seven, with worked numbers
+        </a>
       </p>
     </div>
   );
