@@ -25,6 +25,7 @@ import featureRoutes from './routes/features';
 import fuelPriceRoutes from './routes/fuel-price';
 import contactRoutes from './routes/contact';
 import { startReceiptSweep } from './lib/receipt-sweep';
+import { startRouteSweep } from './lib/route-sweep';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -40,6 +41,14 @@ if (ALLOWED_ORIGINS.length === 0) {
   );
 }
 
+// Opening CORS to everything is opt-in per machine, and deliberately NOT tied
+// to NODE_ENV: the EC2 box runs with NODE_ENV=development, so keying off that
+// would have silently opened the internet-facing API to any origin with
+// credentials. A laptop sets CORS_ALLOW_ALL=true in its own .env — which never
+// deploys, since rsync excludes it — and every other host stays on the
+// allowlist by default.
+const ALLOW_ALL_ORIGINS = process.env.CORS_ALLOW_ALL === 'true';
+
 const app = express();
 // EC2 sits behind Caddy (:80 → 127.0.0.1:5001); trust its X-Forwarded-For so
 // express-rate-limit keys on the real client IP instead of throwing.
@@ -48,13 +57,18 @@ app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 
 app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-      cb(new Error(`CORS: origin ${origin} not allowed`));
-    },
-    credentials: true,
-  }),
+  ALLOW_ALL_ORIGINS
+    ? // Reflect whatever asked, rather than `*`: a wildcard is invalid
+      // alongside credentials, so cookie-authenticated calls would fail even
+      // though the intent here is to allow everything.
+      cors({ origin: (origin, cb) => cb(null, origin ?? true), credentials: true })
+    : cors({
+        origin: (origin, cb) => {
+          if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+          cb(new Error(`CORS: origin ${origin} not allowed`));
+        },
+        credentials: true,
+      }),
 );
 
 // Generous global cap — the dashboard legitimately polls many endpoints, so this
@@ -107,6 +121,10 @@ const start = async () => {
   // Receipts whose evidence arrived after they were submitted, and forecourt
   // stops nobody logged a receipt for.
   startReceiptSweep();
+
+  // Trips against the route they were expected to take. Runs behind the
+  // telemetry pipeline so a slow Directions lookup can never delay a frame.
+  startRouteSweep();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {

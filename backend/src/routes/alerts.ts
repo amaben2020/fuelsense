@@ -28,6 +28,11 @@ const ANOMALY_META: Record<string, { type: string; severity: string; title: stri
     severity: 'warning',
     title: 'Fill with no receipt',
   },
+  route_deviation: {
+    type: 'route',
+    severity: 'warning',
+    title: 'Off expected route',
+  },
   poor_efficiency: {
     type: 'efficiency',
     severity: 'warning',

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Activity,
   AlertTriangle,
@@ -179,7 +180,13 @@ export function DrivingBehaviorPanel({
         <div>
           <h2 className="font-semibold text-ink">Driving behavior &amp; device events</h2>
           <p className="mt-1 text-xs text-ink-dim">
-            Decoded from the tracker&apos;s GNSS + accelerometer — no fuel sensor required
+            Decoded from what the tracker actually reports — no fuel sensor required.{' '}
+            <Link
+              href="/documentation/signals"
+              className="text-brand underline decoration-dotted underline-offset-2"
+            >
+              Which signals exist
+            </Link>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -252,8 +259,16 @@ export function DrivingBehaviorPanel({
         </div>
         {vehiclesWithData.length === 0 ? (
           <p className="px-6 py-8 text-sm text-ink-dim">
-            No scenario events yet. Once the tracker&apos;s Eco/Green Driving, Overspeeding and
-            Idling scenarios are enabled, scores appear here automatically.
+            No scenario events. These are computed inside the tracker and only sent when
+            the Eco/Green Driving, Overspeeding and Idling scenarios are switched on in its
+            configuration — this fleet&apos;s devices have them off, so nothing arrives to
+            score.{' '}
+            <Link
+              href="/documentation/signals#scenario-events"
+              className="text-brand underline decoration-dotted underline-offset-2"
+            >
+              What it takes to enable them
+            </Link>
           </p>
         ) : (
           <ul className="divide-y divide-edge">

@@ -171,6 +171,63 @@ export const initDatabase = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_fuel_purchases_customer_purchased
       ON fuel_purchases (customer_id, purchased_at DESC)
   `);
+  // --- route detour detection ---------------------------------------------
+  // A planned route for a vehicle. Corridor width lives here because what
+  // counts as "off route" differs between a tight urban round and a highway
+  // haul, and a single global tolerance would be wrong for one of them.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS route_assignments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      name VARCHAR(160),
+      waypoints JSONB NOT NULL,
+      corridor_width_m INTEGER,
+      effective_from TIMESTAMP,
+      effective_to TIMESTAMP,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_route_assignments_vehicle
+      ON route_assignments (vehicle_id, active)
+  `);
+
+  // One verdict per trip, keyed by the trip's start — trips are derived from
+  // telemetry rather than stored, so this is their only stable identity.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS route_checks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      trip_start_at TIMESTAMP NOT NULL,
+      trip_end_at TIMESTAMP NOT NULL,
+      verdict VARCHAR(20) NOT NULL,
+      detour_km NUMERIC(10,2),
+      extra_liters NUMERIC(10,2),
+      extra_cost_ngn INTEGER,
+      evidence JSONB,
+      reconciled_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (vehicle_id, trip_start_at)
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_route_checks_verdict
+      ON route_checks (customer_id, verdict, trip_start_at DESC)
+  `);
+
+  // Directions responses, cached across restarts: the sweep retries the same
+  // trip for up to a fortnight and must not re-bill the same road lookup.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS route_cache (
+      route_key TEXT PRIMARY KEY,
+      payload JSONB NOT NULL,
+      cached_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   await ensureColumn('fuel_purchases', 'total_amount_ngn', 'INTEGER');
   await ensureColumn('fuel_purchases', 'obd_refuel_detected_at', 'TIMESTAMP');
   await ensureColumn('fuel_purchases', 'ignition_on_at', 'TIMESTAMP');

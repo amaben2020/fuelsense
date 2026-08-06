@@ -22,7 +22,76 @@ interface ApiOptions extends RequestInit {
   auth?: boolean;
 }
 
-export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+/**
+ * Why a request failed, not just that it did.
+ *
+ * A bare `catch` around `fetch` cannot tell a dropped connection from a broken
+ * API — both arrive as an exception — so the distinction is made here, once.
+ * It matters: telling someone to check their connection when our own server is
+ * down sends them to reboot a router that was never the problem.
+ */
+export type ApiErrorKind = 'offline' | 'network' | 'timeout' | 'server' | 'request';
+
+export class ApiError extends Error {
+  readonly kind: ApiErrorKind;
+  readonly status: number | null;
+
+  /** Where it failed. Diagnostic only — never rendered to a user. */
+  readonly detail: string | null;
+
+  constructor(
+    kind: ApiErrorKind,
+    message: string,
+    status: number | null = null,
+    detail: string | null = null
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.kind = kind;
+    this.status = status;
+    this.detail = detail;
+  }
+
+  /** Worth trying again on its own — a 400 never is. */
+  get retryable(): boolean {
+    return this.kind !== 'request';
+  }
+}
+
+/**
+ * One sentence: what happened, then what to do. `subject` names the thing that
+ * failed to load ("receipts", "the fleet") so the message says which panel is
+ * broken rather than making the user guess.
+ */
+export function apiErrorMessage(error: unknown, subject = 'this data'): string {
+  if (!(error instanceof ApiError)) {
+    return `Couldn't load ${subject}. Retry, or try again shortly.`;
+  }
+
+  switch (error.kind) {
+    case 'offline':
+      return `Couldn't load ${subject} — your device is offline. Reconnect and retry.`;
+    case 'network':
+      return `Couldn't reach the server. Check your connection, then retry.`;
+    case 'timeout':
+      return `Loading ${subject} is taking longer than expected. Retry.`;
+    case 'server':
+      return `Couldn't load ${subject} — the server had a problem. Retry, or try again shortly.`;
+    case 'request':
+      // 4xx carries a real explanation from the API; a generic line would
+      // throw away the only useful thing about it.
+      return error.message;
+  }
+}
+
+const REQUEST_TIMEOUT_MS = 20_000;
+/** Silent attempts before a banner is ever shown — most blips clear in one. */
+const RETRY_ATTEMPTS = 2;
+const RETRY_BASE_DELAY_MS = 400;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function attempt<T>(path: string, options: ApiOptions): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
@@ -33,10 +102,47 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
     if (token) headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers,
-  });
+  // A request that hangs forever reads to a user as a frozen page, so it is
+  // given a deadline and reported as a timeout rather than never resolving.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+      signal: options.signal ?? controller.signal,
+    });
+  } catch (error) {
+    if ((error as Error)?.name === 'AbortError') {
+      throw new ApiError(
+        'timeout',
+        'This is taking longer than expected. Retry.',
+        null,
+        path
+      );
+    }
+    // `fetch` rejects with a TypeError for DNS failures, refused connections,
+    // CORS rejections and dropped networks alike — the browser deliberately
+    // does not say which. `navigator.onLine` separates the one case it can.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new ApiError(
+        'offline',
+        'Your device is offline. Reconnect, then retry.',
+        null,
+        API_URL
+      );
+    }
+    throw new ApiError(
+      'network',
+      "Couldn't reach the server. Check your connection, then retry.",
+      null,
+      API_URL
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 
   const data = await response.json().catch(() => ({}));
 
@@ -49,10 +155,39 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
         window.location.href = '/login';
       }
     }
-    throw new Error(data.error || `Request failed (${response.status})`);
+
+    const kind: ApiErrorKind = response.status >= 500 ? 'server' : 'request';
+    throw new ApiError(
+      kind,
+      data.error || `Request failed (${response.status})`,
+      response.status
+    );
   }
 
   return data as T;
+}
+
+export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  // Only reads are retried. Replaying a POST could log the same receipt twice.
+  const method = (options.method ?? 'GET').toUpperCase();
+  const canRetry = method === 'GET' || method === 'HEAD';
+
+  let lastError: unknown;
+
+  for (let i = 0; i <= (canRetry ? RETRY_ATTEMPTS : 0); i += 1) {
+    try {
+      return await attempt<T>(path, options);
+    } catch (error) {
+      lastError = error;
+      const retryable = error instanceof ApiError ? error.retryable : false;
+      if (!retryable || i === RETRY_ATTEMPTS) break;
+      // Backoff, so a server that is struggling is not hammered by every
+      // panel on the dashboard at once.
+      await sleep(RETRY_BASE_DELAY_MS * 2 ** i);
+    }
+  }
+
+  throw lastError;
 }
 
 export interface Customer {
@@ -775,6 +910,9 @@ export interface TripStop {
   departed_at: string;
   duration_minutes: number;
   kind: 'origin' | 'stop' | 'destination';
+  /** Present only when this spot is already in the place cache — resolving it
+   *  live would bill a geocode per stop, every time the list is opened. */
+  place_label?: string | null;
 }
 
 export interface StopPlace {
@@ -816,9 +954,20 @@ export interface ServerTrip {
   estimated_cost_ngn: number | null;
   path: [number, number][];
   stops: TripStop[];
+  /** Each stretch the engine ran while the vehicle stood still, with where. */
+  idle_events?: IdleStretch[];
   /** 0-100. How much weight this trip's fuel figure can carry. */
   confidence: number;
   confidence_notes: string[];
+}
+
+export interface IdleStretch {
+  started_at: string;
+  ended_at: string | null;
+  minutes: number;
+  lat: number | null;
+  lng: number | null;
+  place_label?: string | null;
 }
 
 export interface TripsVehicle {

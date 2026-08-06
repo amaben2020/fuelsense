@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { AlertTriangle, Fuel, Gauge as GaugeIcon, MapPin, Radio, User } from 'lucide-react';
@@ -354,9 +356,20 @@ export function VehicleShowcase({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold text-ink">Fuel telemetry</h3>
           <p className="text-xs text-ink-dim">
-            {vehicle.fuel_source === 'virtual'
-              ? 'Virtual tank curve from GPS fuel-burn data'
-              : 'Fuel level over time'}{' '}
+            {vehicle.fuel_source === 'virtual' ? (
+              <>
+                <Link
+                  href="/documentation/signals#fuel-level"
+                  className="text-brand underline decoration-dotted underline-offset-2"
+                  title="No tank sensor is fitted — this curve is modelled from the tracker's fuel-burn counter"
+                >
+                  Virtual tank
+                </Link>{' '}
+                curve from GPS fuel-burn data
+              </>
+            ) : (
+              'Fuel level over time'
+            )}{' '}
             · shaded = engine idling
           </p>
         </div>

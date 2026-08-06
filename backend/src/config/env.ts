@@ -17,6 +17,9 @@ const envSchema = z.object({
   FUEL_PRICE_NGN_LITER: z.coerce.number().default(1500),
   ALLOWED_ORIGINS: z.string().default(''),
   ENABLE_FLEET_SIMULATOR: z.enum(['true', 'false']).default('false'),
+  // Local-only escape hatch: accept every origin. Never set this on a host
+  // reachable from the internet.
+  CORS_ALLOW_ALL: z.enum(['true', 'false']).default('false'),
   SEED_DEMO_FLEET: z.enum(['true', 'false']).default('false'),
   REAL_DEVICE_IMEI: z.string().optional(),
   REAL_DEVICE_PLATE: z.string().optional(),

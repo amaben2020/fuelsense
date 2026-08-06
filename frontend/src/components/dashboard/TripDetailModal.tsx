@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Clock, Droplet, Gauge, MapPin, Route, X } from 'lucide-react';
-import { ServerTrip, TripStop, formatNgn } from '@/lib/api';
+import { IdleStretch, ServerTrip, TripStop, formatNgn } from '@/lib/api';
 import { StopDetailModal } from './StopDetailModal';
 
 const HHMM: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
@@ -33,6 +33,35 @@ function dayLabel(d: Date): string {
 function gapMinutes(prev: ServerTrip, next: ServerTrip): number {
   const ms = new Date(next.start_at).getTime() - new Date(prev.end_at).getTime();
   return ms > 0 ? Math.round(ms / 60_000) : 0;
+}
+
+const clockTime = (iso: string): string =>
+  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+type TimelineItem =
+  | { type: 'stop'; at: string; stop: TripStop }
+  | { type: 'idle'; at: string; idle: IdleStretch };
+
+/**
+ * One thread per trip: every stop and every idle stretch in the order they
+ * happened. Idle is rendered as a sub-level because it sits inside a stop —
+ * the engine ran while the vehicle was already stationary.
+ */
+function tripTimeline(trip: ServerTrip): TimelineItem[] {
+  const items: TimelineItem[] = [
+    ...trip.stops.map((stop) => ({ type: 'stop' as const, at: stop.arrived_at, stop })),
+    ...(trip.idle_events ?? []).map((idle) => ({
+      type: 'idle' as const,
+      at: idle.started_at,
+      idle,
+    })),
+  ];
+
+  // Ties go to the stop: arriving somewhere precedes idling there.
+  return items.sort((a, b) => {
+    const delta = new Date(a.at).getTime() - new Date(b.at).getTime();
+    return delta !== 0 ? delta : a.type === 'stop' ? -1 : 1;
+  });
 }
 
 function formatDuration(minutes: number): string {
@@ -92,14 +121,15 @@ export function TripDetailModal({
   const [openStop, setOpenStop] = useState<TripStop | null>(null);
 
   // A day is the unit a manager actually thinks in ("what did the van do on
-  // Thursday?"), so trips are grouped by day and laid out as one continuous
-  // timeline — days newest first, but each day reads top-down in chronological
-  // order with the parked gaps between journeys shown explicitly.
+  // Thursday?"), so trips are grouped by day. Newest first throughout — the
+  // question being asked is almost always "what happened last?", and having to
+  // scroll to the bottom of a day to find the most recent trip inverts that.
+  // Parked gaps between journeys are still shown, now read downwards in time.
   const dayGroups = useMemo(() => {
     const groups = new globalThis.Map<string, { label: string; trips: ServerTrip[] }>();
 
     for (const trip of [...trips].sort(
-      (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
+      (a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()
     )) {
       const d = new Date(trip.start_at);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -114,8 +144,7 @@ export function TripDetailModal({
         fuelLiters: g.trips.reduce((s, t) => s + t.estimated_fuel_liters, 0),
         durationMinutes: g.trips.reduce((s, t) => s + t.duration_minutes, 0),
         idleMinutes: g.trips.reduce((s, t) => s + t.idle_minutes, 0),
-      }))
-      .reverse();
+      }));
   }, [trips]);
 
   const totalIdle = trips.reduce((s, t) => s + t.idle_minutes, 0);
@@ -240,35 +269,73 @@ export function TripDetailModal({
                         </div>
                       </div>
 
+                      {/* Stops and idling are one sequence, not two lists —
+                          idling almost always happens *during* a stop, so
+                          showing them apart forces the manager to align two
+                          sets of timestamps by eye. Idle sits indented under
+                          the stop it belongs to. */}
                       <div className="mt-2 space-y-1.5">
-                        {trip.stops.map((s, si) => (
-                          <button
-                            key={`${s.arrived_at}-${si}`}
-                            type="button"
-                            onClick={() => setOpenStop(s)}
-                            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-panel-hover"
-                          >
-                            <span className={`h-2 w-2 shrink-0 rounded-full ${STOP_DOT[s.kind]}`} />
-                            <span className="text-ink-mid">
-                              {s.kind === 'origin'
-                                ? 'Started'
-                                : s.kind === 'destination'
-                                  ? 'Ended'
-                                  : 'Stopped'}
-                            </span>
-                            <span className="text-ink-dim">
-                              {new Date(s.arrived_at).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </span>
-                            {s.kind === 'stop' && (
-                              <span className="text-warn">for {s.duration_minutes}m</span>
-                            )}
-                            <span className="ml-auto text-brand">View place →</span>
-                          </button>
-                        ))}
-                        {realStops.length === 0 && (
+                        {tripTimeline(trip).map((item, si) =>
+                          item.type === 'stop' ? (
+                            <button
+                              key={`${item.at}-${si}`}
+                              type="button"
+                              onClick={() => setOpenStop(item.stop)}
+                              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-panel-hover"
+                            >
+                              <span
+                                className={`h-2 w-2 shrink-0 rounded-full ${STOP_DOT[item.stop.kind]}`}
+                              />
+                              {/* "Stopped at Karu Market" is actionable;
+                                  "Stopped" is not. Names appear only for spots
+                                  already cached — see cachedPlaceNames. */}
+                              <span className="min-w-0 truncate text-ink-mid">
+                                {item.stop.kind === 'origin'
+                                  ? 'Started'
+                                  : item.stop.kind === 'destination'
+                                    ? 'Ended'
+                                    : 'Stopped'}
+                                {item.stop.place_label ? ` at ${item.stop.place_label}` : ''}
+                              </span>
+                              <span className="text-ink-dim">{clockTime(item.at)}</span>
+                              {item.stop.kind === 'stop' && (
+                                <span className="text-warn">for {item.stop.duration_minutes}m</span>
+                              )}
+                              <span className="ml-auto text-brand">View place →</span>
+                            </button>
+                          ) : (
+                            <button
+                              key={`idle-${item.at}-${si}`}
+                              type="button"
+                              disabled={item.idle.lat == null || item.idle.lng == null}
+                              onClick={() =>
+                                item.idle.lat != null &&
+                                item.idle.lng != null &&
+                                setOpenStop({
+                                  lat: item.idle.lat,
+                                  lng: item.idle.lng,
+                                  arrived_at: item.idle.started_at,
+                                  departed_at: item.idle.ended_at ?? item.idle.started_at,
+                                  duration_minutes: Math.round(item.idle.minutes),
+                                  kind: 'stop',
+                                  place_label: item.idle.place_label ?? null,
+                                })
+                              }
+                              className="ml-5 flex w-[calc(100%-1.25rem)] items-center gap-2 rounded-lg border-l border-warn/30 px-2 py-1 text-left text-[11px] transition-colors hover:bg-warn/10 disabled:cursor-default disabled:opacity-70"
+                            >
+                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
+                              <span className="min-w-0 truncate text-warn">
+                                Engine idling {item.idle.minutes}m
+                                {item.idle.place_label ? ` at ${item.idle.place_label}` : ''}
+                              </span>
+                              <span className="text-ink-dim">{clockTime(item.at)}</span>
+                              {item.idle.lat != null && (
+                                <span className="ml-auto shrink-0 text-brand">View place →</span>
+                              )}
+                            </button>
+                          )
+                        )}
+                        {realStops.length === 0 && (trip.idle_events ?? []).length === 0 && (
                           <p className="px-2 text-xs text-ink-dim">
                             No mid-trip stops over 3 minutes.
                           </p>

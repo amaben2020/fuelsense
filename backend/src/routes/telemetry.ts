@@ -5,7 +5,7 @@ import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { fleetEfficiencyAggSql } from '../lib/fleet-efficiency-sql';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
 import { buildDailyActivityReplay } from '../lib/event-replay';
-import { segmentTrips, TelemetryTripPoint } from '../lib/trip-segmentation';
+import { segmentTrips, TelemetryTripPoint, TripStop } from '../lib/trip-segmentation';
 import {
   CO2_KG_PER_LITER,
   round1,
@@ -32,7 +32,7 @@ import {
 import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../lib/receipt-reconciliation';
 import { creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase, consumptionTrend } from '../lib/fuel-calibration';
-import { lookupPlace } from '../lib/place-lookup';
+import { lookupPlace, cachedPlaceNames, placeKeyFor } from '../lib/place-lookup';
 import { latestReceiptPrice, currentBenchmarkPrice } from '../lib/fuel-price';
 import { googleUsageSnapshot } from '../lib/google-usage';
 import { getSerializedIoValue } from '../lib/avl-io';
@@ -390,6 +390,89 @@ router.get('/trips', async (req: Request, res: Response) => {
           source = 'historical';
         }
         // else: truly never driven in 30 days — keep the (empty-trip) live result
+      }
+
+      // Where the engine sat running.
+      //
+      // "18m idle" as a bare number tells a manager money was wasted but not
+      // where to go and ask about it. The idle detector already writes every
+      // stretch with its position, so each one is attached to the trip it
+      // happened during and becomes something clickable.
+      const idleRows = await db.execute(sql`
+        SELECT vehicle_id, event_type, occurred_at, value, latitude, longitude
+        FROM device_events
+        WHERE customer_id = ${customerId}
+          AND event_type IN ('idling_start', 'idling_end')
+          AND occurred_at > NOW() - INTERVAL '30 days'
+        ORDER BY vehicle_id ASC, occurred_at ASC
+      `);
+
+      interface IdleStretch {
+        started_at: string;
+        ended_at: string | null;
+        minutes: number;
+        lat: number | null;
+        lng: number | null;
+        place_label?: string | null;
+      }
+
+      const idleByVehicle = new Map<string, IdleStretch[]>();
+      const openIdle = new Map<string, Record<string, unknown>>();
+
+      for (const raw of idleRows.rows as Array<Record<string, unknown>>) {
+        const vehicleId = String(raw.vehicle_id);
+        if (raw.event_type === 'idling_start') {
+          openIdle.set(vehicleId, raw);
+          continue;
+        }
+        // An end without its start (server restarted mid-idle) is still worth
+        // showing — it carries both the duration and the position.
+        const start = openIdle.get(vehicleId) ?? raw;
+        openIdle.delete(vehicleId);
+        const list = idleByVehicle.get(vehicleId) ?? [];
+        list.push({
+          started_at: new Date(start.occurred_at as string).toISOString(),
+          ended_at: new Date(raw.occurred_at as string).toISOString(),
+          minutes: Math.round(Number(raw.value ?? 0) * 10) / 10,
+          lat: start.latitude != null ? Number(start.latitude) : null,
+          lng: start.longitude != null ? Number(start.longitude) : null,
+        });
+        idleByVehicle.set(vehicleId, list);
+      }
+
+      for (const vehicle of vehicleTrips) {
+        const stretches = idleByVehicle.get(vehicle.vehicle_id) ?? [];
+        for (const trip of vehicle.trips) {
+          const from = new Date(trip.start_at).getTime();
+          const to = new Date(trip.end_at).getTime();
+          (trip as { idle_events?: IdleStretch[] }).idle_events = stretches.filter((s) => {
+            const at = new Date(s.started_at).getTime();
+            return at >= from && at <= to;
+          });
+        }
+      }
+
+      // Name the stops a manager has already paid to resolve. Cache-only: a
+      // trip list can hold hundreds of points and resolving them live would
+      // bill a geocode each, every time this screen is opened. Points nobody
+      // has opened yet stay unnamed and read as plain "Stopped".
+      const allStops = vehicleTrips.flatMap((v) => v.trips.flatMap((t) => t.stops));
+      const allIdle = vehicleTrips.flatMap((v) =>
+        v.trips.flatMap((t) => (t as { idle_events?: IdleStretch[] }).idle_events ?? [])
+      );
+      const names = await cachedPlaceNames([
+        ...allStops.map((s) => ({ lat: s.lat, lng: s.lng })),
+        ...allIdle.flatMap((s) => (s.lat != null && s.lng != null ? [{ lat: s.lat, lng: s.lng }] : [])),
+      ]);
+      for (const stop of allStops) {
+        (stop as TripStop & { place_label?: string | null }).place_label =
+          names.get(placeKeyFor(stop.lat, stop.lng)) ?? null;
+      }
+      for (const idle of allIdle) {
+        idle.place_label =
+          idle.lat != null && idle.lng != null
+            ? (names.get(placeKeyFor(idle.lat, idle.lng)) ?? null)
+            : null;
       }
 
       return {

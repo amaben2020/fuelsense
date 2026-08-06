@@ -67,6 +67,17 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     emailable: false,
   },
   {
+    type: 'route_deviation',
+    label: 'Off expected route',
+    severity: 'warning',
+    meaning:
+      'The vehicle drove outside the corridor around its expected route, and the extra distance cost fuel. A road closure and a personal errand look identical from GPS — this reports the deviation and its cost, not a motive.',
+    trigger:
+      'At least 15% of position fixes outside a 400 m corridor around the planned or road-network route, with either a 750 m excursion or 5 unbroken minutes off it. Configurable per route.',
+    source: 'analysis',
+    emailable: false,
+  },
+  {
     type: 'unlogged_fill',
     label: 'Fill with no receipt',
     severity: 'warning',

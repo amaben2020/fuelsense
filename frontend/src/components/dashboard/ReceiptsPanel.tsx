@@ -510,7 +510,7 @@ function ReconciledReceiptsTable({
             <th className="px-6 py-3">Merchant</th>
             <th className="px-6 py-3">Receipt (L)</th>
             <th className="px-6 py-3">Tracker check</th>
-            <th className="px-6 py-3">Difference</th>
+            <th className="px-6 py-3">Could not fit</th>
             <th className="px-6 py-3">Cost</th>
             <th className="px-6 py-3">Status</th>
             <th className="px-6 py-3" />
@@ -709,10 +709,10 @@ function ReconciledDateGroup({
             {row.total_receipt_liters.toFixed(1)} L
           </td>
           <td className="px-6 py-2 font-mono text-xs text-good">
-            {row.total_obd_liters.toFixed(1)} L
+            —
           </td>
           <td className="px-6 py-2 font-mono text-xs text-bad">
-            −{Math.max(0, Math.round((row.total_receipt_liters - row.total_obd_liters) * 10) / 10)} L
+            —
           </td>
           <td className="px-6 py-2 font-mono text-xs font-semibold text-ink">
             {formatNgn(row.total_cost_ngn)}
@@ -763,6 +763,10 @@ function ReconciledReceiptRow({
   const isTheft = purchase.status === 'flagged_theft';
   const isPending = purchase.status === 'pending_receipt';
   const purchaseTime = purchase.purchased_at ?? purchase.timestamp;
+  // Litres the tank could not have taken. Absent on a clean receipt — the old
+  // "difference" column reported the whole fill as missing, because it was
+  // measuring against a sensor reading that is always zero here.
+  const overclaimed = purchase.verification?.overclaimedLiters ?? null;
 
   if (compact) {
     return (
@@ -774,9 +778,9 @@ function ReconciledReceiptRow({
           <TrackerCheckCell verification={purchase.verification} />
         </td>
         <td
-          className={`px-6 py-3 font-mono ${isTheft ? 'font-bold text-bad' : purchase.difference_liters > 0 ? 'text-bad' : 'text-good'}`}
+          className={`px-6 py-3 font-mono ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
         >
-          {purchase.difference_liters > 0 ? `−${purchase.difference_liters} L` : '0 L'}
+          {overclaimed ? `${overclaimed} L` : '—'}
         </td>
         <td className="px-6 py-3 font-mono">{formatNgn(purchase.total_cost_ngn)}</td>
         <td className="px-6 py-3">
@@ -811,9 +815,9 @@ function ReconciledReceiptRow({
         <TrackerCheckCell verification={purchase.verification} />
       </td>
       <td
-        className={`px-6 py-3 font-mono ${isTheft ? 'font-bold text-bad' : purchase.difference_liters > 0 ? 'text-bad' : 'text-good'}`}
+        className={`px-6 py-3 font-mono ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
       >
-        {purchase.difference_liters > 0 ? `−${purchase.difference_liters} L` : '0 L'}
+        {overclaimed ? `${overclaimed} L` : '—'}
       </td>
       <td className="px-6 py-3 font-mono">{formatNgn(purchase.total_cost_ngn)}</td>
       <td className="px-6 py-3">
@@ -887,7 +891,7 @@ export function FuelPurchaseTable({
                 <th className="px-6 py-3">Vehicle</th>
                 <th className="px-6 py-3">Receipt (L)</th>
                 <th className="px-6 py-3">Tracker check</th>
-                <th className="px-6 py-3">Difference</th>
+                <th className="px-6 py-3">Could not fit</th>
                 <th className="px-6 py-3">Cost</th>
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3" />

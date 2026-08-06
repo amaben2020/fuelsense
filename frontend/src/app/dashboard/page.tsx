@@ -64,6 +64,7 @@ import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
 import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
+import { LoadErrorBanner } from '@/components/dashboard/LoadErrorBanner';
 import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
 import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 
@@ -137,7 +138,7 @@ export default function DashboardPage() {
     startAt: string;
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [efficiencyError, setEfficiencyError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
@@ -326,7 +327,9 @@ export default function DashboardPage() {
         router.replace('/login');
         return;
       }
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
+      // The error object is kept whole, not flattened to a string: the banner
+      // needs its kind to say whether the network or the server is at fault.
+      setError(err);
     } finally {
       setLoading(false);
     }
@@ -454,7 +457,28 @@ export default function DashboardPage() {
   const sidebar = (
     <>
       <div className="px-6 pb-6 pt-8">
-        <p className="neon-text text-2xl font-bold">FuelSense</p>
+        {/* The mark is the satellite from public/icon.svg — the same one in the
+            browser tab — because nothing in this product touches a tank and a
+            fuel-nozzle logo would promise a sensor that isn't there. */}
+        <div className="flex items-center gap-2.5">
+          <svg
+            viewBox="0 0 64 64"
+            className="h-7 w-7 shrink-0 text-brand"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            role="img"
+            aria-label="FuelSense"
+          >
+            <rect x="26" y="26" width="12" height="12" rx="2.5" />
+            <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
+            <path d="M32 38v8" />
+            <path d="M24 52a11 11 0 0 1 16 0" />
+          </svg>
+          <p className="neon-text text-2xl font-bold">FuelSense</p>
+        </div>
         <p className="mt-1 text-[10px] uppercase tracking-wider text-good">
           Command center
         </p>
@@ -664,15 +688,12 @@ export default function DashboardPage() {
             </div>
           </header>
 
-          {error && (
-            <div
-              className={`rounded-lg border border-warn/40 bg-warn-deep/20 p-4 text-warn ${
-                activeView === 'live' ? 'mb-2 shrink-0' : 'mb-6'
-              }`}
-            >
-              {error}
-            </div>
-          )}
+          <LoadErrorBanner
+            error={error}
+            subject="the dashboard"
+            onRetry={() => loadDashboard()}
+            className={activeView === 'live' ? 'mb-2 shrink-0' : 'mb-6'}
+          />
 
           {activeView === 'overview' && (
             <div className="space-y-6">

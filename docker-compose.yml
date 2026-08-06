@@ -36,13 +36,13 @@ services:
     environment:
       PORT: 5001
       TCP_PORT: 5027
-      DATABASE_URL: postgresql://user:password@db:5432/fuelguard
       NODE_ENV: development
+    # DATABASE_URL deliberately lives only here. Compose's `environment:` block
+    # outranks `env_file:`, so setting it above silently pinned the container to
+    # the local `db` service while .env pointed at Neon — the dashboard then
+    # showed the seeded demo fleet instead of the real vehicle.
     env_file:
       - ./backend/.env
-    depends_on:
-      db:
-        condition: service_healthy
 
 volumes:
   postgres_data:

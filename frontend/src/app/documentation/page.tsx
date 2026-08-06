@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, ArrowLeft, Bell, Info, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Bell, Info, ShieldAlert } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 
 interface DocAlert {
@@ -110,6 +110,25 @@ export default function DocumentationPage() {
         <p className="mt-1 text-sm text-ink-mid">
           What FuelSense watches for, how it decides, and where the limits are.
         </p>
+
+        {/* The question behind most support questions: why can the product see
+            one thing and not another. Answered by hardware, so it gets its own
+            page that the panels themselves link into. */}
+        <Link
+          href="/documentation/signals"
+          className="mt-5 flex items-center justify-between gap-4 rounded-xl border border-edge bg-panel p-4 hover:border-brand/40"
+        >
+          <span>
+            <span className="text-sm font-medium text-ink">
+              What the tracker can and cannot see
+            </span>
+            <span className="mt-0.5 block text-xs text-ink-dim">
+              Every insight against the AVL element behind it — and what the missing ones
+              would take.
+            </span>
+          </span>
+          <ArrowRight className="h-4 w-4 shrink-0 text-brand" />
+        </Link>
 
         {error && (
           <p className="mt-6 rounded-lg bg-bad-deep/20 p-4 text-sm text-bad">{error}</p>

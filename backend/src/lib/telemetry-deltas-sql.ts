@@ -18,7 +18,13 @@ export function distanceDeltasCte({ customerId, days }: TelemetryDeltasParams): 
         v.license_plate,
         v.model,
         COALESCE(dr.full_name, v.driver_name) AS driver_name,
-        t.odometer_km,
+        -- AVL 16 arrives in metres. Reading the rounded km column made every
+        -- delta a 0 or a 1, and the speed cap below then clipped each integer
+        -- flip to a fraction of a kilometre — a day of 10.9 real km reported
+        -- as 5. Metres first, rounded km only for rows recorded before
+        -- odometer_m existed.
+        COALESCE(t.odometer_m::double precision / 1000.0, t.odometer_km::double precision)
+          AS odometer_km,
         t.latitude::double precision AS latitude,
         t.longitude::double precision AS longitude,
         t.speed_kph,
@@ -114,7 +120,9 @@ export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams):
         v.model,
         COALESCE(dr.full_name, v.driver_name) AS driver_name,
         v.tank_capacity_liters,
-        t.odometer_km,
+        -- Metre precision, same reason as distanceDeltasCte above.
+        COALESCE(t.odometer_m::double precision / 1000.0, t.odometer_km::double precision)
+          AS odometer_km,
         t.fuel_level_liters::numeric AS fuel_level_liters,
         t.speed_kph,
         t.ignition_on,

@@ -17,7 +17,8 @@ export type GoogleCallKind =
   | 'streetview_image'
   | 'place_photo'
   | 'places_autocomplete'
-  | 'static_map';
+  | 'static_map'
+  | 'directions';
 
 // Rough published rates per 1000 calls, used only to report estimated spend.
 const USD_PER_1000: Record<GoogleCallKind, number> = {
@@ -30,6 +31,8 @@ const USD_PER_1000: Record<GoogleCallKind, number> = {
   places_autocomplete: 3,
   place_photo: 7,
   static_map: 2,
+  // Directions with alternatives is billed as one call.
+  directions: 5,
 };
 
 const DAILY_CALL_CAP = Number(process.env.GOOGLE_API_DAILY_CAP || 1500);

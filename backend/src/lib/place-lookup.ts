@@ -5,6 +5,7 @@
 // revisits the same depots, markets and filling stations daily, and Google
 // bills per call, so the same stop is only ever resolved once.
 import { db, placeCache, eq, sql } from './db-helpers';
+import { inArray } from 'drizzle-orm';
 import { chargeGoogleCall, GoogleCallKind } from './google-usage';
 
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
@@ -308,6 +309,53 @@ export async function fetchStreetView(
     'streetview_image'
   );
 }
+
+/**
+ * Addresses for many points at once, from the cache only.
+ *
+ * Trip lists show every stop a vehicle made, which is far too many points to
+ * resolve live — each miss would be a billable geocode, on a screen a manager
+ * opens repeatedly. So this answers from `place_cache` and returns nothing for
+ * points nobody has looked at yet. Opening a stop still resolves it properly
+ * via `lookupPlace`, which is the one place the spend is justified.
+ */
+export async function cachedPlaceNames(
+  points: Array<{ lat: number; lng: number }>
+): Promise<globalThis.Map<string, string>> {
+  const named = new globalThis.Map<string, string>();
+  if (points.length === 0) return named;
+
+  const keys = [...new Set(points.map((p) => geoKeyFor(p.lat, p.lng)))];
+
+  const rows = await db
+    .select({
+      geoKey: placeCache.geoKey,
+      placeName: placeCache.placeName,
+      formattedAddress: placeCache.formattedAddress,
+    })
+    .from(placeCache)
+    .where(inArray(placeCache.geoKey, keys));
+
+  for (const row of rows) {
+    // The venue name reads better than a plus-coded address ("Chicken
+    // Republic" beats "XJV8+GG, Ado"), so it wins when Google knows one.
+    const label = row.placeName ?? shortAddress(row.formattedAddress);
+    if (label) named.set(row.geoKey, label);
+  }
+
+  return named;
+}
+
+/** First two components of a formatted address — street and area, no country. */
+function shortAddress(address: string | null): string | null {
+  if (!address) return null;
+  const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  return parts.slice(0, 2).join(', ');
+}
+
+/** The cache key for a coordinate, so callers can match rows back to points. */
+export const placeKeyFor = geoKeyFor;
 
 export interface FuelStation {
   name: string;

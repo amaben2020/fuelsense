@@ -194,7 +194,13 @@ export function ReceiptEventModal({
 
           {verification && <VerificationEvidence verification={verification} />}
 
-          {assessment && (
+          {/* The old fraud-probability score was computed by comparing declared
+              litres against a tank-sensor reading this vehicle cannot produce,
+              so it always resolved to "0% — aligns with OBD telemetry" no
+              matter what the receipt said. It is shown only where a real
+              measured volume exists; the verification panel above carries the
+              honest verdict otherwise. */}
+          {assessment && purchase.liters_actual != null && (
             <div className={`rounded-lg border p-4 ${probabilityTone(probability)}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -215,8 +221,9 @@ export function ReceiptEventModal({
           <section>
             <h3 className="text-sm font-semibold text-ink">What happened (chronological)</h3>
             <p className="mt-1 text-xs text-ink-dim">
-              {assessment?.expected_sequence ??
-                'Typical refuel: pump purchase → fuel enters tank (OBD rise) → ignition on to depart.'}
+              {purchase.liters_actual != null
+                ? (assessment?.expected_sequence ?? '')
+                : 'Pump purchase, then the vehicle moving off. Nothing on this vehicle measures fuel entering the tank.'}
             </p>
             <div className="mt-4 space-y-3">
               {(assessment?.chronological_timeline ?? []).length > 0 ? (
