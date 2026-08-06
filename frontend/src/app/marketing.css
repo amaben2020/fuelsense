@@ -1163,10 +1163,12 @@
   margin-top: 2.5rem;
 }
 
+/* Two inputs, then the conclusion given more room: the layout should say
+   which of the three is the answer. */
 @media (min-width: 950px) {
   .fs-recon {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 2.25rem;
+    grid-template-columns: 1fr 1fr 1.15fr;
+    gap: 2.5rem;
   }
 }
 
@@ -1182,12 +1184,49 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+/* A hairline down the left edge ties each card to its heading colour without
+   adding another border weight to the composition. */
+.fs-recon__card::before {
+  content: '';
+  position: absolute;
+  left: 1.5rem;
+  right: 1.5rem;
+  top: 0;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--green-500);
+  opacity: 0.35;
 }
 
 .fs-recon__card--gap {
   background: var(--ink-900);
   border-color: var(--ink-900);
   color: var(--paper-raised);
+  box-shadow: 0 30px 60px -34px rgba(11, 20, 16, 0.6);
+}
+
+.fs-recon__card--gap::before {
+  background: var(--green-electric);
+  opacity: 1;
+}
+
+/* The unaccounted figure is the reason the section exists, so it is set at
+   display size rather than left as one more row in a list. */
+.fs-recon__card--gap .fs-recon__row:last-child {
+  margin-top: 0.5rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid rgba(255, 254, 251, 0.2);
+  border-bottom: 0;
+  align-items: center;
+}
+
+.fs-recon__card--gap .fs-recon__row:last-child dd {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  line-height: 1;
 }
 
 .fs-recon__tag {
@@ -1552,4 +1591,240 @@
   font-size: 0.6875rem;
   line-height: 1.5;
   color: rgba(232, 236, 233, 0.5);
+}
+
+/* ------------------------------------------------------------- fuel math */
+
+.fs-math {
+  background: var(--ink-900);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  color: var(--paper-raised);
+}
+
+.fs-math__head {
+  font-family: var(--font-data);
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--green-electric);
+}
+
+.fs-math__list {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.fs-math__row {
+  padding-bottom: 1rem;
+  border-bottom: 1px dashed rgba(255, 254, 251, 0.14);
+}
+
+.fs-math__row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.fs-math__label {
+  font-size: 0.75rem;
+  color: rgba(255, 254, 251, 0.55);
+}
+
+/* The symbolic line is the hero of each row, so it gets the display face. */
+.fs-math__formula {
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  line-height: 1.2;
+  margin-top: 0.25rem;
+  color: var(--paper-raised);
+}
+
+.fs-math__sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-family: var(--font-data);
+  font-size: 0.8125rem;
+}
+
+.fs-math__subvalue {
+  color: rgba(255, 254, 251, 0.62);
+}
+
+.fs-math__eq {
+  color: rgba(255, 254, 251, 0.35);
+}
+
+.fs-math__result {
+  color: var(--green-electric);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fs-math__note {
+  margin-top: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: rgba(255, 254, 251, 0.45);
+  max-width: 46ch;
+}
+
+.fs-math__foot {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 254, 251, 0.14);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: rgba(255, 254, 251, 0.5);
+}
+
+/* --------------------------------------------------------- scroll rail */
+
+.fs-rail {
+  display: none;
+}
+
+/* Only where there is genuinely margin to spare. Below this the page needs
+   its full width more than it needs a progress indicator. */
+@media (min-width: 1360px) {
+  .fs-rail {
+    display: block;
+    position: fixed;
+    left: 2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 40;
+  }
+}
+
+.fs-rail__track {
+  position: absolute;
+  left: 0.3rem;
+  top: 0.4rem;
+  bottom: 0.4rem;
+  width: 1px;
+  background: var(--rule-strong);
+}
+
+.fs-rail__fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: top center;
+  background: var(--green-500);
+}
+
+.fs-rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1.5rem;
+}
+
+.fs-rail__stop {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: var(--ink-300);
+  transition: color 0.25s;
+}
+
+.fs-rail__dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+  flex-shrink: 0;
+  margin-left: 0.075rem;
+  transition: background 0.25s, border-color 0.25s, transform 0.25s;
+}
+
+.fs-rail__num {
+  font-family: var(--font-data);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+}
+
+/* The label is the part that costs space, so it is revealed only for the
+   section being read and on hover. */
+.fs-rail__label {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.fs-rail__stop:hover,
+.fs-rail__stop--active {
+  color: var(--ink-900);
+}
+
+.fs-rail__stop:hover .fs-rail__label,
+.fs-rail__stop--active .fs-rail__label {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.fs-rail__stop--active .fs-rail__dot {
+  background: var(--green-electric);
+  border-color: var(--green-700);
+  transform: scale(1.5);
+}
+
+.fs-rail__stop--done .fs-rail__dot {
+  background: var(--green-500);
+  border-color: var(--green-500);
+}
+
+/* --------------------------------------------------------------- wordmark */
+
+/* A satellite: nothing in this product touches the tank, and every litre it
+   reports is derived from a GNSS fix. No plate behind it, so it sits on paper
+   and on the dark panels equally. */
+.fs-wordmark__mark {
+  width: 1.4rem;
+  height: 1.4rem;
+  flex-shrink: 0;
+  color: var(--green-500);
+}
+
+/* --------------------------------------------------------------- auth */
+
+.fs-auth {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  padding-block: clamp(2rem, 8vh, 5rem);
+}
+
+.fs-auth__grid {
+  display: grid;
+  gap: clamp(2.5rem, 5vw, 4rem);
+  width: min(1060px, 100% - 2.5rem);
+}
+
+@media (min-width: 900px) {
+  .fs-auth__grid {
+    grid-template-columns: 1fr 26rem;
+    align-items: center;
+  }
+}
+
+.fs-auth__facts {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 2.5rem;
+}
+
+.fs-auth__form {
+  align-self: start;
 }

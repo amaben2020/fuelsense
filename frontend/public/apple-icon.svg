@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="180" height="180" role="img" aria-label="FuelSense">
+  <!-- A satellite, not a fuel nozzle: nothing in this product touches the
+       tank, and every litre it reports is derived from a GNSS fix.
+       Transparent ground so it sits on any surface. -->
+  <g fill="none" stroke="#00e599" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- body -->
+    <rect x="26" y="26" width="12" height="12" rx="2.5"/>
+    <!-- solar panels -->
+    <path d="M26 32H12M12 27v10M38 32h14M52 27v10"/>
+    <!-- downlink -->
+    <path d="M32 38v8"/>
+    <!-- signal arcs -->
+    <path d="M22.5 51.5a13 13 0 0 0 19 0" opacity="0.85"/>
+    <path d="M16 57a22 22 0 0 0 32 0" opacity="0.5"/>
+  </g>
+</svg>

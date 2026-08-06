@@ -8,8 +8,9 @@ import { api, Customer, isAuthenticated } from '@/lib/api';
 import { HeroDashboard } from '@/components/marketing/HeroDashboard';
 import { LiveMapDemo } from '@/components/marketing/LiveMapDemo';
 import { ReconcileFlow } from '@/components/marketing/ReconcileFlow';
-import { TrackerDevice3D } from '@/components/marketing/TrackerDevice3D';
+import { FuelMath } from '@/components/marketing/FuelMath';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
+import { ScrollTimeline } from '@/components/marketing/ScrollTimeline';
 import { countUp, revealOnScroll, useGsapScope } from '@/components/marketing/useScrollReveal';
 import './marketing.css';
 
@@ -130,6 +131,7 @@ export default function LandingPage() {
   return (
     <div className="fs-landing" ref={scope}>
       <MarketingNav />
+      <ScrollTimeline />
 
       {/* 01. hero ------------------------------------------------------ */}
       <section className="fs-shell fs-hero">
@@ -177,7 +179,7 @@ export default function LandingPage() {
       </section>
 
       {/* 02. the problem ----------------------------------------------- */}
-      <section className="fs-shell fs-section">
+      <section className="fs-shell fs-section" id="problem">
         <Marker num="02" label="The problem" />
         <h2 className="fs-h2" data-reveal>
           Between two fill-ups, a fleet runs <em>blind</em>.
@@ -330,7 +332,7 @@ export default function LandingPage() {
               </p>
             </div>
 
-            <TrackerDevice3D />
+            <FuelMath />
           </div>
         </div>
       </section>

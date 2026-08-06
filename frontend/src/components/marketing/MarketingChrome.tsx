@@ -28,7 +28,15 @@ export function MarketingNav() {
     <header className="fs-nav">
       <div className="fs-shell fs-nav__inner">
         <Link href="/" className="fs-wordmark">
-          <span className="fs-wordmark__dot" aria-hidden />
+          <svg className="fs-wordmark__mark" viewBox="0 0 64 64" aria-hidden>
+              <g fill="none" stroke="currentColor" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="26" y="26" width="12" height="12" rx="2.5" />
+                <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
+                <path d="M32 38v8" />
+                <path d="M22.5 51.5a13 13 0 0 0 19 0" opacity="0.85" />
+                <path d="M16 57a22 22 0 0 0 32 0" opacity="0.5" />
+              </g>
+            </svg>
           FuelSense
         </Link>
 
@@ -67,7 +75,15 @@ export function MarketingFooter() {
       <div className="fs-shell fs-footer__inner">
         <div>
           <Link href="/" className="fs-wordmark">
-            <span className="fs-wordmark__dot" aria-hidden />
+            <svg className="fs-wordmark__mark" viewBox="0 0 64 64" aria-hidden>
+              <g fill="none" stroke="currentColor" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="26" y="26" width="12" height="12" rx="2.5" />
+                <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
+                <path d="M32 38v8" />
+                <path d="M22.5 51.5a13 13 0 0 0 19 0" opacity="0.85" />
+                <path d="M16 57a22 22 0 0 0 32 0" opacity="0.5" />
+              </g>
+            </svg>
             FuelSense
           </Link>
           <p className="fs-small" style={{ marginTop: '0.5rem', maxWidth: '32ch' }}>
