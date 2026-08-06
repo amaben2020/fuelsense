@@ -60,7 +60,7 @@ router.get('/', async (req: Request, res: Response) => {
         declared_liters: fuelReceipts.declaredLiters,
         obd_liters_actual: fuelReceipts.obdLitersActual,
         difference_liters: fuelReceipts.differenceLiters,
-        estimated_loss_ngn: sql<number>`GREATEST(0, (${fuelReceipts.differenceLiters}::numeric * COALESCE(${fuelReceipts.pricePerLiter}, 650)))::int`,
+        estimated_loss_ngn: sql<number>`GREATEST(0, (${fuelReceipts.differenceLiters}::numeric * COALESCE(${fuelReceipts.pricePerLiter}, 1300)))::int`,
         reconciliation_status: fuelReceipts.reconciliationStatus,
         receipt_photo_url: fuelReceipts.receiptPhotoUrl,
       })
@@ -70,8 +70,8 @@ router.get('/', async (req: Request, res: Response) => {
       .where(
         and(
           eq(fuelReceipts.customerId, customerId),
-          eq(fuelReceipts.reconciliationStatus, 'flagged_theft')
-        )
+          eq(fuelReceipts.reconciliationStatus, 'flagged_theft'),
+        ),
       )
       .orderBy(desc(fuelReceipts.transactionDate))
       .limit(30);
@@ -113,10 +113,15 @@ router.get('/', async (req: Request, res: Response) => {
         merchant_name: row.merchant_name,
         transaction_date: row.transaction_date,
         declared_liters: Number(row.declared_liters),
-        obd_actual_liters: row.obd_liters_actual != null ? Number(row.obd_liters_actual) : null,
-        difference_liters: row.difference_liters != null ? Number(row.difference_liters) : null,
+        obd_actual_liters:
+          row.obd_liters_actual != null ? Number(row.obd_liters_actual) : null,
+        difference_liters:
+          row.difference_liters != null ? Number(row.difference_liters) : null,
         estimated_loss_ngn: Number(row.estimated_loss_ngn) || 0,
-        status: row.reconciliation_status === 'flagged_theft' ? 'flagged' : row.reconciliation_status,
+        status:
+          row.reconciliation_status === 'flagged_theft'
+            ? 'flagged'
+            : row.reconciliation_status,
         receipt_photo_url: row.receipt_photo_url,
       })),
     });
@@ -157,28 +162,31 @@ router.get('/receipts/:id/replay', async (req: Request, res: Response) => {
   }
 });
 
-router.patch('/siphon-events/:id/resolve', async (req: Request, res: Response) => {
-  try {
-    const [updated] = await db
-      .update(siphonEvents)
-      .set({ status: 'resolved', resolvedAt: new Date() })
-      .where(
-        and(
-          eq(siphonEvents.id, req.params.id),
-          eq(siphonEvents.customerId, req.user.customerId)
+router.patch(
+  '/siphon-events/:id/resolve',
+  async (req: Request, res: Response) => {
+    try {
+      const [updated] = await db
+        .update(siphonEvents)
+        .set({ status: 'resolved', resolvedAt: new Date() })
+        .where(
+          and(
+            eq(siphonEvents.id, req.params.id),
+            eq(siphonEvents.customerId, req.user.customerId),
+          ),
         )
-      )
-      .returning({ id: siphonEvents.id });
+        .returning({ id: siphonEvents.id });
 
-    if (!updated) {
-      res.status(404).json({ error: 'Siphon event not found' });
-      return;
+      if (!updated) {
+        res.status(404).json({ error: 'Siphon event not found' });
+        return;
+      }
+      res.json({ ok: true, id: updated.id });
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
     }
-    res.json({ ok: true, id: updated.id });
-  } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
-  }
-});
+  },
+);
 
 router.patch('/receipts/:id/resolve', async (req: Request, res: Response) => {
   try {
@@ -188,8 +196,8 @@ router.patch('/receipts/:id/resolve', async (req: Request, res: Response) => {
       .where(
         and(
           eq(fuelReceipts.id, req.params.id),
-          eq(fuelReceipts.customerId, req.user.customerId)
-        )
+          eq(fuelReceipts.customerId, req.user.customerId),
+        ),
       )
       .returning({ id: fuelReceipts.id });
 

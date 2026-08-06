@@ -76,14 +76,16 @@ export function DriverVehicleScreen() {
         <div className="mt-6 grid grid-cols-2 gap-3">
           <StatCard
             icon={Fuel}
-            label="Fuel in tank"
+            label="Fuel, estimated"
             value={
               status.fuel_level_liters != null
-                ? `${status.fuel_level_liters.toFixed(1)} L`
+                ? `~${status.fuel_level_liters.toFixed(1)} L`
                 : '—'
             }
-            accent="text-good"
-            sub={fuelPct != null ? `${fuelPct}% of tank` : undefined}
+            // Modelled from GNSS burn, not read from a sensor, so it is not
+            // dressed up in the colour reserved for verified figures.
+            accent="text-ink"
+            sub={fuelPct != null ? `about ${fuelPct}% of tank` : undefined}
           />
           <StatCard
             icon={Gauge}

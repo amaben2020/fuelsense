@@ -30,8 +30,13 @@ interface SerializedReading {
   odometer_km: number | null;
 }
 
-async function loadTelemetryWindow({ vehicleId, customerId, centerTime }: TelemetryWindowParams) {
-  const center = centerTime instanceof Date ? centerTime : new Date(centerTime as string);
+async function loadTelemetryWindow({
+  vehicleId,
+  customerId,
+  centerTime,
+}: TelemetryWindowParams) {
+  const center =
+    centerTime instanceof Date ? centerTime : new Date(centerTime as string);
   const start = new Date(center.getTime() - REPLAY_WINDOW_MINUTES * 60 * 1000);
   const end = new Date(center.getTime() + REPLAY_WINDOW_MINUTES * 60 * 1000);
 
@@ -69,7 +74,8 @@ function downsampleReadings(rows: SerializedReading[]): SerializedReading[] {
 function serializeReading(row: RawRow): SerializedReading {
   return {
     recorded_at: row.recorded_at,
-    fuel_level_liters: row.fuel_level_liters != null ? Number(row.fuel_level_liters) : null,
+    fuel_level_liters:
+      row.fuel_level_liters != null ? Number(row.fuel_level_liters) : null,
     speed_kph: row.speed_kph != null ? Number(row.speed_kph) : 0,
     ignition_on: Boolean(row.ignition_on),
     latitude: row.latitude != null ? Number(row.latitude) : null,
@@ -78,13 +84,18 @@ function serializeReading(row: RawRow): SerializedReading {
   };
 }
 
-function findClosestIndex(readings: SerializedReading[], targetTime: unknown): number {
+function findClosestIndex(
+  readings: SerializedReading[],
+  targetTime: unknown,
+): number {
   if (!readings.length) return 0;
   const target = new Date(targetTime as string).getTime();
   let best = 0;
   let bestDiff = Infinity;
   readings.forEach((row, index) => {
-    const diff = Math.abs(new Date(row.recorded_at as string).getTime() - target);
+    const diff = Math.abs(
+      new Date(row.recorded_at as string).getTime() - target,
+    );
     if (diff < bestDiff) {
       bestDiff = diff;
       best = index;
@@ -106,7 +117,12 @@ function findSteepestDropIndex(readings: SerializedReading[]): number {
       bestIndex = i;
     }
   }
-  return bestDrop > 0 ? bestIndex : findClosestIndex(readings, readings[Math.floor(readings.length / 2)]?.recorded_at);
+  return bestDrop > 0
+    ? bestIndex
+    : findClosestIndex(
+        readings,
+        readings[Math.floor(readings.length / 2)]?.recorded_at,
+      );
 }
 
 function formatTimeLabel(iso: unknown): string {
@@ -122,12 +138,16 @@ function formatTimeLabel(iso: unknown): string {
   }
 }
 
-function buildMoments(readings: SerializedReading[], anomalyIndex: number): unknown[] {
+function buildMoments(
+  readings: SerializedReading[],
+  anomalyIndex: number,
+): unknown[] {
   const moments: unknown[] = [];
   for (let i = 1; i < readings.length; i += 1) {
     const prev = readings[i - 1];
     const curr = readings[i];
-    if (prev.fuel_level_liters == null || curr.fuel_level_liters == null) continue;
+    if (prev.fuel_level_liters == null || curr.fuel_level_liters == null)
+      continue;
 
     const delta = curr.fuel_level_liters - prev.fuel_level_liters;
     const drop = prev.fuel_level_liters - curr.fuel_level_liters;
@@ -162,7 +182,12 @@ function buildMoments(readings: SerializedReading[], anomalyIndex: number): unkn
       });
     }
 
-    if (i > 1 && !prev.ignition_on && curr.ignition_on && (curr.speed_kph ?? 0) > 5) {
+    if (
+      i > 1 &&
+      !prev.ignition_on &&
+      curr.ignition_on &&
+      (curr.speed_kph ?? 0) > 5
+    ) {
       moments.push({
         index: i,
         type: 'trip_start',
@@ -180,7 +205,8 @@ function buildMoments(readings: SerializedReading[], anomalyIndex: number): unkn
   if (anomalyReading) {
     const prev = readings[Math.max(0, anomalyIndex - 1)];
     const drop =
-      prev?.fuel_level_liters != null && anomalyReading.fuel_level_liters != null
+      prev?.fuel_level_liters != null &&
+      anomalyReading.fuel_level_liters != null
         ? prev.fuel_level_liters - anomalyReading.fuel_level_liters
         : null;
 
@@ -188,7 +214,8 @@ function buildMoments(readings: SerializedReading[], anomalyIndex: number): unkn
       index: anomalyIndex,
       type: 'anomaly',
       recorded_at: anomalyReading.recorded_at,
-      fuel_drop_liters: drop != null && drop > 0 ? Math.round(drop * 10) / 10 : undefined,
+      fuel_drop_liters:
+        drop != null && drop > 0 ? Math.round(drop * 10) / 10 : undefined,
       fuel_before: prev?.fuel_level_liters ?? null,
       fuel_after: anomalyReading.fuel_level_liters,
       latitude: anomalyReading.latitude,
@@ -204,15 +231,26 @@ function buildMoments(readings: SerializedReading[], anomalyIndex: number): unkn
     if (!byIndex.has(m.index) || m.type === 'anomaly') byIndex.set(m.index, m);
   }
   return [...byIndex.values()].sort(
-    (a, b) => new Date((a as { recorded_at: string }).recorded_at).getTime() - new Date((b as { recorded_at: string }).recorded_at).getTime()
+    (a, b) =>
+      new Date((a as { recorded_at: string }).recorded_at).getTime() -
+      new Date((b as { recorded_at: string }).recorded_at).getTime(),
   );
 }
 
-function attachMoments(payload: Record<string, unknown>, readings: SerializedReading[], anomalyIndex: number): unknown {
+function attachMoments(
+  payload: Record<string, unknown>,
+  readings: SerializedReading[],
+  anomalyIndex: number,
+): unknown {
   const moments = buildMoments(readings, anomalyIndex);
-  const anomalyMoment = (moments as Array<{ type: string } & Record<string, unknown>>).find((m) => m.type === 'anomaly')
-    ?? (moments as Array<{ type: string } & Record<string, unknown>>).find((m) => m.type === 'fuel_drop')
-    ?? null;
+  const anomalyMoment =
+    (moments as Array<{ type: string } & Record<string, unknown>>).find(
+      (m) => m.type === 'anomaly',
+    ) ??
+    (moments as Array<{ type: string } & Record<string, unknown>>).find(
+      (m) => m.type === 'fuel_drop',
+    ) ??
+    null;
   return { ...payload, moments, anomaly_moment: anomalyMoment };
 }
 
@@ -224,7 +262,13 @@ interface FallbackParams {
   lng: number | null;
 }
 
-function buildFallbackReadings({ center, beforeLiters, afterLiters, lat, lng }: FallbackParams): SerializedReading[] {
+function buildFallbackReadings({
+  center,
+  beforeLiters,
+  afterLiters,
+  lat,
+  lng,
+}: FallbackParams): SerializedReading[] {
   const centerMs = center.getTime();
   const points = [
     { offsetMin: -20, fuel: beforeLiters, speed: 0, ignition: false },
@@ -256,9 +300,13 @@ function findMaxDropLiters(rows: SerializedReading[]): number {
   return maxDrop;
 }
 
-function dropWindowMeta(rows: SerializedReading[], anomalyIndex: number): { drop: number; seconds: number; startIndex: number } {
+function dropWindowMeta(
+  rows: SerializedReading[],
+  anomalyIndex: number,
+): { drop: number; seconds: number; startIndex: number } {
   const end = rows[anomalyIndex];
-  if (!end?.fuel_level_liters) return { drop: 0, seconds: 0, startIndex: anomalyIndex };
+  if (!end?.fuel_level_liters)
+    return { drop: 0, seconds: 0, startIndex: anomalyIndex };
 
   let startIndex = anomalyIndex;
   let drop = 0;
@@ -285,22 +333,35 @@ function dropWindowMeta(rows: SerializedReading[], anomalyIndex: number): { drop
       ? Math.max(
           1,
           Math.round(
-            (new Date(end.recorded_at as string).getTime() - new Date(start.recorded_at as string).getTime()) / 1000
-          )
+            (new Date(end.recorded_at as string).getTime() -
+              new Date(start.recorded_at as string).getTime()) /
+              1000,
+          ),
         )
       : 0;
   return { drop, seconds, startIndex };
 }
 
-function buildCertaintyTimeline(rows: SerializedReading[], anomalyIndex: number, finalPercent: number): unknown[] {
+function buildCertaintyTimeline(
+  rows: SerializedReading[],
+  anomalyIndex: number,
+  finalPercent: number,
+): unknown[] {
   const { startIndex } = dropWindowMeta(rows, anomalyIndex);
   const start = rows[startIndex];
   const peak = rows[anomalyIndex];
   if (!start || !peak) {
-    return [{ time: peak?.recorded_at ?? new Date().toISOString(), percent: finalPercent }];
+    return [
+      {
+        time: peak?.recorded_at ?? new Date().toISOString(),
+        percent: finalPercent,
+      },
+    ];
   }
   const midTime = new Date(
-    (new Date(start.recorded_at as string).getTime() + new Date(peak.recorded_at as string).getTime()) / 2
+    (new Date(start.recorded_at as string).getTime() +
+      new Date(peak.recorded_at as string).getTime()) /
+      2,
   ).toISOString();
   const low = Math.max(38, Math.round(finalPercent * 0.45));
   const mid = Math.max(low + 8, Math.round(finalPercent * 0.75));
@@ -322,7 +383,16 @@ interface EnrichAnomalyParams {
   eventType: string;
 }
 
-function enrichAnomalyFields({ rows, anomalyIndex, confidence, reasons, drop, dropSeconds, ignitionOff, eventType }: EnrichAnomalyParams): Record<string, unknown> {
+function enrichAnomalyFields({
+  rows,
+  anomalyIndex,
+  confidence,
+  reasons,
+  drop,
+  dropSeconds,
+  ignitionOff,
+  eventType,
+}: EnrichAnomalyParams): Record<string, unknown> {
   const durLabel =
     dropSeconds >= 60
       ? `${Math.round(dropSeconds / 60)} min`
@@ -331,7 +401,9 @@ function enrichAnomalyFields({ rows, anomalyIndex, confidence, reasons, drop, dr
   let primary_explanation = `Fuel dropped ${drop.toFixed(1)}L within ${durLabel} while ignition ${ignitionOff ? 'OFF' : 'ON'}`;
   const confidence_factors = [
     'Stable OBD fuel readings in replay window',
-    ignitionOff ? 'Ignition OFF correlated with fuel drop' : 'Ignition state logged during drop',
+    ignitionOff
+      ? 'Ignition OFF correlated with fuel drop'
+      : 'Ignition state logged during drop',
     'No verified refuel in same window',
     'Vehicle stationary during drop',
   ];
@@ -348,7 +420,7 @@ function enrichAnomalyFields({ rows, anomalyIndex, confidence, reasons, drop, dr
     confidence_factors.push(
       'Receipt timestamp matched to telemetry window',
       'OBD refuel delta below declared volume',
-      'Gap exceeds review threshold'
+      'Gap exceeds review threshold',
     );
     recommended_actions.length = 0;
     recommended_actions.push(
@@ -360,7 +432,11 @@ function enrichAnomalyFields({ rows, anomalyIndex, confidence, reasons, drop, dr
 
   return {
     primary_explanation,
-    why_flagged: [primary_explanation, ...reasons.slice(0, 4), 'Investigation assist — not a final accusation'],
+    why_flagged: [
+      primary_explanation,
+      ...reasons.slice(0, 4),
+      'Investigation assist — not a final accusation',
+    ],
     confidence_factors,
     recommended_actions,
     certainty_timeline: buildCertaintyTimeline(rows, anomalyIndex, confidence),
@@ -376,7 +452,10 @@ function enrichAnomalyFields({ rows, anomalyIndex, confidence, reasons, drop, dr
   };
 }
 
-function buildSiphonReplay(event: Record<string, unknown>, rawRows: RawRow[]): unknown {
+function buildSiphonReplay(
+  event: Record<string, unknown>,
+  rawRows: RawRow[],
+): unknown {
   const before = Number(event.fuel_level_before) || 0;
   const after = Number(event.fuel_level_after) || 0;
   const lat = event.latitude != null ? Number(event.latitude) : null;
@@ -412,7 +491,10 @@ function buildSiphonReplay(event: Record<string, unknown>, rawRows: RawRow[]): u
     reasons.push(`Sharp fuel decrease (−${drop.toFixed(1)}L)`);
     confidence += 8;
   }
-  if (event.parked_duration_minutes && Number(event.parked_duration_minutes) >= 30) {
+  if (
+    event.parked_duration_minutes &&
+    Number(event.parked_duration_minutes) >= 30
+  ) {
     reasons.push(`Parked ${event.parked_duration_minutes} min before drop`);
     confidence += 5;
   } else if (!event.engine_state_before) {
@@ -421,7 +503,9 @@ function buildSiphonReplay(event: Record<string, unknown>, rawRows: RawRow[]): u
   }
 
   const anomalyIndex =
-    rows.length > 1 ? findSteepestDropIndex(rows) : findClosestIndex(rows, event.occurred_at);
+    rows.length > 1
+      ? findSteepestDropIndex(rows)
+      : findClosestIndex(rows, event.occurred_at);
 
   const confidencePercent = Math.min(Math.round(confidence), 96);
   const { seconds: dropSeconds } = dropWindowMeta(rows, anomalyIndex);
@@ -452,33 +536,51 @@ function buildSiphonReplay(event: Record<string, unknown>, rawRows: RawRow[]): u
       anomaly: {
         type: 'Possible fuel anomaly',
         liters_lost: drop,
-        estimated_loss_ngn: Number(event.estimated_loss_ngn) || Math.round(drop * DEFAULT_FUEL_PRICE_NGN_LITER),
+        estimated_loss_ngn:
+          Number(event.estimated_loss_ngn) ||
+          Math.round(drop * DEFAULT_FUEL_PRICE_NGN_LITER),
         confidence_percent: confidencePercent,
         reasons,
         ...enriched,
       },
     },
     rows,
-    anomalyIndex
+    anomalyIndex,
   );
 }
 
-function buildReceiptReplay(receipt: Record<string, unknown>, rawRows: RawRow[]): unknown {
+function buildReceiptReplay(
+  receipt: Record<string, unknown>,
+  rawRows: RawRow[],
+): unknown {
   const declared = Number(receipt.declared_liters) || 0;
-  const actual = receipt.obd_liters_actual != null ? Number(receipt.obd_liters_actual) : null;
-  const diff = receipt.difference_liters != null ? Number(receipt.difference_liters) : declared - (actual ?? 0);
+  const actual =
+    receipt.obd_liters_actual != null
+      ? Number(receipt.obd_liters_actual)
+      : null;
+  const diff =
+    receipt.difference_liters != null
+      ? Number(receipt.difference_liters)
+      : declared - (actual ?? 0);
   const price = Number(receipt.price_per_liter) || DEFAULT_FUEL_PRICE_NGN_LITER;
 
   let rows = downsampleReadings(rawRows.map(serializeReading));
   if (rows.length < 3 && declared > 0) {
     const center = new Date(receipt.transaction_date as string);
-    const baseline = actual != null ? Math.max(actual, declared * 0.3) : declared * 0.5;
+    const baseline =
+      actual != null ? Math.max(actual, declared * 0.3) : declared * 0.5;
     rows = buildFallbackReadings({
       center,
       beforeLiters: baseline,
       afterLiters: baseline + (actual ?? declared * 0.15),
-      lat: receipt.receipt_latitude != null ? Number(receipt.receipt_latitude) : null,
-      lng: receipt.receipt_longitude != null ? Number(receipt.receipt_longitude) : null,
+      lat:
+        receipt.receipt_latitude != null
+          ? Number(receipt.receipt_latitude)
+          : null,
+      lng:
+        receipt.receipt_longitude != null
+          ? Number(receipt.receipt_longitude)
+          : null,
     });
   }
 
@@ -494,7 +596,8 @@ function buildReceiptReplay(receipt: Record<string, unknown>, rawRows: RawRow[])
   reasons.push('Declared volume not supported by OBD refuel curve');
 
   const anomalyIndex = findClosestIndex(rows, receipt.transaction_date);
-  const confidencePercent = actual != null ? Math.min(88 + Math.min(diff / 2, 8), 97) : 72;
+  const confidencePercent =
+    actual != null ? Math.min(88 + Math.min(diff / 2, 8), 97) : 72;
   const primary =
     actual != null
       ? `Receipt claimed ${declared.toFixed(1)}L but OBD recorded ${actual.toFixed(1)}L in the refuel window`
@@ -526,7 +629,8 @@ function buildReceiptReplay(receipt: Record<string, unknown>, rawRows: RawRow[])
         type: 'Receipt vs OBD mismatch',
         liters_lost: Math.max(0, diff),
         estimated_loss_ngn:
-          Number(receipt.estimated_loss_ngn) || Math.round(Math.max(0, diff) * price),
+          Number(receipt.estimated_loss_ngn) ||
+          Math.round(Math.max(0, diff) * price),
         confidence_percent: confidencePercent,
         reasons,
         declared_liters: declared,
@@ -535,11 +639,19 @@ function buildReceiptReplay(receipt: Record<string, unknown>, rawRows: RawRow[])
       },
     },
     rows,
-    anomalyIndex
+    anomalyIndex,
   );
 }
 
-async function loadTelemetryDay({ vehicleId, customerId, activityDate }: { vehicleId: string; customerId: string; activityDate: string }) {
+async function loadTelemetryDay({
+  vehicleId,
+  customerId,
+  activityDate,
+}: {
+  vehicleId: string;
+  customerId: string;
+  activityDate: string;
+}) {
   const result = await db.execute(sql`
     SELECT
       recorded_at,
@@ -559,7 +671,15 @@ async function loadTelemetryDay({ vehicleId, customerId, activityDate }: { vehic
   return result.rows ?? [];
 }
 
-function buildDailyReplay({ vehicle, rawRows, flagType }: { vehicle: Record<string, unknown>; rawRows: RawRow[]; flagType: string }): unknown | null {
+function buildDailyReplay({
+  vehicle,
+  rawRows,
+  flagType,
+}: {
+  vehicle: Record<string, unknown>;
+  rawRows: RawRow[];
+  flagType: string;
+}): unknown | null {
   let rows = downsampleReadings(rawRows.map(serializeReading));
   if (!rows.length) return null;
 
@@ -579,10 +699,14 @@ function buildDailyReplay({ vehicle, rawRows, flagType }: { vehicle: Record<stri
         : 'daily_flag';
 
   const reasons: string[] = [];
-  if (drop >= 3) reasons.push(`Largest fuel drop this day: −${drop.toFixed(1)}L`);
-  if (flagType === 'data_anomaly') reasons.push('Fuel/distance ratio inconsistent with normal trips');
-  if (flagType === 'low_efficiency') reasons.push('Daily consumption above vehicle baseline');
-  if (!reasons.length) reasons.push('Review full-day telemetry for operational waste');
+  if (drop >= 3)
+    reasons.push(`Largest fuel drop this day: −${drop.toFixed(1)}L`);
+  if (flagType === 'data_anomaly')
+    reasons.push('Fuel/distance ratio inconsistent with normal trips');
+  if (flagType === 'low_efficiency')
+    reasons.push('Daily consumption above vehicle baseline');
+  if (!reasons.length)
+    reasons.push('Review full-day telemetry for operational waste');
 
   return attachMoments(
     {
@@ -610,11 +734,21 @@ function buildDailyReplay({ vehicle, rawRows, flagType }: { vehicle: Record<stri
       },
     },
     rows,
-    anomalyIndex
+    anomalyIndex,
   );
 }
 
-export async function buildDailyActivityReplay({ customerId, vehicleId, activityDate, flagType }: { customerId: string; vehicleId: string; activityDate: string; flagType: string }): Promise<unknown | null> {
+export async function buildDailyActivityReplay({
+  customerId,
+  vehicleId,
+  activityDate,
+  flagType,
+}: {
+  customerId: string;
+  vehicleId: string;
+  activityDate: string;
+  flagType: string;
+}): Promise<unknown | null> {
   const vehicleResult = await db.execute(sql`
     SELECT v.id AS vehicle_id, v.license_plate, v.model,
       COALESCE(dr.full_name, v.driver_name) AS driver_name
@@ -635,14 +769,23 @@ export async function buildDailyActivityReplay({ customerId, vehicleId, activity
     LIMIT 1
   `);
   if ((siphonResult.rows[0] as { id?: string } | undefined)?.id) {
-    return buildSiphonEventReplay({ customerId, eventId: (siphonResult.rows[0] as { id: string }).id });
+    return buildSiphonEventReplay({
+      customerId,
+      eventId: (siphonResult.rows[0] as { id: string }).id,
+    });
   }
 
   const rows = await loadTelemetryDay({ vehicleId, customerId, activityDate });
   return buildDailyReplay({ vehicle, rawRows: rows as RawRow[], flagType });
 }
 
-export async function buildSiphonEventReplay({ customerId, eventId }: { customerId: string; eventId: string }): Promise<unknown | null> {
+export async function buildSiphonEventReplay({
+  customerId,
+  eventId,
+}: {
+  customerId: string;
+  eventId: string;
+}): Promise<unknown | null> {
   const result = await db.execute(sql`
     SELECT
       s.id,
@@ -679,7 +822,13 @@ export async function buildSiphonEventReplay({ customerId, eventId }: { customer
   return buildSiphonReplay(event, rows as RawRow[]);
 }
 
-export async function buildReceiptEventReplay({ customerId, receiptId }: { customerId: string; receiptId: string }): Promise<unknown | null> {
+export async function buildReceiptEventReplay({
+  customerId,
+  receiptId,
+}: {
+  customerId: string;
+  receiptId: string;
+}): Promise<unknown | null> {
   const result = await db.execute(sql`
     SELECT
       r.id,
@@ -694,7 +843,7 @@ export async function buildReceiptEventReplay({ customerId, receiptId }: { custo
       r.receipt_longitude,
       v.license_plate AS vehicle_plate,
       dr.full_name AS driver_name,
-      GREATEST(0, (r.difference_liters::numeric * COALESCE(r.price_per_liter, 650)))::int AS estimated_loss_ngn
+      GREATEST(0, (r.difference_liters::numeric * COALESCE(r.price_per_liter, 1300)))::int AS estimated_loss_ngn
     FROM fuel_receipts r
     JOIN vehicles v ON v.id = r.vehicle_id
     JOIN drivers dr ON dr.id = r.driver_id

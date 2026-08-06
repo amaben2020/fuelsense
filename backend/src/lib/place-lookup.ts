@@ -308,3 +308,57 @@ export async function fetchStreetView(
     'streetview_image'
   );
 }
+
+export interface AddressSuggestion {
+  description: string;
+  place_id: string;
+}
+
+/**
+ * Address suggestions for a partial string, biased to Nigeria.
+ *
+ * Drivers type a forecourt name on a phone at the pump, so the useful answer
+ * is a short list of real places rather than a free-text box that accepts
+ * anything. Results are cached per query because the same handful of stations
+ * recur constantly across a fleet, and Google charges per keystroke otherwise.
+ */
+const autocompleteCache = new Map<string, { at: number; results: AddressSuggestion[] }>();
+const AUTOCOMPLETE_TTL_MS = 12 * 60 * 60 * 1000;
+
+export async function suggestAddresses(query: string): Promise<AddressSuggestion[]> {
+  const key = query.trim().toLowerCase();
+  if (key.length < 3) return [];
+
+  const cached = autocompleteCache.get(key);
+  if (cached && Date.now() - cached.at < AUTOCOMPLETE_TTL_MS) return cached.results;
+
+  if (!chargeGoogleCall('places_autocomplete')) return [];
+
+  const url = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json');
+  url.searchParams.set('input', query);
+  url.searchParams.set('components', 'country:ng');
+  url.searchParams.set('key', GOOGLE_KEY);
+
+  try {
+    const response = await fetch(url.toString());
+    const data = (await response.json()) as {
+      status?: string;
+      predictions?: Array<{ description: string; place_id: string }>;
+    };
+
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      console.warn('[places] autocomplete returned', data.status);
+      return [];
+    }
+
+    const results = (data.predictions ?? [])
+      .slice(0, 6)
+      .map((p) => ({ description: p.description, place_id: p.place_id }));
+
+    autocompleteCache.set(key, { at: Date.now(), results });
+    return results;
+  } catch (error) {
+    console.error('[places] autocomplete failed:', (error as Error).message);
+    return [];
+  }
+}

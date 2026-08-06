@@ -15,7 +15,8 @@ export type GoogleCallKind =
   | 'places_nearby'
   | 'streetview_meta'
   | 'streetview_image'
-  | 'place_photo';
+  | 'place_photo'
+  | 'places_autocomplete';
 
 // Rough published rates per 1000 calls, used only to report estimated spend.
 const USD_PER_1000: Record<GoogleCallKind, number> = {
@@ -23,6 +24,9 @@ const USD_PER_1000: Record<GoogleCallKind, number> = {
   places_nearby: 32,
   streetview_meta: 0,
   streetview_image: 7,
+  // Autocomplete is billed per session in Google's own pricing; per-request
+  // is the pessimistic reading, which is the right one for a cap.
+  places_autocomplete: 3,
   place_photo: 7,
 };
 

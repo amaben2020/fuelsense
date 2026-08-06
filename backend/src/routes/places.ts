@@ -4,9 +4,11 @@
 // cannot carry a bearer token. Nothing customer-specific is exposed — a photo
 // reference is an opaque Google handle — and proxying keeps the API key on the
 // server instead of embedding it in markup the browser can read.
-import express, { Request, Response } from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { fetchPlacePhoto, fetchStreetView } from '../lib/place-lookup';
+import { fetchPlacePhoto, fetchStreetView, suggestAddresses } from '../lib/place-lookup';
+import jwt from 'jsonwebtoken';
+import { JWT_SECRET } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -81,3 +83,41 @@ router.get('/streetview', async (req: Request, res: Response) => {
 });
 
 export default router;
+
+// Address suggestions for the receipt form.
+//
+// Unlike the image proxies above this is a JSON endpoint a token can reach, so
+// it is authenticated: autocomplete costs money per keystroke and should not
+// be callable by anyone who finds the URL.
+// Both a fleet manager and a driver reach the receipt form, and they carry
+// different tokens. Chaining the two middlewares would not work: each replies
+// 401/403 itself rather than deferring, so the first to run would answer for
+// both. This verifies once and accepts either role.
+const authenticateEither = (req: Request, res: Response, next: NextFunction): void => {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  try {
+    jwt.verify(header.slice(7), JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+};
+
+router.get('/autocomplete', authenticateEither, async (req: Request, res: Response) => {
+  const query = String(req.query.q ?? '').trim().slice(0, 120);
+  if (query.length < 3) return res.json([]);
+
+  try {
+    res.json(await suggestAddresses(query));
+  } catch (error) {
+    console.error('[places] autocomplete route failed:', (error as Error).message);
+    // A dead suggestion list must never block a driver from typing the
+    // address by hand, so this degrades to empty rather than erroring.
+    res.json([]);
+  }
+});

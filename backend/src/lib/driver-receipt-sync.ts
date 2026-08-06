@@ -60,7 +60,7 @@ export function buildPurchaseValuesFromReceipt(receipt: ReceiptRow): {
   status: string;
   source: string;
 } {
-  const price = Number(receipt.price_per_liter || receipt.pricePerLiter) || 650;
+  const price = Number(receipt.price_per_liter || receipt.pricePerLiter) || 1300;
   const declared = Number(receipt.declared_liters || receipt.declaredLiters);
   const reconciliationStatus =
     receipt.reconciliation_status || receipt.reconciliationStatus || 'pending';

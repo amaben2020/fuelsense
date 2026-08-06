@@ -50,11 +50,13 @@ export function DriverFuelScreen({
   const [merchantName, setMerchantName] = useState('');
   const [merchantAddress, setMerchantAddress] = useState('');
   const [declaredLiters, setDeclaredLiters] = useState('');
-  const [pricePerLiter, setPricePerLiter] = useState('650');
+  const [pricePerLiter, setPricePerLiter] = useState('1300');
   const [totalAmount, setTotalAmount] = useState('');
   const [transactionDate, setTransactionDate] = useState('');
   const [odometerKm, setOdometerKm] = useState('');
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
+    null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -97,7 +99,7 @@ export function DriverFuelScreen({
       } catch (err) {
         markOfflineReceiptError(
           item.client_receipt_id,
-          err instanceof Error ? err.message : 'Sync failed'
+          err instanceof Error ? err.message : 'Sync failed',
         );
       }
     }
@@ -124,19 +126,25 @@ export function DriverFuelScreen({
     }
   }, []);
 
-  const applyParsedFields = (fields: {
-    merchant_name: string;
-    merchant_address: string | null;
-    declared_liters: number | null;
-    total_amount: number | null;
-    price_per_liter: number | null;
-    transaction_date: string;
-  }, confidence: number) => {
+  const applyParsedFields = (
+    fields: {
+      merchant_name: string;
+      merchant_address: string | null;
+      declared_liters: number | null;
+      total_amount: number | null;
+      price_per_liter: number | null;
+      transaction_date: string;
+    },
+    confidence: number,
+  ) => {
     setMerchantName(fields.merchant_name);
     setMerchantAddress(fields.merchant_address ?? '');
-    if (fields.declared_liters != null) setDeclaredLiters(String(fields.declared_liters));
-    if (fields.price_per_liter != null) setPricePerLiter(String(fields.price_per_liter));
-    if (fields.total_amount != null) setTotalAmount(String(fields.total_amount));
+    if (fields.declared_liters != null)
+      setDeclaredLiters(String(fields.declared_liters));
+    if (fields.price_per_liter != null)
+      setPricePerLiter(String(fields.price_per_liter));
+    if (fields.total_amount != null)
+      setTotalAmount(String(fields.total_amount));
     setTransactionDate(toDatetimeLocal(fields.transaction_date));
     setParseConfidence(confidence);
     setMode('form');
@@ -156,7 +164,11 @@ export function DriverFuelScreen({
         const { parsed } = await scanReceiptImage(dataUrl);
         applyParsedFields(parsed.fields, parsed.parse_confidence);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Scan failed — enter details manually');
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Scan failed, enter the details by hand',
+        );
         setMode('form');
       }
     };
@@ -169,7 +181,7 @@ export function DriverFuelScreen({
     setMerchantName('');
     setMerchantAddress('');
     setDeclaredLiters('');
-    setPricePerLiter('650');
+    setPricePerLiter('1300');
     setTotalAmount('');
     setTransactionDate(toDatetimeLocal(new Date().toISOString()));
     setMode('form');
@@ -181,8 +193,10 @@ export function DriverFuelScreen({
       return;
     }
     const declared = Number(declaredLiters);
-    const price = Number(pricePerLiter) || 650;
-    const total = totalAmount ? Number(totalAmount) : Math.round(declared * price);
+    const price = Number(pricePerLiter) || 1300;
+    const total = totalAmount
+      ? Number(totalAmount)
+      : Math.round(declared * price);
     if (!merchantName || !declared) {
       setError('Merchant and liters are required');
       return;
@@ -255,7 +269,9 @@ export function DriverFuelScreen({
           ) : (
             <>
               <CloudOff className="h-4 w-4 text-warn" />
-              <span className="text-warn">Offline — receipts queue locally</span>
+              <span className="text-warn">
+                Offline — receipts queue locally
+              </span>
             </>
           )}
         </div>
@@ -282,7 +298,9 @@ export function DriverFuelScreen({
             </div>
             <div>
               <p className="font-semibold text-ink">Snap receipt</p>
-              <p className="text-xs text-ink-dim">Camera scan — auto-reads liters, merchant, time</p>
+              <p className="text-xs text-ink-dim">
+                Camera scan — auto-reads liters, merchant, time
+              </p>
             </div>
           </button>
 
@@ -331,7 +349,9 @@ export function DriverFuelScreen({
         <div className="flex flex-col items-center rounded-2xl border border-edge bg-panel py-12">
           <Loader2 className="h-10 w-10 animate-spin text-brand" />
           <p className="mt-4 text-sm text-ink">Reading receipt…</p>
-          <p className="mt-1 text-xs text-ink-dim">Extracting merchant, liters, amount, time</p>
+          <p className="mt-1 text-xs text-ink-dim">
+            Extracting merchant, liters, amount, time
+          </p>
         </div>
       )}
 
@@ -351,15 +371,63 @@ export function DriverFuelScreen({
           )}
           {error && <p className="text-sm text-bad">{error}</p>}
 
-          <Field label="Merchant" value={merchantName} onChange={setMerchantName} />
-          <Field label="Address" value={merchantAddress} onChange={setMerchantAddress} />
-          <Field label="Purchase time" value={transactionDate} onChange={setTransactionDate} type="datetime-local" />
+          <Field
+            label="Merchant"
+            value={merchantName}
+            onChange={setMerchantName}
+          />
+          <Field
+            label="Address"
+            value={merchantAddress}
+            onChange={setMerchantAddress}
+          />
+          <Field
+            label="Purchase time"
+            value={transactionDate}
+            onChange={setTransactionDate}
+            type="datetime-local"
+          />
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Liters" value={declaredLiters} onChange={setDeclaredLiters} type="number" />
-            <Field label="Price/L (₦)" value={pricePerLiter} onChange={setPricePerLiter} type="number" />
+            <Field
+              label="Liters"
+              value={declaredLiters}
+              onChange={setDeclaredLiters}
+              type="number"
+            />
+            <Field
+              label="Price/L (₦)"
+              value={pricePerLiter}
+              onChange={setPricePerLiter}
+              type="number"
+            />
           </div>
-          <Field label="Total (₦)" value={totalAmount} onChange={setTotalAmount} type="number" />
-          <Field label="Odometer (km)" value={odometerKm} onChange={setOdometerKm} type="number" />
+          <Field
+            label="Total (₦)"
+            value={totalAmount}
+            onChange={setTotalAmount}
+            type="number"
+          />
+          <Field
+            label="Odometer (km)"
+            value={odometerKm}
+            onChange={setOdometerKm}
+            type="number"
+          />
+
+          {/* Photographing the slip is the better path, so a driver who
+              reached this form by mistake needs a way back to it that is not
+              Cancel, which throws the receipt away. */}
+          <button
+            type="button"
+            onClick={() => {
+              resetForm();
+              cameraRef.current?.click();
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-edge py-3 text-sm text-brand"
+          >
+            <Camera className="h-4 w-4" />
+            Photograph the receipt instead
+          </button>
 
           <div className="flex gap-2 pt-2">
             <button
@@ -375,7 +443,11 @@ export function DriverFuelScreen({
               onClick={handleSubmit}
               className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-50"
             >
-              {submitting ? 'Submitting…' : online ? 'Submit receipt' : 'Save offline'}
+              {submitting
+                ? 'Submitting…'
+                : online
+                  ? 'Submit receipt'
+                  : 'Save offline'}
             </button>
           </div>
         </div>
@@ -400,7 +472,9 @@ export function DriverFuelScreen({
                 key={r.id}
                 className="rounded-xl border border-edge bg-panel/80 px-3 py-2.5"
               >
-                <p className="text-sm font-medium text-ink">{r.merchant_name}</p>
+                <p className="text-sm font-medium text-ink">
+                  {r.merchant_name}
+                </p>
                 <p className="text-xs text-ink-dim">
                   {new Date(r.transaction_date).toLocaleString('en-NG', {
                     timeZone: 'Africa/Lagos',
@@ -410,7 +484,8 @@ export function DriverFuelScreen({
                     month: 'short',
                   })}{' '}
                   · {Number(r.declared_liters)}L
-                  {r.obd_liters_actual != null && ` · OBD ${Number(r.obd_liters_actual)}L`}
+                  {r.obd_liters_actual != null &&
+                    ` · OBD ${Number(r.obd_liters_actual)}L`}
                 </p>
                 <span
                   className={`text-[10px] uppercase ${
