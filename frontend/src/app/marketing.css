@@ -858,6 +858,13 @@
   background: linear-gradient(to top, var(--green-500), var(--green-electric));
 }
 
+/* Rate carries a unit as well as a value, so it needs to fit on one line at
+   the panel's width where the bare figures above it do not. */
+.fs-trace__reading--tight {
+  font-size: 1.125rem;
+  white-space: nowrap;
+}
+
 .fs-trace__reading {
   font-family: var(--font-data);
   font-size: 1.5rem;

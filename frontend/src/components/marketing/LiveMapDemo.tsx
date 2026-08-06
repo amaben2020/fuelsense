@@ -491,8 +491,9 @@ export function LiveMapDemo() {
         <p className="fs-trace__gaugelabel" style={{ marginTop: '1.25rem' }}>
           Burn rate
         </p>
-        <p className="fs-trace__reading">
-          {fraction > 0.02 ? ((USED_LITERS * fraction) / Math.max(km, 0.1) * 100).toFixed(1) : '0.0'} L/100km
+        <p className="fs-trace__reading fs-trace__reading--tight">
+          {fraction > 0.02 ? ((USED_LITERS * fraction) / Math.max(km, 0.1)).toFixed(3) : '0.000'}{' '}
+          L/km
         </p>
 
         <p className="fs-trace__gaugelabel" style={{ marginTop: '1.25rem' }}>
