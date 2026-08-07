@@ -22,11 +22,19 @@ export function isDeliverable(address: string | null | undefined): boolean {
   return !/\.(local|test|invalid|example)$/i.test(address.split('@')[1] ?? '');
 }
 
+export interface MailAttachment {
+  filename: string;
+  /** Raw bytes; base64 encoding for the API happens here, not at the call site. */
+  content: Buffer;
+  type: string;
+}
+
 export interface MailInput {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  attachments?: MailAttachment[];
   /**
    * Ignore ALERT_EMAIL_OVERRIDE. The override exists because seeded accounts
    * carry placeholder addresses, but mail addressed to a real, known inbox —
@@ -40,6 +48,7 @@ export async function sendMail({
   subject,
   text,
   html,
+  attachments,
   bypassOverride,
 }: MailInput): Promise<boolean> {
   if (!API_KEY) {
@@ -54,7 +63,23 @@ export async function sendMail({
   }
 
   try {
-    await sgMail.send({ to: recipient, from: FROM, subject, text, html: html ?? text });
+    await sgMail.send({
+      to: recipient,
+      from: FROM,
+      subject,
+      text,
+      html: html ?? text,
+      ...(attachments?.length
+        ? {
+            attachments: attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content.toString('base64'),
+              type: a.type,
+              disposition: 'attachment',
+            })),
+          }
+        : {}),
+    });
     console.log(`[mailer] sent "${subject}" to ${recipient}`);
     return true;
   } catch (err) {

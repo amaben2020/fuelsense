@@ -27,6 +27,7 @@ import contactRoutes from './routes/contact';
 import { startReceiptSweep } from './lib/receipt-sweep';
 import { startRouteSweep } from './lib/route-sweep';
 import { startDrivingEventSweep } from './lib/driving-events-sweep';
+import { startDailyReportScheduler } from './lib/daily-report-mailer';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -130,6 +131,9 @@ const start = async () => {
   // Harsh acceleration, braking and cornering, derived from the speed and
   // heading series the tracker already sends.
   startDrivingEventSweep();
+
+  // Yesterday's driving, per driver, emailed as a PDF each morning.
+  startDailyReportScheduler();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {

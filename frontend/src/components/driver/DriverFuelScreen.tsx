@@ -16,6 +16,8 @@ import {
   AddressSuggestion,
   DriverReceipt,
   DriverSession,
+  StationCheck,
+  checkAtStation,
   fetchAddressSuggestions,
   fetchDriverReceipts,
   submitDriverReceipt,
@@ -66,6 +68,7 @@ export function DriverFuelScreen({
     null,
   );
   const [submitting, setSubmitting] = useState(false);
+  const [stationCheck, setStationCheck] = useState<StationCheck | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
 
@@ -133,6 +136,16 @@ export function DriverFuelScreen({
       });
     }
   }, []);
+
+  // Receipts belong at the pump. This warns and never blocks: Google does not
+  // know every forecourt, a phone indoors drifts, and refusing a real receipt
+  // would push drivers into logging them later from anywhere.
+  useEffect(() => {
+    if (!location || mode !== 'form') return;
+    checkAtStation(location.lat, location.lng)
+      .then(setStationCheck)
+      .catch(() => setStationCheck(null));
+  }, [location, mode]);
 
   const applyParsedFields = (
     fields: {
@@ -377,6 +390,17 @@ export function DriverFuelScreen({
             </p>
           )}
           {error && <p className="text-sm text-bad">{error}</p>}
+
+          {stationCheck?.at_station === false && (
+            <p className="rounded-lg border border-warn/40 bg-warn-deep/10 px-3 py-2 text-xs leading-relaxed text-warn">
+              You are{' '}
+              {stationCheck.distance_m != null
+                ? `${stationCheck.distance_m} m from ${stationCheck.station_name ?? 'the nearest filling station'}`
+                : 'not near a filling station we recognise'}
+              . Receipts should be logged at the pump — you can still submit, and your
+              manager will see where this was recorded.
+            </p>
+          )}
 
           <Field
             label="Merchant"

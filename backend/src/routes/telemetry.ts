@@ -644,7 +644,7 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       receipt?.ngnPerLiter ??
       Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
-    const [result, alertRows, siphonRows] = await Promise.all([
+    const [result, alertRows, siphonRows, harshRows] = await Promise.all([
       db.execute(fleetEfficiencyAggSql({ customerId, days, pricePerLiter })),
       db.execute(sql`
         SELECT vehicle_id, alert_type, estimated_loss_ngn
@@ -662,7 +662,26 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
           AND status NOT IN ('resolved', 'false_alarm')
         GROUP BY vehicle_id
       `),
+      // Aggressive driving burns fuel the baseline does not allow for. Counted,
+      // not costed — there is no honest litres-per-harsh-brake conversion.
+      db.execute(sql`
+        SELECT vehicle_id, COUNT(*)::int AS harsh_events
+        FROM device_events
+        WHERE customer_id = ${customerId}
+          AND occurred_at > NOW() - (${days} || ' days')::interval
+          AND event_type IN (
+            'harsh_braking', 'harsh_acceleration', 'harsh_cornering', 'overspeeding'
+          )
+        GROUP BY vehicle_id
+      `),
     ]);
+
+    const harshByVehicle = new Map<string, number>(
+      harshRows.rows.map((row) => {
+        const r = row as Record<string, unknown>;
+        return [r.vehicle_id as string, Number(r.harsh_events) || 0];
+      })
+    );
 
     const alertTheftByVehicle = new Map<string, number>();
     for (const alert of alertRows.rows) {
@@ -731,6 +750,17 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       const totalLossNgn = theftLossNgn + efficiencyLossNgn;
       const savingsNgn = expectedCostNgn - telemetryCostNgn;
 
+      // A loss figure with no cause behind it is an accusation. Split the extra
+      // fuel into the part the tracker can explain (engine running while
+      // stationary, measured) and the part it cannot, and carry the harsh-event
+      // count as context for the remainder.
+      const idleHours = (Number(r.idle_seconds) || 0) / 3600;
+      const idleLiters = Math.min(idleHours * IDLE_BURN_LITERS_PER_HOUR, fuelUsed);
+      const excessLiters = Math.max(0, fuelUsed - expectedFuelLiters);
+      const idleExcessLiters = Math.min(idleLiters, excessLiters);
+      const unexplainedLiters = Math.max(0, excessLiters - idleExcessLiters);
+      const harshEvents = harshByVehicle.get(r.vehicle_id as string) || 0;
+
       const co2EmissionsKg = Math.round(fuelUsed * CO2_KG_PER_LITER);
 
       let status = 'verified';
@@ -759,6 +789,19 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
         tank_variance_percent: tankVariancePercent != null ? round2(tankVariancePercent) : null,
         expected_fuel_liters: round1(expectedFuelLiters),
         expected_cost_ngn: expectedCostNgn,
+        idle_hours: round1(idleHours),
+        idle_fuel_liters: round1(idleLiters),
+        idle_cost_ngn: Math.round(idleLiters * periodPriceNgn),
+        harsh_event_count: harshEvents,
+        loss_reason: {
+          excess_liters: round1(excessLiters),
+          idle_liters: round1(idleExcessLiters),
+          idle_cost_ngn: Math.round(idleExcessLiters * periodPriceNgn),
+          idle_hours: round1(idleHours),
+          unexplained_liters: round1(unexplainedLiters),
+          unexplained_cost_ngn: Math.round(unexplainedLiters * periodPriceNgn),
+          harsh_event_count: harshEvents,
+        },
         actual_cost_ngn: actualCostNgn,
         telemetry_cost_ngn: telemetryCostNgn,
         fuel_cost_ngn: actualCostNgn,
@@ -787,7 +830,24 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
     const summary = {
       total_distance_km: rows.reduce((s, r) => s + r.distance_km, 0),
       total_fuel_used_liters: round1(rows.reduce((s, r) => s + r.fuel_used_liters, 0)),
+      total_expected_fuel_liters: round1(rows.reduce((s, r) => s + r.expected_fuel_liters, 0)),
       total_expected_cost_ngn: rows.reduce((s, r) => s + r.expected_cost_ngn, 0),
+      total_idle_hours: round1(rows.reduce((s, r) => s + r.idle_hours, 0)),
+      total_idle_fuel_liters: round1(rows.reduce((s, r) => s + r.idle_fuel_liters, 0)),
+      total_harsh_events: rows.reduce((s, r) => s + r.harsh_event_count, 0),
+      loss_reason: {
+        idle_liters: round1(rows.reduce((s, r) => s + r.loss_reason.idle_liters, 0)),
+        idle_cost_ngn: rows.reduce((s, r) => s + r.loss_reason.idle_cost_ngn, 0),
+        idle_hours: round1(rows.reduce((s, r) => s + r.loss_reason.idle_hours, 0)),
+        unexplained_liters: round1(
+          rows.reduce((s, r) => s + r.loss_reason.unexplained_liters, 0)
+        ),
+        unexplained_cost_ngn: rows.reduce(
+          (s, r) => s + r.loss_reason.unexplained_cost_ngn,
+          0
+        ),
+        harsh_event_count: rows.reduce((s, r) => s + r.harsh_event_count, 0),
+      },
       total_actual_cost_ngn: rows.reduce((s, r) => s + r.actual_cost_ngn, 0),
       total_telemetry_cost_ngn: rows.reduce((s, r) => s + r.telemetry_cost_ngn, 0),
       total_loss_ngn: rows.reduce((s, r) => s + r.total_loss_ngn, 0),

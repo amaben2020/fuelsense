@@ -2,15 +2,16 @@
 
 import { Fragment, useMemo, useState } from 'react';
 import {
+  AlertOctagon,
   AlertTriangle,
   ChevronDown,
   ChevronRight,
   Droplet,
   Fuel,
+  Gauge,
   MapPin,
   Play,
-  Radio,
-  Shield,
+  TrendingUp,
   Truck,
   Users,
 } from 'lucide-react';
@@ -83,14 +84,6 @@ function efficiencyStatus(row: FleetEfficiency): { label: string; tone: 'good' |
   return { label: 'OK', tone: 'good' };
 }
 
-function formatEventTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-NG', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: 'Africa/Lagos',
-  });
-}
 
 export function FleetOperationsOverview({
   summary,
@@ -206,7 +199,7 @@ export function FleetOperationsOverview({
         severity: 'critical',
         title: TRUST_COPY.siphonTitle,
         vehicle: event.vehicle_plate,
-        detail: `OBD shows −${event.liters_stolen.toFixed(1)}L while parked · ${TRUST_COPY.requiresReview}`,
+        detail: `Fuel level fell ${event.liters_stolen.toFixed(1)}L while parked`,
         reasons: siphonContextLines(event),
         confidence,
         severityLevel: severityLabel(confidence),
@@ -228,7 +221,7 @@ export function FleetOperationsOverview({
         vehicle: flag.vehicle_plate,
         detail:
           obd != null
-            ? `Receipt ${flag.declared_liters}L · OBD ${obd}L · ${TRUST_COPY.requiresReview}`
+            ? `Receipt ${flag.declared_liters}L · measured ${obd}L`
             : `${flag.merchant_name ?? 'Station'} · OBD match pending`,
         reasons: receiptMismatchContextLines(flag),
         confidence,
@@ -252,7 +245,7 @@ export function FleetOperationsOverview({
             : TRUST_COPY.alertFuelTitle,
         vehicle: alert.license_plate ?? 'Unknown',
         detail: alert.message,
-        reasons: ['Live telemetry pattern flagged', TRUST_COPY.notVerdict],
+        reasons: [],
         confidence,
         severityLevel: severityLabel(confidence),
         source: 'FMC150 telemetry',
@@ -301,7 +294,7 @@ export function FleetOperationsOverview({
         title: TRUST_COPY.siphonTitle,
         vehicle: row.license_plate,
         detail: `Possible loss ${formatNgn(row.theft_loss_ngn)}, verify with replay`,
-        reasons: ['Receipt or OBD pattern flagged', TRUST_COPY.requiresReview],
+        reasons: [],
         confidence: 70,
         severityLevel: 'MEDIUM',
         source: 'OBD + receipts',
@@ -314,72 +307,6 @@ export function FleetOperationsOverview({
     return items.sort((a, b) => order[a.severity] - order[b.severity]).slice(0, 6);
   }, [alerts, anomalies, efficiency, fuelEvents]);
 
-  const liveFeed = useMemo(() => {
-    type FeedItem = {
-      id: string;
-      time: string;
-      label: string;
-      vehicle: string;
-      detail: string;
-      reasons: string[];
-      confidence: number;
-      severityLevel: 'HIGH' | 'MEDIUM' | 'LOW';
-      source: string;
-      replayTarget?: ReplayTarget;
-    };
-    const items: FeedItem[] = [];
-
-    for (const e of fuelEvents?.siphon_events ?? []) {
-      const confidence = siphonConfidence(e);
-      items.push({
-        id: `s-${e.id}`,
-        time: e.occurred_at,
-        label: TRUST_COPY.siphonTitle,
-        vehicle: e.vehicle_plate,
-        detail: `Δ −${e.liters_stolen.toFixed(1)}L · est. ${formatNgn(e.estimated_loss_ngn)}`,
-        reasons: siphonContextLines(e).slice(0, 3),
-        confidence,
-        severityLevel: severityLabel(confidence),
-        source: 'OBD + idle',
-        replayTarget: { kind: 'siphon', id: e.id },
-      });
-    }
-
-    for (const f of fuelEvents?.receipt_flags ?? []) {
-      const confidence = receiptMismatchConfidence(f);
-      items.push({
-        id: `r-${f.id}`,
-        time: f.transaction_date,
-        label: f.status === 'flagged' ? TRUST_COPY.receiptMismatchTitle : 'Refuel logged',
-        vehicle: f.vehicle_plate,
-        detail: `${f.declared_liters}L receipt · OBD ${f.obd_actual_liters ?? 'pending'}L`,
-        reasons: receiptMismatchContextLines(f).slice(0, 3),
-        confidence,
-        severityLevel: severityLabel(confidence),
-        source: 'Receipt + OBD',
-        replayTarget: f.status === 'flagged' ? { kind: 'receipt', id: f.id } : undefined,
-      });
-    }
-
-    for (const a of anomalies.slice(0, 5)) {
-      const confidence = anomalyConfidence(a);
-      items.push({
-        id: `a-${a.id}`,
-        time: a.timestamp,
-        label: a.type === 'idle' ? 'Excessive idle' : TRUST_COPY.siphonTitle,
-        vehicle: a.vehicle_plate ?? '—',
-        detail: a.details,
-        reasons: anomalyContextLines(a).slice(0, 3),
-        confidence,
-        severityLevel: severityLabel(confidence),
-        source: 'Telemetry',
-      });
-    }
-
-    return items
-      .sort((x, y) => new Date(y.time).getTime() - new Date(x.time).getTime())
-      .slice(0, 8);
-  }, [anomalies, fuelEvents]);
 
   const driverRanking = useMemo(() => {
     const byDriver = new Map<string, { name: string; scores: number[]; loss: number }>();
@@ -451,173 +378,164 @@ export function FleetOperationsOverview({
         <EventReplayPanel target={replayTarget} onClose={() => setReplayTarget(null)} />
       )}
 
-      {/* 1. Top summary — money first, minimal */}
-      <section className="rounded-xl border border-edge bg-panel px-4 py-4 sm:px-6">
-        <p className="mb-1 text-xs font-medium uppercase tracking-wider text-ink-dim">
-          Operational snapshot
-        </p>
-        <p className="mb-4 text-xs text-ink-dim">{TRUST_COPY.notVerdict}</p>
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-          <MetricPill
-            icon={Fuel}
-            label={`Fuel spend (${periodDays}d)`}
-            value={fuelSpend > 0 ? formatNgn(fuelSpend) : '—'}
-            hint={
-              fuelContext
-                ? `${Math.round(fuelContext.distanceKm)} km · ${formatNgn(
-                    fuelContext.costPerKm
-                  )}/km`
-                : 'Telemetry-based spend'
-            }
-          />
-          <MetricPill
+      {/* 1. Snapshot bento — one hero tile carries the money so the eye has
+          somewhere to land; every other tile states exactly one fact. */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-ink-dim">
+            Operational snapshot
+          </h2>
+          <p className="text-xs text-ink-dim">{TRUST_COPY.notVerdict}</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
+          <Tile
+            tone="hero"
+            className="flex flex-col p-5 sm:col-span-2 sm:p-6 lg:col-span-6 lg:row-span-2"
+          >
+            <div className="flex items-center gap-2 text-ink-dim">
+              <Fuel className="h-4 w-4" />
+              <span className="text-[10px] font-medium uppercase tracking-[0.14em]">
+                Fuel spend · last {periodDays} days
+              </span>
+            </div>
+            <p className="mt-2 text-4xl font-bold tabular-nums text-ink sm:text-5xl">
+              {fuelSpend > 0 ? formatNgn(fuelSpend) : '—'}
+            </p>
+            <p className="mt-1.5 text-xs text-ink-dim">
+              {fuelContext
+                ? `${Math.round(fuelContext.distanceKm)} km · ${fuelContext.liters.toFixed(
+                    1
+                  )} L at ${formatNgn(fuelContext.pricePerLiter)}/L`
+                : 'Telemetry-based spend'}
+            </p>
+
+            {fuelContext && (
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-edge pt-4">
+                <Rate
+                  label="Cost per km"
+                  value={formatNgn(fuelContext.costPerKm)}
+                  benchmark={
+                    fuelContext.benchmarkCostPerKm != null
+                      ? `vs ${formatNgn(fuelContext.benchmarkCostPerKm)} typical`
+                      : null
+                  }
+                />
+                <Rate
+                  label="Economy"
+                  value={`${fuelContext.kmPerLiter.toFixed(1)} km/L`}
+                  benchmark={
+                    fuelContext.benchmarkKmPerLiter != null
+                      ? `vs ${fuelContext.benchmarkKmPerLiter.toFixed(1)} benchmark`
+                      : null
+                  }
+                />
+              </div>
+            )}
+
+            {fuelContext && fuelContext.savedNgn != null && fuelContext.benchmarkCost != null && (
+              <div className="mt-4 rounded-lg border border-edge bg-canvas p-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-xs text-ink-dim">
+                    {fuelContext.savedNgn >= 0 ? 'Money saved' : 'Overspent'} vs benchmark (
+                    {periodDays}d)
+                  </p>
+                  <p
+                    className={`font-mono text-lg font-semibold ${
+                      // Green means one thing only: money genuinely kept.
+                      fuelContext.savedNgn > 0 ? 'text-good' : 'text-ink'
+                    }`}
+                  >
+                    {formatNgn(Math.abs(fuelContext.savedNgn))}
+                  </p>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-ink-dim">
+                  {Math.round(fuelContext.distanceKm)} km at the{' '}
+                  {fuelContext.benchmarkKmPerLiter?.toFixed(1)} km/L benchmark ={' '}
+                  {fuelContext.benchmarkLiters?.toFixed(1)} L, which at{' '}
+                  {formatNgn(fuelContext.pricePerLiter)}/L is{' '}
+                  {formatNgn(fuelContext.benchmarkCost)}. Actual spend was{' '}
+                  {formatNgn(fuelSpend)}, a {fuelContext.savedNgn >= 0 ? 'saving' : 'shortfall'} of{' '}
+                  {formatNgn(Math.abs(fuelContext.savedNgn))}.
+                </p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setFinancialDetailsOpen((v) => !v)}
+              className="mt-auto flex w-full items-center justify-between gap-2 pt-4 text-xs text-accent"
+            >
+              <span>{financialDetailsOpen ? 'Hide' : 'Show'} loss breakdown</span>
+              {financialDetailsOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+            {financialDetailsOpen && efficiencySummary && (
+              <div className="mt-3 grid gap-x-6 gap-y-3 border-t border-edge pt-3 text-[11px] sm:grid-cols-3">
+                <div>
+                  <p className="text-ink-dim">Suspicious fuel patterns</p>
+                  <p className="font-mono text-sm text-bad">
+                    {formatNgn(efficiencySummary.total_theft_loss_ngn)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-ink-dim">Efficiency gap</p>
+                  <p className="font-mono text-sm text-warn">
+                    {formatNgn(efficiencySummary.total_efficiency_loss_ngn)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-ink-dim">Recoverable ({periodDays}d)</p>
+                  <p className="font-mono text-sm text-ink">
+                    {formatNgn(efficiencySummary.recoverable_ngn)}
+                  </p>
+                </div>
+              </div>
+            )}
+          </Tile>
+
+          <StatTile
             icon={Droplet}
-            label={`Preventable loss (${periodDays}d)`}
+            label={`Preventable loss · ${periodDays}d`}
             value={formatNgn(preventableLoss)}
-            hint="Anomalies + efficiency gap"
+            hint="Anomalies plus the efficiency gap"
             tone={preventableLoss > 0 ? 'bad' : 'good'}
+            className="lg:col-span-3"
           />
-          <MetricPill
+          <StatTile
             icon={AlertTriangle}
             label="Active alerts"
             value={String(summary.active_alerts)}
             hint={`${summary.online_vehicles}/${summary.total_vehicles} vehicles online`}
             tone={summary.active_alerts > 0 ? 'warn' : 'good'}
+            className="lg:col-span-3"
+          />
+          <StatTile
+            icon={TrendingUp}
+            label="If this week repeated all year"
+            value={formatMillionsNgn(annualSavingsOpportunity)}
+            hint={`Straight projection of ${formatNgn(preventableLoss)} — a scale, not a forecast`}
+            className="lg:col-span-3"
+          />
+          <StatTile
+            icon={Gauge}
+            label="Fleet health"
+            value={healthScore != null ? `${healthScore}/100` : '—'}
+            hint="Offline trackers, open alerts, vehicles off baseline"
+            tone={healthTone}
+            className="lg:col-span-3"
           />
         </div>
-        {fuelContext && (
-          <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-edge pt-3 text-[11px] sm:grid-cols-4">
-            <div>
-              <p className="text-ink-dim">Distance covered</p>
-              <p className="font-mono text-sm text-ink">
-                {Math.round(fuelContext.distanceKm)} km
-              </p>
-            </div>
-            <div>
-              <p className="text-ink-dim">Fuel burned</p>
-              <p className="font-mono text-sm text-ink">
-                {fuelContext.liters.toFixed(1)} L
-                <span className="ml-1 text-[10px] text-ink-dim">
-                  @ {formatNgn(fuelContext.pricePerLiter)}/L
-                </span>
-              </p>
-            </div>
-            <div>
-              <p className="text-ink-dim">Cost per km</p>
-              <p className="font-mono text-sm text-ink">
-                {formatNgn(fuelContext.costPerKm)}
-                {fuelContext.benchmarkCostPerKm != null && (
-                  <span className="ml-1 text-[10px] text-ink-dim">
-                    vs {formatNgn(fuelContext.benchmarkCostPerKm)} typical
-                  </span>
-                )}
-              </p>
-            </div>
-            <div>
-              <p className="text-ink-dim">Economy</p>
-              <p className="font-mono text-sm text-ink">
-                {fuelContext.kmPerLiter.toFixed(1)} km/L
-                {fuelContext.benchmarkKmPerLiter != null && (
-                  <span className="ml-1 text-[10px] text-ink-dim">
-                    vs {fuelContext.benchmarkKmPerLiter.toFixed(1)} benchmark
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {fuelContext && fuelContext.savedNgn != null && fuelContext.benchmarkCost != null && (
-          <div className="mt-3 rounded-lg border border-edge bg-canvas p-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-xs text-ink-dim">
-                {fuelContext.savedNgn >= 0 ? 'Money saved' : 'Overspent'} vs benchmark ({periodDays}d)
-              </p>
-              <p
-                className={`font-mono text-lg font-semibold ${
-                  // Green means one thing only: money genuinely kept.
-                  fuelContext.savedNgn > 0 ? 'text-good' : 'text-ink'
-                }`}
-              >
-                {formatNgn(Math.abs(fuelContext.savedNgn))}
-              </p>
-            </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-ink-dim">
-              {Math.round(fuelContext.distanceKm)} km at the{' '}
-              {fuelContext.benchmarkKmPerLiter?.toFixed(1)} km/L benchmark ={' '}
-              {fuelContext.benchmarkLiters?.toFixed(1)} L, which at{' '}
-              {formatNgn(fuelContext.pricePerLiter)}/L is{' '}
-              {formatNgn(fuelContext.benchmarkCost)}. Actual spend was{' '}
-              {formatNgn(fuelSpend)}, a {fuelContext.savedNgn >= 0 ? 'saving' : 'shortfall'} of{' '}
-              {formatNgn(Math.abs(fuelContext.savedNgn))}.
-            </p>
-          </div>
-        )}
-
-        {fuelContext && (
-          <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
-            {fuelContext.litersPer100km.toFixed(1)} L/100km against a
-            {fuelContext.benchmarkKmPerLiter
-              ? ` ${(100 / fuelContext.benchmarkKmPerLiter).toFixed(1)} L/100km`
-              : ''}{' '}
-            industry figure for this fleet&rsquo;s vehicle types. At this rate fuel runs
-            about <span className="font-mono text-ink">{formatNgn(fuelContext.monthlyRunRate)}</span>{' '}
-            a month.
-          </p>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setFinancialDetailsOpen((v) => !v)}
-          className="mt-4 flex w-full items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-accent"
-        >
-          <span>{financialDetailsOpen ? 'Hide' : 'Show'} breakdown & savings projection</span>
-          {financialDetailsOpen ? (
-            <ChevronDown className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </button>
-        {financialDetailsOpen && efficiencySummary && (
-          <div className="mt-3 grid gap-3 border-t border-edge pt-4 sm:grid-cols-2">
-            <div className="rounded-lg bg-canvas p-3">
-              <p className="text-xs text-ink-dim">Suspicious fuel patterns</p>
-              <p className="font-mono text-lg text-bad">
-                {formatNgn(efficiencySummary.total_theft_loss_ngn)}
-              </p>
-            </div>
-            <div className="rounded-lg bg-canvas p-3">
-              <p className="text-xs text-ink-dim">Efficiency gap</p>
-              <p className="font-mono text-lg text-warn">
-                {formatNgn(efficiencySummary.total_efficiency_loss_ngn)}
-              </p>
-            </div>
-            <div className="rounded-lg bg-good/10 p-3 sm:col-span-2">
-              <p className="text-xs text-ink-dim">Potential annual savings opportunity</p>
-              <p className="text-2xl font-bold text-ink">
-                {formatMillionsNgn(annualSavingsOpportunity)}
-              </p>
-              <p className="mt-1 text-xs text-ink-dim">
-                ~{formatNgn(efficiencySummary.recoverable_ngn)} recoverable in last {periodDays}{' '}
-                days if addressed
-              </p>
-            </div>
-            {healthScore != null && (
-              <div className="rounded-lg bg-canvas p-3 sm:col-span-2">
-                <p className="text-xs text-ink-dim">Fleet health score</p>
-                <p className={`text-lg font-bold ${healthTone === 'good' ? 'text-good' : healthTone === 'warn' ? 'text-warn' : 'text-bad'}`}>
-                  {healthScore}/100
-                </p>
-              </div>
-            )}
-          </div>
-        )}
       </section>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className="space-y-6 xl:col-span-2">
+      {/* 2. Work bento — the queue dominates, the rail is deliberately quieter */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+        <Tile className="overflow-hidden lg:col-span-8">
           {/* 2. What needs attention */}
-          <section className="rounded-xl border border-edge bg-panel">
+          <div>
             <header className="border-b border-edge px-5 py-4">
               <h2 className="text-lg font-semibold text-ink">What needs attention?</h2>
               <p className="mt-0.5 text-xs text-ink-dim">
@@ -630,16 +548,23 @@ export function FleetOperationsOverview({
               </p>
             ) : (
               <ul className="divide-y divide-divider">
-                {attentionItems.map((item, index) => (
-                  <li key={item.id} className="flex flex-wrap items-start gap-3 px-5 py-4">
+                {attentionItems.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex flex-wrap items-start gap-3 px-5 py-4 hover:bg-panel-hover/40"
+                  >
                     <span
-                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                         item.severity === 'critical'
                           ? 'bg-bad-deep/40 text-bad'
                           : 'bg-warn-deep/30 text-warn'
                       }`}
                     >
-                      {index + 1}
+                      {item.severity === 'critical' ? (
+                        <AlertOctagon className="h-4 w-4" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4" />
+                      )}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -654,14 +579,13 @@ export function FleetOperationsOverview({
                         <span className="ml-2 text-ink-dim">· {item.source}</span>
                       </p>
                       <p className="mt-1 text-xs text-ink-mid">{item.detail}</p>
-                      <ul className="mt-2 space-y-0.5">
-                        {item.reasons.map((line) => (
-                          <li key={line} className="flex gap-1.5 text-xs text-ink-dim">
-                            <span className="text-ink-dim">•</span>
-                            {line}
-                          </li>
-                        ))}
-                      </ul>
+                      {/* One wrapped line rather than a bulleted paragraph — the
+                          reasons are supporting detail, not the headline. */}
+                      {item.reasons.length > 0 && (
+                        <p className="mt-1.5 text-xs leading-relaxed text-ink-dim">
+                          {item.reasons.join(' · ')}
+                        </p>
+                      )}
                       {item.lossNgn != null && item.lossNgn > 0 && (
                         <p className="mt-2 text-xs text-warn">
                           Est. impact {formatNgn(item.lossNgn)} · {TRUST_COPY.requiresReview}
@@ -701,275 +625,12 @@ export function FleetOperationsOverview({
                 <Play className="h-3.5 w-3.5" /> {TRUST_COPY.viewEvidenceCta}, all events
               </button>
             </footer>
-          </section>
+          </div>
+        </Tile>
 
-          {/* 3. Daily fleet efficiency */}
-          <section className="overflow-hidden rounded-xl border border-edge bg-panel">
-            <header className="border-b border-edge px-5 py-4">
-              <h2 className="font-semibold text-ink">Fleet efficiency</h2>
-              <p className="mt-0.5 text-xs text-ink-dim">
-                Last {efficiency[0]?.period_days ?? 7} days · tap a row for detail
-              </p>
-            </header>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
-                  <tr>
-                    <th className="px-5 py-3" />
-                    <th className="px-5 py-3">Vehicle</th>
-                    <th className="px-5 py-3">Driver</th>
-                    <th className="px-5 py-3">Distance</th>
-                    <th className="px-5 py-3">Fuel</th>
-                    <th className="px-5 py-3">Efficiency</th>
-                    <th className="px-5 py-3">Baseline</th>
-                    <th className="px-5 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-divider text-ink-mid">
-                  {efficiency.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-5 py-6 text-ink-dim">
-                        No efficiency data yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    efficiency.map((row) => {
-                      const st = efficiencyStatus(row);
-                      const open = expandedVehicle === row.vehicle_id;
-                      return (
-                        <Fragment key={row.vehicle_id}>
-                          <tr
-                            className="cursor-pointer hover:bg-panel-hover/50"
-                            onClick={() =>
-                              setExpandedVehicle(open ? null : row.vehicle_id)
-                            }
-                          >
-                            <td className="px-5 py-3">
-                              {open ? (
-                                <ChevronDown className="h-4 w-4 text-ink-dim" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 text-ink-dim" />
-                              )}
-                            </td>
-                            <td className="px-5 py-3 font-medium text-ink">
-                              {row.license_plate}
-                            </td>
-                            <td className="px-5 py-3">{row.driver_name ?? '—'}</td>
-                            <td className="px-5 py-3 font-mono">{row.distance_km} km</td>
-                            <td className="px-5 py-3 font-mono">{row.fuel_used_liters.toFixed(1)}L</td>
-                            <td className="px-5 py-3 font-mono text-ink">
-                              {row.efficiency_km_l != null
-                                ? `${row.efficiency_km_l.toFixed(1)} km/L`
-                                : '—'}
-                            </td>
-                            <td className="px-5 py-3 font-mono text-ink-dim">
-                              {row.expected_efficiency_km_l.toFixed(1)} km/L
-                            </td>
-                            <td className="px-5 py-3">
-                              <StatusChip label={st.label} tone={st.tone} />
-                            </td>
-                          </tr>
-                          {open && (
-                            <tr className="bg-canvas/60">
-                              <td colSpan={8} className="px-5 py-3 text-xs text-ink-dim">
-                                <ul className="grid gap-1 sm:grid-cols-2">
-                                  <li>
-                                    Preventable loss:{' '}
-                                    <span className="text-bad">
-                                      {formatNgn(row.total_loss_ngn)}
-                                    </span>
-                                  </li>
-                                  <li>
-                                    Suspicious patterns: {formatNgn(row.theft_loss_ngn)}
-                                  </li>
-                                  <li>
-                                    Efficiency gap: {formatNgn(row.efficiency_loss_ngn)}
-                                  </li>
-                                  {row.last_purchase_merchant && (
-                                    <li>
-                                      Last refuel: {row.last_purchase_merchant} (
-                                      {row.last_receipt_liters}L)
-                                    </li>
-                                  )}
-                                </ul>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onViewOnMap(row.vehicle_id);
-                                  }}
-                                  className="mt-2 inline-flex items-center gap-1 text-accent"
-                                >
-                                  <MapPin className="h-3 w-3" /> View on live map
-                                </button>
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* 4. Live fuel events */}
-          <section className="rounded-xl border border-edge bg-panel">
-            <header className="flex items-center justify-between border-b border-edge px-5 py-4">
-              <div>
-                <h2 className="flex items-center gap-2 font-semibold text-ink">
-                  <Radio className="h-4 w-4 text-good" />
-                  Fuel anomalies feed
-                </h2>
-                <p className="mt-0.5 text-xs text-ink-dim">
-                  Confidence, context, and replay for each flag
-                </p>
-              </div>
-              <span className="rounded-full bg-good/15 px-2 py-0.5 text-[10px] uppercase text-good">
-                Live
-              </span>
-            </header>
-            {liveFeed.length === 0 ? (
-              <p className="px-5 py-6 text-sm text-ink-dim">No recent fuel events.</p>
-            ) : (
-              <ul className="divide-y divide-divider">
-                {liveFeed.map((item) => (
-                  <li key={item.id} className="px-5 py-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs text-ink">
-                            {formatEventTime(item.time)}
-                          </span>
-                          <ConfidenceBadge
-                            confidence={item.confidence}
-                            severity={item.severityLevel}
-                          />
-                        </div>
-                        <p className="mt-1 text-sm font-medium text-ink">{item.label}</p>
-                        <p className="text-xs text-ink-mid">
-                          {item.vehicle} · {item.detail}
-                        </p>
-                        <p className="mt-1 text-[10px] uppercase text-ink-dim">
-                          Why flagged
-                        </p>
-                        <ul className="mt-0.5 space-y-0.5">
-                          {item.reasons.map((line) => (
-                            <li key={line} className="text-xs text-ink-dim">
-                              • {line}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      {item.replayTarget && (
-                        <button
-                          type="button"
-                          onClick={() => setReplayTarget(item.replayTarget!)}
-                          className="shrink-0 rounded-lg border border-accent/50 bg-accent/15 px-3 py-2 text-xs font-medium text-accent"
-                        >
-                          <Play className="mr-1 inline h-3 w-3" />
-                          {TRUST_COPY.investigateCta} ▶
-                        </button>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-
-        <div className="space-y-6">
-          {/* 6. Hero loss card — product anchor */}
-          <section className="rounded-xl border border-bad/25 bg-gradient-to-b from-bad-deep/20 to-panel p-5">
-            <p className="text-xs uppercase tracking-wider text-bad">
-              Your {periodDays}-day preventable fuel loss
-            </p>
-            <p className="mt-2 text-3xl font-bold text-ink">{formatNgn(preventableLoss)}</p>
-            <p className="mt-2 text-sm text-good">
-              Potential annual savings opportunity:{' '}
-              <span className="font-semibold">{formatMillionsNgn(annualSavingsOpportunity)}</span>
-            </p>
-            <p className="mt-2 text-xs text-ink-dim">
-              Investigate flagged events before treating as final — sensor and receipt evidence
-              available.
-            </p>
-          </section>
-
-          {/* 7. Vehicle health */}
-          <section className="rounded-xl border border-edge bg-panel p-5">
-            <h2 className="flex items-center gap-2 font-semibold text-ink">
-              <Truck className="h-4 w-4" /> Vehicle health
-            </h2>
-            {vehicleHealth.length === 0 ? (
-              <p className="mt-3 text-sm text-good">All tracked vehicles look healthy.</p>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {vehicleHealth.map((v) => (
-                  <li key={v.id}>
-                    <button
-                      type="button"
-                      onClick={() => onViewOnMap(v.id)}
-                      className="flex w-full items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-left text-sm hover:bg-panel-hover"
-                    >
-                      <span className="font-mono text-ink">{v.plate}</span>
-                      <span
-                        className={
-                          v.severity === 'bad'
-                            ? 'text-bad'
-                            : v.severity === 'warn'
-                              ? 'text-warn'
-                              : 'text-ink-dim'
-                        }
-                      >
-                        {v.issue}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          {/* 8. Driver accountability */}
-          <section className="rounded-xl border border-edge bg-panel p-5">
-            <h2 className="flex items-center gap-2 font-semibold text-ink">
-              <Users className="h-4 w-4" /> Driver efficiency
-            </h2>
-            <ol className="mt-3 space-y-2">
-              {driverRanking.length === 0 ? (
-                <li className="text-sm text-ink-dim">No driver data.</li>
-              ) : (
-                driverRanking.map((d, i) => (
-                  <li
-                    key={d.name}
-                    className="flex items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2"
-                  >
-                    <span className="text-sm text-ink-mid">
-                      <span className="mr-2 text-ink-dim">{i + 1}.</span>
-                      {d.name}
-                    </span>
-                    <span
-                      className={`font-mono text-sm font-semibold ${
-                        d.score >= 75
-                          ? 'text-good'
-                          : d.score >= 50
-                            ? 'text-warn'
-                            : 'text-bad'
-                      }`}
-                    >
-                      {d.score}/100
-                      {d.score < 50 ? ' ⚠' : ''}
-                    </span>
-                  </li>
-                ))
-              )}
-            </ol>
-          </section>
-
-          {/* Evidence replay — primary differentiator */}
-          <section className="rounded-xl border-2 border-accent/40 bg-accent/10 p-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:col-span-4 lg:grid-cols-1 lg:content-start">
+          {/* Evidence replay — the one tile allowed to shout */}
+          <Tile tone="accent" className="p-5 sm:col-span-2 lg:col-span-1">
             <p className="text-sm font-semibold text-ink">Evidence replay</p>
             <p className="mt-1 text-xs text-ink-dim">
               Map + fuel graph + timeline — closes disputes with data, not accusations
@@ -990,25 +651,225 @@ export function FleetOperationsOverview({
                 Live monitoring map
               </button>
             </div>
-          </section>
+          </Tile>
+
+          {/* Vehicle health */}
+          <Tile className="p-5">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <Truck className="h-4 w-4 text-ink-dim" /> Vehicle health
+            </h2>
+            {vehicleHealth.length === 0 ? (
+              <p className="mt-3 text-sm text-good">All tracked vehicles look healthy.</p>
+            ) : (
+              <ul className="mt-3 divide-y divide-divider">
+                {vehicleHealth.map((v) => (
+                  <li key={v.id}>
+                    <button
+                      type="button"
+                      onClick={() => onViewOnMap(v.id)}
+                      className="-mx-2 flex w-[calc(100%+1rem)] items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-panel-hover"
+                    >
+                      <span className="font-mono text-ink">{v.plate}</span>
+                      <span
+                        className={
+                          v.severity === 'bad'
+                            ? 'text-xs text-bad'
+                            : v.severity === 'warn'
+                              ? 'text-xs text-warn'
+                              : 'text-xs text-ink-dim'
+                        }
+                      >
+                        {v.issue}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Tile>
+
+          {/* Driver accountability */}
+          <Tile className="p-5">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <Users className="h-4 w-4 text-ink-dim" /> Driver efficiency
+            </h2>
+            <ol className="mt-3 divide-y divide-divider">
+              {driverRanking.length === 0 ? (
+                <li className="text-sm text-ink-dim">No driver data.</li>
+              ) : (
+                driverRanking.map((d, i) => (
+                  <li key={d.name} className="flex items-center justify-between gap-3 py-2">
+                    <span className="truncate text-sm text-ink-mid">
+                      <span className="mr-2 text-ink-dim">{i + 1}.</span>
+                      {d.name}
+                    </span>
+                    <span
+                      className={`font-mono text-sm font-semibold ${
+                        d.score >= 75
+                          ? 'text-good'
+                          : d.score >= 50
+                            ? 'text-warn'
+                            : 'text-bad'
+                      }`}
+                    >
+                      {d.score}/100
+                      {d.score < 50 ? ' ⚠' : ''}
+                    </span>
+                  </li>
+                ))
+              )}
+            </ol>
+          </Tile>
         </div>
       </div>
+
+      {/* 3. Daily fleet efficiency — full width, it is an eight-column table */}
+      <section className="overflow-hidden rounded-xl border border-edge bg-panel">
+        <header className="border-b border-edge px-5 py-4">
+          <h2 className="font-semibold text-ink">Fleet efficiency</h2>
+          <p className="mt-0.5 text-xs text-ink-dim">
+            Last {efficiency[0]?.period_days ?? 7} days · tap a row for detail
+          </p>
+        </header>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
+              <tr>
+                <th className="px-5 py-3" />
+                <th className="px-5 py-3">Vehicle</th>
+                <th className="px-5 py-3">Driver</th>
+                <th className="px-5 py-3">Distance</th>
+                <th className="px-5 py-3">Fuel</th>
+                <th className="px-5 py-3">Efficiency</th>
+                <th className="px-5 py-3">Baseline</th>
+                <th className="px-5 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-divider text-ink-mid">
+              {efficiency.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-6 text-ink-dim">
+                    No efficiency data yet.
+                  </td>
+                </tr>
+              ) : (
+                efficiency.map((row) => {
+                  const st = efficiencyStatus(row);
+                  const open = expandedVehicle === row.vehicle_id;
+                  return (
+                    <Fragment key={row.vehicle_id}>
+                      <tr
+                        className="cursor-pointer hover:bg-panel-hover/50"
+                        onClick={() =>
+                          setExpandedVehicle(open ? null : row.vehicle_id)
+                        }
+                      >
+                        <td className="px-5 py-3">
+                          {open ? (
+                            <ChevronDown className="h-4 w-4 text-ink-dim" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-ink-dim" />
+                          )}
+                        </td>
+                        <td className="px-5 py-3 font-medium text-ink">
+                          {row.license_plate}
+                        </td>
+                        <td className="px-5 py-3">{row.driver_name ?? '—'}</td>
+                        <td className="px-5 py-3 font-mono">{row.distance_km} km</td>
+                        <td className="px-5 py-3 font-mono">{row.fuel_used_liters.toFixed(1)}L</td>
+                        <td className="px-5 py-3 font-mono text-ink">
+                          {row.efficiency_km_l != null
+                            ? `${row.efficiency_km_l.toFixed(1)} km/L`
+                            : '—'}
+                        </td>
+                        <td className="px-5 py-3 font-mono text-ink-dim">
+                          {row.expected_efficiency_km_l.toFixed(1)} km/L
+                        </td>
+                        <td className="px-5 py-3">
+                          <StatusChip label={st.label} tone={st.tone} />
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="bg-canvas/60">
+                          <td colSpan={8} className="px-5 py-3 text-xs text-ink-dim">
+                            <ul className="grid gap-1 sm:grid-cols-2">
+                              <li>
+                                Preventable loss:{' '}
+                                <span className="text-bad">
+                                  {formatNgn(row.total_loss_ngn)}
+                                </span>
+                              </li>
+                              <li>
+                                Suspicious patterns: {formatNgn(row.theft_loss_ngn)}
+                              </li>
+                              <li>
+                                Efficiency gap: {formatNgn(row.efficiency_loss_ngn)}
+                              </li>
+                              {row.last_purchase_merchant && (
+                                <li>
+                                  Last refuel: {row.last_purchase_merchant} (
+                                  {row.last_receipt_liters}L)
+                                </li>
+                              )}
+                            </ul>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onViewOnMap(row.vehicle_id);
+                              }}
+                              className="mt-2 inline-flex items-center gap-1 text-accent"
+                            >
+                              <MapPin className="h-3 w-3" /> View on live map
+                            </button>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </>
   );
 }
 
-function MetricPill({
+/* Every panel on this page is one of these, so weight is expressed by tone and
+   span rather than by each card inventing its own border and background. */
+function Tile({
+  children,
+  className = '',
+  tone = 'panel',
+}: {
+  children: React.ReactNode;
+  className?: string;
+  tone?: 'panel' | 'hero' | 'accent';
+}) {
+  const toneCls = {
+    panel: 'border-edge bg-panel',
+    hero: 'border-edge bg-panel-deep',
+    accent: 'border-accent/40 bg-accent/10',
+  }[tone];
+  return <div className={`rounded-xl border ${toneCls} ${className}`}>{children}</div>;
+}
+
+function StatTile({
   icon: Icon,
   label,
   value,
   hint,
   tone = 'default',
+  className = '',
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   hint?: string;
   tone?: 'default' | 'good' | 'warn' | 'bad';
+  className?: string;
 }) {
   const valueColor = {
     default: 'text-ink',
@@ -1018,13 +879,33 @@ function MetricPill({
   }[tone];
 
   return (
-    <div>
+    <Tile className={`flex flex-col justify-between p-4 sm:p-5 ${className}`}>
       <div className="flex items-center gap-1.5 text-ink-dim">
-        <Icon className="h-3.5 w-3.5" />
-        <span className="text-[10px] uppercase tracking-wider">{label}</span>
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-[10px] font-medium uppercase tracking-[0.14em]">{label}</span>
       </div>
-      <p className={`mt-1 text-xl font-bold tabular-nums sm:text-2xl ${valueColor}`}>{value}</p>
-      {hint && <p className="mt-0.5 text-[10px] text-ink-dim">{hint}</p>}
+      <div className="mt-3">
+        <p className={`text-2xl font-bold tabular-nums ${valueColor}`}>{value}</p>
+        {hint && <p className="mt-1 text-[11px] leading-snug text-ink-dim">{hint}</p>}
+      </div>
+    </Tile>
+  );
+}
+
+function Rate({
+  label,
+  value,
+  benchmark,
+}: {
+  label: string;
+  value: string;
+  benchmark: string | null;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.14em] text-ink-dim">{label}</p>
+      <p className="mt-1 font-mono text-lg text-ink">{value}</p>
+      {benchmark && <p className="text-[11px] text-ink-dim">{benchmark}</p>}
     </div>
   );
 }

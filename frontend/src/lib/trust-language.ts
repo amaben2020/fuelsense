@@ -65,14 +65,12 @@ export function receiptMismatchContextLines(flag: ReceiptFlagRow): string[] {
 }
 
 export function anomalyContextLines(anomaly: FuelAnomaly): string[] {
+  // `anomaly.details` is deliberately absent: the card renders it as the
+  // description immediately above these bullets, and repeating it verbatim
+  // was the single loudest piece of noise on the Operations page.
   const lines: string[] = [];
-  if (anomaly.details) lines.push(anomaly.details);
   if (anomaly.type === 'idle') lines.push('Extended engine idle detected');
-  if (anomaly.type === 'theft' || anomaly.type === 'fraud') {
-    lines.push('Pattern flagged for investigation — not a final verdict');
-  }
-  lines.push('Source: live telemetry');
-  return lines.slice(0, 4);
+  return lines;
 }
 
 export function anomalyConfidence(anomaly: FuelAnomaly): number {

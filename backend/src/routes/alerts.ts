@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, alerts, vehicles, eq, and, desc } from '../lib/db-helpers';
+import { inArray } from 'drizzle-orm';
 import { withCache, invalidate, cacheKey } from '../lib/redis';
 
 const router = express.Router();
@@ -80,6 +81,25 @@ function mapAlertToAnomaly(row: AlertRow): Record<string, unknown> {
   };
 }
 
+/**
+ * Alert types that genuinely want investigating.
+ *
+ * Everything used to arrive here, which is how a driver correctly filing a
+ * receipt ended up in "What needs attention?" as a "Possible fuel anomaly" at
+ * 68% confidence, alongside a low-fuel notice whose only action is "plan a
+ * refuel". A list that reports good behaviour as suspicious teaches a manager
+ * to stop reading it.
+ */
+const INVESTIGATION_ALERT_TYPES = [
+  'fuel_theft',
+  'receipt_fraud',
+  'unlogged_fill',
+  'route_deviation',
+  'excessive_idle',
+  'idle_fuel_waste',
+  'poor_efficiency',
+];
+
 router.get('/anomalies', async (req: Request, res: Response) => {
   try {
     const key = cacheKey(req.user.customerId, 'anomalies');
@@ -103,7 +123,12 @@ router.get('/anomalies', async (req: Request, res: Response) => {
         })
         .from(alerts)
         .leftJoin(vehicles, eq(alerts.vehicleId, vehicles.id))
-        .where(eq(alerts.customerId, req.user.customerId))
+        .where(
+          and(
+            eq(alerts.customerId, req.user.customerId),
+            inArray(alerts.alertType, INVESTIGATION_ALERT_TYPES)
+          )
+        )
         .orderBy(desc(alerts.createdAt))
         .limit(30);
       return rows.map((row) => mapAlertToAnomaly(row as unknown as AlertRow));

@@ -47,6 +47,7 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
         tank_capacity_liters,
         COALESCE(SUM(dist_delta), 0)::numeric AS distance_km,
         COALESCE(SUM(fuel_delta), 0)::numeric AS fuel_used_liters,
+        COALESCE(SUM(idle_delta_s), 0)::numeric AS idle_seconds,
         COALESCE(SUM(fuel_delta * price_ngn), 0)::numeric AS telemetry_cost_ngn,
         -- Distance-weighted, so expected cost is judged at the prices that
         -- were in force while the vehicle was actually driving.
@@ -128,6 +129,7 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
       p.tank_capacity_liters,
       p.distance_km,
       p.fuel_used_liters,
+      p.idle_seconds,
       p.telemetry_cost_ngn,
       p.avg_price_ngn,
       sr.tank_distance_km,

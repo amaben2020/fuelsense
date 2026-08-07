@@ -230,6 +230,19 @@ export const initDatabase = async (): Promise<void> => {
     )
   `);
 
+  // One row per report actually delivered, so a redeploy at 6am cannot send
+  // the same morning's report twice.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS report_runs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      report_date DATE NOT NULL,
+      report_type VARCHAR(20) NOT NULL DEFAULT 'daily',
+      sent_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (customer_id, report_date, report_type)
+    )
+  `);
+
   await ensureColumn('fuel_purchases', 'total_amount_ngn', 'INTEGER');
   await ensureColumn('fuel_purchases', 'obd_refuel_detected_at', 'TIMESTAMP');
   await ensureColumn('fuel_purchases', 'ignition_on_at', 'TIMESTAMP');

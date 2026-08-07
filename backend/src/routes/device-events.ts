@@ -1,6 +1,8 @@
 import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, sql } from '../lib/db-helpers';
+import { distanceDeltasCte } from '../lib/telemetry-deltas-sql';
+import { IDLE_BURN_LITERS_PER_HOUR, round1 } from '../lib/fuel-metrics';
 
 const router = express.Router();
 
@@ -14,8 +16,13 @@ const SCORE_WEIGHTS: Record<string, number> = {
   harsh_braking: 3,
   harsh_acceleration: 2,
   harsh_cornering: 2,
-  idling_start: 1,
 };
+
+// Idling is charged by the hour, not by the event. Counting idling_start made
+// one forty-minute wait and one traffic light cost the same point.
+const IDLE_PENALTY_PER_HOUR = 6;
+// Below this, idling is traffic and junctions rather than a habit worth scoring.
+const IDLE_FREE_HOURS = 0.5;
 
 const SECURITY_EVENT_TYPES = [
   'towing',
@@ -100,12 +107,12 @@ router.get('/summary', async (req: Request, res: Response) => {
         GROUP BY vehicle_id, event_type
       `),
       db.execute(sql`
-        SELECT vehicle_id,
-               (MAX(odometer_km) - MIN(odometer_km))::int AS distance_km
-        FROM telemetry
-        WHERE customer_id = ${customerId}
-          AND odometer_km IS NOT NULL
-          AND recorded_at > NOW() - (${days} || ' days')::INTERVAL
+        WITH ${distanceDeltasCte({ customerId, days })}
+        SELECT
+          vehicle_id,
+          COALESCE(SUM(dist_delta), 0)::int AS distance_km,
+          COALESCE(SUM(idle_delta_s), 0)::numeric AS idle_seconds
+        FROM deltas
         GROUP BY vehicle_id
       `),
       db.execute(sql`
@@ -118,9 +125,11 @@ router.get('/summary', async (req: Request, res: Response) => {
     ]);
 
     const distanceByVehicle = new Map<string, number>();
+    const idleHoursByVehicle = new Map<string, number>();
     for (const row of distanceResult.rows) {
       const r = row as Record<string, unknown>;
       distanceByVehicle.set(String(r.vehicle_id), Math.max(0, Number(r.distance_km) || 0));
+      idleHoursByVehicle.set(String(r.vehicle_id), (Number(r.idle_seconds) || 0) / 3600);
     }
 
     const countsByVehicle = new Map<string, Record<string, number>>();
@@ -144,11 +153,14 @@ router.get('/summary', async (req: Request, res: Response) => {
       const vid = String(r.vehicle_id);
       const counts = countsByVehicle.get(vid) ?? {};
       const distanceKm = distanceByVehicle.get(vid) ?? 0;
+      const idleHours = idleHoursByVehicle.get(vid) ?? 0;
+      const billableIdleHours = Math.max(0, idleHours - IDLE_FREE_HOURS);
 
       let penalty = 0;
       for (const [eventType, weight] of Object.entries(SCORE_WEIGHTS)) {
         penalty += (counts[eventType] || 0) * weight;
       }
+      penalty += billableIdleHours * IDLE_PENALTY_PER_HOUR;
       // Floor the divisor so a single short trip with one harsh brake
       // doesn't produce a catastrophic score.
       const penaltyPer100km = (penalty * 100) / Math.max(distanceKm, 20);
@@ -166,6 +178,8 @@ router.get('/summary', async (req: Request, res: Response) => {
         driver_name: r.driver_name,
         model: r.model,
         distance_km: distanceKm,
+        idle_hours: round1(idleHours),
+        idle_fuel_liters: round1(idleHours * IDLE_BURN_LITERS_PER_HOUR),
         score,
         grade: gradeForScore(score),
         total_events: totalEvents,
@@ -192,8 +206,11 @@ router.get('/summary', async (req: Request, res: Response) => {
           (s, t) => s + (fleetCounts[t] || 0),
           0
         ),
+        idle_hours: round1(vehicles.reduce((s, v) => s + v.idle_hours, 0)),
+        idle_fuel_liters: round1(vehicles.reduce((s, v) => s + v.idle_fuel_liters, 0)),
         counts_by_type: fleetCounts,
       },
+      idle_burn_liters_per_hour: IDLE_BURN_LITERS_PER_HOUR,
       vehicles,
     });
   } catch (error) {

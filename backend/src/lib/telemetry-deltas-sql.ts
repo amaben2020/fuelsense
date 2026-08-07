@@ -155,6 +155,13 @@ export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams):
         driver_name,
         tank_capacity_liters,
         recorded_at,
+        -- Engine on but stationary. Same rule and 600s gap cap as
+        -- distanceDeltasCte, so idle time means one thing across the app.
+        CASE
+          WHEN COALESCE(ignition_on, false) AND COALESCE(speed_kph, 0) < 2
+            THEN LEAST(EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at)), 600)
+          ELSE 0
+        END AS idle_delta_s,
         CASE
           WHEN prev_recorded_at IS NULL OR prev_odometer IS NULL OR odometer_km IS NULL THEN 0
           WHEN odometer_km < prev_odometer THEN 0

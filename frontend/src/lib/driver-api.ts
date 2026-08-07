@@ -182,6 +182,17 @@ export async function fetchAddressSuggestions(query: string) {
   );
 }
 
+export interface StationCheck {
+  at_station: boolean | null;
+  station_name: string | null;
+  distance_m: number | null;
+  radius_m: number;
+}
+
+export async function checkAtStation(lat: number, lng: number) {
+  return driverApi<StationCheck>(`/driver/receipts/station-check?lat=${lat}&lng=${lng}`);
+}
+
 export async function submitDriverReceipt(body: Record<string, unknown>) {
   return driverApi<SubmitReceiptResponse>('/driver/receipts', {
     method: 'POST',

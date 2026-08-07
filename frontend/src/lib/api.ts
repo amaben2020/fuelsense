@@ -407,6 +407,17 @@ export interface FuelAnomaly {
   acknowledged: boolean;
 }
 
+/** Why the extra fuel was burned, split into what the tracker can account for. */
+export interface LossReason {
+  excess_liters: number;
+  idle_liters: number;
+  idle_cost_ngn: number;
+  idle_hours: number;
+  unexplained_liters: number;
+  unexplained_cost_ngn: number;
+  harsh_event_count: number;
+}
+
 export interface FleetEfficiency {
   vehicle_id: string;
   license_plate: string;
@@ -427,6 +438,11 @@ export interface FleetEfficiency {
   tank_variance_percent?: number | null;
   expected_fuel_liters?: number;
   expected_cost_ngn: number;
+  idle_hours?: number;
+  idle_fuel_liters?: number;
+  idle_cost_ngn?: number;
+  harsh_event_count?: number;
+  loss_reason?: LossReason;
   actual_cost_ngn: number;
   fuel_cost_ngn: number;
   savings_ngn: number;

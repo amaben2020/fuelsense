@@ -74,8 +74,11 @@ function VehicleRow({ row }: { row: EstimatedConsumptionRow }) {
 }
 
 function DayGroup({ day }: { day: EstimatedConsumptionDay }) {
+  const isAggregate = day.vehicles.length > 1;
+
   return (
     <>
+      {isAggregate ? (
       <tr className="bg-panel-deep">
         <td className="px-6 py-2 text-xs font-semibold uppercase tracking-wider text-brand" colSpan={2}>
           {formatDay(day.date)}
@@ -91,6 +94,16 @@ function DayGroup({ day }: { day: EstimatedConsumptionDay }) {
           {formatNgn(day.totals.estimated_cost_ngn)}
         </td>
       </tr>
+      ) : (
+        <tr className="bg-panel-deep">
+          <td
+            className="px-6 py-1.5 text-xs font-semibold uppercase tracking-wider text-brand"
+            colSpan={7}
+          >
+            {formatDay(day.date)}
+          </td>
+        </tr>
+      )}
       {day.vehicles.map((row) => (
         <VehicleRow key={`${day.date}-${row.vehicle_id}`} row={row} />
       ))}
@@ -120,10 +133,7 @@ export function EstimatedConsumptionTableView({
           <h2 className="flex items-center gap-2 font-semibold text-ink">
             <Gauge className="h-4 w-4" /> Estimated fuel consumed
           </h2>
-          <p className="mt-1 text-xs text-ink-dim">
-            Driving (distance ÷ baseline efficiency) + engine-idle burn — estimate only, no
-            fuel-level sensor required
-          </p>
+          <p className="mt-1 text-xs text-ink-dim">Estimated, not measured</p>
         </div>
         <div className="flex gap-1">
           {ESTIMATE_PERIOD_OPTIONS.map((d) => (

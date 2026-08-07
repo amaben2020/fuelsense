@@ -38,7 +38,9 @@ export function FleetCommandLoader() {
             ...
           </span>
         </p>
-        <p className="mt-2 text-xs text-ink-dim">Syncing vehicles, routes, and live telemetry</p>
+        <p className="mt-2 text-xs text-ink-dim">
+          Satellite fixes, routes, and fuel — syncing live telemetry
+        </p>
       </div>
     </div>
   );

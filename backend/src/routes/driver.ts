@@ -14,6 +14,10 @@ import {
   sql,
 } from '../lib/db-helpers';
 import { verifyReceipt } from '../lib/receipt-verification';
+import { nearbyFuelStation } from '../lib/place-lookup';
+
+/** How close to a forecourt a driver should be when logging a receipt. */
+const RECEIPT_STATION_RADIUS_M = Number(process.env.RECEIPT_STATION_RADIUS_M || 300);
 import { parseReceiptText } from '../lib/receipt-parser';
 import { scanReceiptImage as ocrScanReceiptImage } from '../lib/receipt-ocr';
 import { buildPurchaseValuesFromReceipt } from '../lib/driver-receipt-sync';
@@ -360,6 +364,44 @@ async function odometerAtPurchase(
   const value = (row as Record<string, unknown> | undefined)?.odometer_km;
   return value != null ? Number(value) : null;
 }
+
+/**
+ * Is the driver standing at a filling station?
+ *
+ * A receipt is meant to be logged at the pump, and the phone's own position is
+ * the cheapest evidence of that. This warns rather than blocks: Google does not
+ * know every forecourt in Nasarawa, a phone indoors can be 200 m out, and
+ * refusing a legitimate receipt because of either would teach drivers to log
+ * them later from anywhere — the opposite of what we want.
+ */
+router.get('/receipts/station-check', async (req: Request, res: Response) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    res.status(400).json({ error: 'lat and lng are required' });
+    return;
+  }
+
+  try {
+    const station = await nearbyFuelStation(lat, lng);
+    const withinRadius =
+      station?.distanceMeters != null
+        ? station.distanceMeters <= RECEIPT_STATION_RADIUS_M
+        : station != null;
+
+    res.json({
+      at_station: withinRadius,
+      station_name: station?.name ?? null,
+      distance_m: station?.distanceMeters ?? null,
+      radius_m: RECEIPT_STATION_RADIUS_M,
+    });
+  } catch {
+    // A failed lookup must never imply the driver is somewhere they should not
+    // be, so an error reads as "cannot tell", not "not at a station".
+    res.json({ at_station: null, station_name: null, distance_m: null, radius_m: RECEIPT_STATION_RADIUS_M });
+  }
+});
 
 router.post('/receipts', async (req: Request, res: Response) => {
   const {

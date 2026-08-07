@@ -233,12 +233,16 @@ export function ReceiptsPanel({
             onClick={() => setShowForm((v) => !v)}
             className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white"
           >
-            Log receipt
+            Manual entry
           </button>
         </div>
 
         {showForm && (
           <div className="border-b border-edge bg-canvas px-6 py-4">
+            <p className="mb-3 text-xs text-ink-dim">
+              For a fill the driver did not log at the pump — a cash purchase, a missing
+              receipt, or backfilled history. It is checked against the tracker the same way.
+            </p>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <label className="text-xs text-ink-dim">
                 Vehicle
