@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Fuel, Receipt, Shield } from 'lucide-react';
+import { AlertTriangle, Receipt, Shield } from 'lucide-react';
 import {
   FleetVehicle,
   FuelPurchase,
@@ -12,7 +12,6 @@ import {
 } from '@/lib/api';
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 
-type ReceiptsTab = 'station' | 'reconciled';
 
 function formatReceiptDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -78,32 +77,6 @@ function Pagination({
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  label,
-  icon: Icon,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-3 text-xs font-medium transition-colors sm:text-sm ${
-        active
-          ? 'border-brand text-brand'
-          : 'border-transparent text-ink-dim hover:text-ink-mid'
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </button>
-  );
-}
 
 function SummaryCardsSkeleton({ columns }: { columns: 2 | 3 }) {
   return (
@@ -140,7 +113,6 @@ export function ReceiptsPanel({
 }) {
   const purchases = data?.purchases ?? [];
   const summary = data?.summary;
-  const [activeTab, setActiveTab] = useState<ReceiptsTab>('station');
   const [showForm, setShowForm] = useState(false);
   const [vehicleId, setVehicleId] = useState(fleet[0]?.id ?? '');
   const [declared, setDeclared] = useState('');
@@ -213,8 +185,7 @@ export function ReceiptsPanel({
         <ReceiptEventModal purchase={selectedPurchase} onClose={() => setSelectedPurchase(null)} />
       )}
 
-      {activeTab === 'reconciled' &&
-        (summary ? (
+      {summary ? (
           <div className="grid min-h-[7.5rem] gap-4 sm:grid-cols-3">
             <div className="rounded-lg border border-edge bg-panel p-4">
               <p className="text-xs text-ink-dim">Grand total (receipt cost)</p>
@@ -243,35 +214,9 @@ export function ReceiptsPanel({
               </p>
             </div>
           </div>
-        ) : (
-          <SummaryCardsSkeleton columns={3} />
-        ))}
-
-      {activeTab === 'station' &&
-        (summary ? (
-          <div className="grid min-h-[7.5rem] gap-4 sm:grid-cols-2">
-            <div className="rounded-lg border border-edge bg-panel p-4">
-              <p className="text-xs text-ink-dim">Total logged at fuel stations</p>
-              <p className="mt-1 text-2xl font-bold text-ink">
-                {formatNgn(summary.grand_total.total_cost_ngn)}
-              </p>
-              <p className="mt-1 text-xs text-ink-dim">
-                {summary.grand_total.receipt_count} receipts · as entered by drivers
-              </p>
-            </div>
-            <div className="rounded-lg border border-edge bg-panel p-4">
-              <p className="text-xs text-ink-dim">Receipt liters (manual)</p>
-              <p className="mt-1 font-mono text-2xl font-bold text-brand">
-                {summary.grand_total.total_receipt_liters.toFixed(1)} L
-              </p>
-              <p className="mt-1 text-xs text-ink-dim">
-                Switch to Reconciled to see what the tracker confirms
-              </p>
-            </div>
-          </div>
-        ) : (
-          <SummaryCardsSkeleton columns={2} />
-        ))}
+      ) : (
+        <SummaryCardsSkeleton columns={3} />
+      )}
 
       <div className="overflow-hidden rounded-lg border border-edge bg-panel">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-edge px-6 py-4">
@@ -280,9 +225,7 @@ export function ReceiptsPanel({
               <Receipt className="h-4 w-4" /> Receipts
             </h2>
             <p className="mt-1 text-xs text-ink-dim">
-              {activeTab === 'station'
-                ? 'Exact pump purchase times — when the driver paid and logged liters at the station'
-                : 'Each receipt against the tracker — was the vehicle at that station, and could the tank take that much'}
+              What each driver logged at the pump, and what the tracker can confirm about it
             </p>
           </div>
           <button
@@ -292,21 +235,6 @@ export function ReceiptsPanel({
           >
             Log receipt
           </button>
-        </div>
-
-        <div className="flex border-b border-edge px-2 sm:px-4">
-          <TabButton
-            active={activeTab === 'station'}
-            onClick={() => setActiveTab('station')}
-            label="Fuel station"
-            icon={Fuel}
-          />
-          <TabButton
-            active={activeTab === 'reconciled'}
-            onClick={() => setActiveTab('reconciled')}
-            label="Reconciled"
-            icon={Shield}
-          />
         </div>
 
         {showForm && (
@@ -389,13 +317,6 @@ export function ReceiptsPanel({
             <code className="text-brand">npm run seed-fuel-purchases</code> or log a receipt
             above.
           </p>
-        ) : activeTab === 'station' ? (
-          <StationReceiptsTable
-            groupedByDate={groupedByDate}
-            dailyTotalsByDate={dailyTotalsByDate}
-            summary={summary}
-            onViewEvent={setSelectedPurchase}
-          />
         ) : (
           <ReconciledReceiptsTable
             groupedByDate={groupedByDate}
@@ -409,77 +330,6 @@ export function ReceiptsPanel({
           <Pagination page={page} totalPages={data.total_pages} onPage={onPageChange} />
         )}
       </div>
-    </div>
-  );
-}
-
-function StationReceiptsTable({
-  groupedByDate,
-  dailyTotalsByDate,
-  summary,
-  onViewEvent,
-}: {
-  groupedByDate: [string, FuelPurchase[]][];
-  dailyTotalsByDate: Map<
-    string,
-    NonNullable<FuelPurchasesResponse['summary']>['daily_totals']
-  >;
-  summary?: FuelPurchasesResponse['summary'];
-  onViewEvent: (purchase: FuelPurchase) => void;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
-          <tr>
-            <th className="px-6 py-3">Date</th>
-            <th className="px-6 py-3">Purchase time</th>
-            <th className="px-6 py-3">Vehicle</th>
-            <th className="px-6 py-3">Driver</th>
-            <th className="px-6 py-3">Merchant</th>
-            <th className="px-6 py-3">Receipt (L)</th>
-            <th className="px-6 py-3">Cost</th>
-            <th className="px-6 py-3">Receipt #</th>
-            <th className="px-6 py-3" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-divider text-ink-mid">
-          {groupedByDate.map(([dayKey, dayPurchases]) => {
-            const dayLabel = formatReceiptDate(dayPurchases[0].timestamp);
-            const dayTotals = dailyTotalsByDate.get(dayKey) ?? [];
-            const dayCost = dayTotals.reduce((sum, row) => sum + row.total_cost_ngn, 0);
-
-            return (
-              <StationDateGroup
-                key={dayKey}
-                dayLabel={dayLabel}
-                purchases={dayPurchases}
-                dayTotals={dayTotals}
-                dayCost={dayCost}
-                onViewEvent={onViewEvent}
-              />
-            );
-          })}
-        </tbody>
-        {summary && (
-          <tfoot className="border-t-2 border-edge bg-canvas text-sm">
-            <tr>
-              <td colSpan={4} className="px-6 py-4 font-semibold text-ink">
-                Grand total (fuel station)
-              </td>
-              <td className="px-6 py-4 font-mono font-semibold text-brand">
-                {summary.grand_total.total_receipt_liters.toFixed(1)} L
-              </td>
-              <td className="px-6 py-4 font-mono font-bold text-ink">
-                {formatNgn(summary.grand_total.total_cost_ngn)}
-              </td>
-              <td colSpan={3} className="px-6 py-4 text-xs text-ink-dim">
-                {summary.grand_total.receipt_count} receipts
-              </td>
-            </tr>
-          </tfoot>
-        )}
-      </table>
     </div>
   );
 }
@@ -612,60 +462,6 @@ function ViewEventButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-function StationDateGroup({
-  dayLabel,
-  purchases,
-  dayTotals,
-  dayCost,
-  onViewEvent,
-}: {
-  dayLabel: string;
-  purchases: FuelPurchase[];
-  dayTotals: Array<{
-    driver_name: string;
-    total_cost_ngn: number;
-    total_receipt_liters: number;
-    receipt_count: number;
-  }>;
-  dayCost: number;
-  onViewEvent: (purchase: FuelPurchase) => void;
-}) {
-  return (
-    <>
-      <tr className="bg-panel-hover/60">
-        <td colSpan={9} className="px-6 py-2 text-xs font-semibold uppercase tracking-wider text-brand">
-          {dayLabel}
-          {dayCost > 0 && (
-            <span className="ml-3 font-mono normal-case text-ink-dim">
-              Day total {formatNgn(dayCost)}
-            </span>
-          )}
-        </td>
-      </tr>
-      {purchases.map((purchase) => (
-        <StationReceiptRow key={purchase.id} purchase={purchase} onViewEvent={onViewEvent} />
-      ))}
-      {dayTotals.map((row) => (
-        <tr key={`${dayLabel}-${row.driver_name}-station`} className="bg-canvas/80">
-          <td colSpan={4} className="px-6 py-2 text-xs text-ink-dim">
-            Daily total · {row.driver_name}
-          </td>
-          <td className="px-6 py-2 text-xs text-ink-dim">
-            {row.receipt_count} receipt{row.receipt_count === 1 ? '' : 's'}
-          </td>
-          <td className="px-6 py-2 font-mono text-xs text-brand">
-            {row.total_receipt_liters.toFixed(1)} L
-          </td>
-          <td className="px-6 py-2 font-mono text-xs font-semibold text-ink">
-            {formatNgn(row.total_cost_ngn)}
-          </td>
-          <td colSpan={2} />
-        </tr>
-      ))}
-    </>
-  );
-}
-
 function ReconciledDateGroup({
   dayLabel,
   purchases,
@@ -721,33 +517,6 @@ function ReconciledDateGroup({
         </tr>
       ))}
     </>
-  );
-}
-
-function StationReceiptRow({
-  purchase,
-  onViewEvent,
-}: {
-  purchase: FuelPurchase;
-  onViewEvent: (purchase: FuelPurchase) => void;
-}) {
-  const purchaseTime = purchase.purchased_at ?? purchase.timestamp;
-  return (
-    <tr>
-      <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
-      <td className="px-6 py-3 font-mono text-xs text-brand">{formatReceiptTime(purchaseTime)}</td>
-      <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
-      <td className="px-6 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
-      <td className="px-6 py-3">{purchase.merchant}</td>
-      <td className="px-6 py-3 font-mono text-brand">{purchase.liters_declared} L</td>
-      <td className="px-6 py-3 font-mono">{formatNgn(purchase.total_cost_ngn)}</td>
-      <td className="px-6 py-3 font-mono text-xs text-ink-dim">
-        {purchase.receipt_reference ?? '—'}
-      </td>
-      <td className="px-6 py-3">
-        <ViewEventButton onClick={() => onViewEvent(purchase)} />
-      </td>
-    </tr>
   );
 }
 
