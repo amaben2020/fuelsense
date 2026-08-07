@@ -121,6 +121,48 @@ router.get('/me', authenticateCustomer, async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * White-label branding.
+ *
+ * A fleet operator reselling this to their own customers, or simply wanting
+ * their own name over the door, sets a logo and accent colour here. Both are
+ * optional; anything unset falls back to FuelSense's own mark, so a fresh
+ * account still looks finished.
+ */
+router.patch('/branding', authenticateCustomer, async (req: Request, res: Response) => {
+  const { logo_url: logoUrl, brand_color: brandColor, company_name: companyName } =
+    req.body as { logo_url?: string | null; brand_color?: string | null; company_name?: string };
+
+  // An arbitrary string here ends up in an <img src> on every page, so only
+  // plain http(s) URLs are accepted — no data: or javascript: payloads.
+  if (logoUrl && !/^https?:\/\/[^\s]+$/i.test(logoUrl)) {
+    res.status(400).json({ error: 'logo_url must be an http(s) URL' });
+    return;
+  }
+
+  if (brandColor && !/^#[0-9a-f]{3,8}$/i.test(brandColor)) {
+    res.status(400).json({ error: 'brand_color must be a hex colour like #00e599' });
+    return;
+  }
+
+  try {
+    const [customer] = await db
+      .update(customers)
+      .set({
+        ...(logoUrl !== undefined ? { logoUrl: logoUrl || null } : {}),
+        ...(brandColor !== undefined ? { brandColor: brandColor || null } : {}),
+        ...(companyName !== undefined ? { companyName: companyName?.trim() || null } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(customers.id, req.user.customerId))
+      .returning(customerPublicSelect);
+
+    res.json(customer);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.patch('/onboarding', authenticateCustomer, async (req: Request, res: Response) => {
   try {
     const [customer] = await db

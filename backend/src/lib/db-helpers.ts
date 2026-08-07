@@ -156,6 +156,10 @@ export const customerPublicSelect = {
   name: customers.name,
   email: customers.email,
   company_name: customers.companyName,
+  // White-label: every surface that shows a mark reads these, falling back to
+  // FuelSense branding when a customer has not supplied their own.
+  logo_url: customers.logoUrl,
+  brand_color: customers.brandColor,
   subscription_status: customers.subscriptionStatus,
   onboarding_completed: customers.onboardingCompleted,
   created_at: customers.createdAt,

@@ -66,6 +66,7 @@ import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
 import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
 import { LoadErrorBanner } from '@/components/dashboard/LoadErrorBanner';
+import { isPro } from '@/lib/plan';
 import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
 import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 
@@ -101,6 +102,9 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
   alerts: 'alerts',
   settings: 'settings',
 };
+
+/** Views that depend on hardware a BASIC fleet does not have. */
+const PRO_ONLY_VIEWS = new Set<DashboardView>(['anomalies']);
 
 const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'overview', label: 'Operations', hash: 'overview' },
@@ -388,6 +392,10 @@ export default function DashboardPage() {
   // Unmapped views and not-yet-loaded flags both show, so nothing disappears
   // on a slow response — only an explicit `false` hides an entry.
   const isVisible = (view: DashboardView): boolean => {
+    // Replay events replays fuel *leaving* a tank, which needs a level sensor.
+    // On GNSS-only hardware it has nothing to show, so it is held for PRO
+    // rather than shipped as an empty screen.
+    if (PRO_ONLY_VIEWS.has(view) && !isPro()) return false;
     const key = VIEW_FLAG[view];
     return key == null || flags[key] !== false;
   };
@@ -461,24 +469,41 @@ export default function DashboardPage() {
         {/* The mark is the satellite from public/icon.svg — the same one in the
             browser tab — because nothing in this product touches a tank and a
             fuel-nozzle logo would promise a sensor that isn't there. */}
+        {/* White-label: a customer's own mark and name replace ours wherever
+            they have supplied one. Everything falls back to FuelSense branding,
+            so an account that has set nothing still looks finished. */}
         <div className="flex items-center gap-2.5">
-          <svg
-            viewBox="0 0 64 64"
-            className="h-7 w-7 shrink-0 text-brand"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={4}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            role="img"
-            aria-label="FuelSense"
+          {customer?.logo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={customer.logo_url}
+              alt={customer.company_name ?? customer.name}
+              className="h-7 w-7 shrink-0 rounded object-contain"
+            />
+          ) : (
+            <svg
+              viewBox="0 0 64 64"
+              className="h-7 w-7 shrink-0 text-brand"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={4}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              role="img"
+              aria-label="FuelSense"
+            >
+              <rect x="26" y="26" width="12" height="12" rx="2.5" />
+              <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
+              <path d="M32 38v8" />
+              <path d="M24 52a11 11 0 0 1 16 0" />
+            </svg>
+          )}
+          <p
+            className={`text-2xl font-bold ${customer?.brand_color ? '' : 'neon-text'}`}
+            style={customer?.brand_color ? { color: customer.brand_color } : undefined}
           >
-            <rect x="26" y="26" width="12" height="12" rx="2.5" />
-            <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
-            <path d="M32 38v8" />
-            <path d="M24 52a11 11 0 0 1 16 0" />
-          </svg>
-          <p className="neon-text text-2xl font-bold">FuelSense</p>
+            {customer?.company_name || 'FuelSense'}
+          </p>
         </div>
         <p className="mt-1 text-[10px] uppercase tracking-wider text-good">
           Command center

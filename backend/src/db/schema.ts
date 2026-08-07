@@ -22,6 +22,11 @@ export const customers = pgTable('customers', {
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   phone: varchar('phone', { length: 50 }),
   companyName: varchar('company_name', { length: 255 }),
+  // White-labelling: the customer's own logo, shown in place of ours. A URL
+  // rather than a blob so it can point at whatever the customer already hosts.
+  logoUrl: text('logo_url'),
+  /** Accent colour, hex. Falls back to the FuelSense green when unset. */
+  brandColor: varchar('brand_color', { length: 9 }),
   subscriptionStatus: varchar('subscription_status', { length: 50 }).default('active'),
   onboardingCompleted: boolean('onboarding_completed').default(false),
   createdAt: timestamp('created_at').defaultNow(),

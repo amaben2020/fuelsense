@@ -195,6 +195,9 @@ export interface Customer {
   name: string;
   email: string;
   company_name?: string | null;
+  /** White-label branding; null falls back to the FuelSense mark. */
+  logo_url?: string | null;
+  brand_color?: string | null;
   subscription_status: string;
   onboarding_completed?: boolean;
   created_at: string;
