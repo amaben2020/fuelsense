@@ -1,4 +1,50 @@
-import type { FuelAnomaly, ReceiptFlagRow, SiphonEventRow } from '@/lib/api';
+import { formatNgn, type FuelAnomaly, type LossReason, type ReceiptFlagRow, type SiphonEventRow } from '@/lib/api';
+
+/**
+ * A loss figure with no cause behind it reads as an accusation. Every place
+ * that shows extra fuel spend states what the tracker can account for and what
+ * it cannot, and never implies a cause it did not measure.
+ */
+export function lossReasonLines(reason: LossReason | undefined | null): string[] {
+  if (!reason || reason.excess_liters <= 0) return [];
+  const lines: string[] = [];
+
+  if (reason.idle_liters > 0) {
+    lines.push(
+      `${formatHours(reason.idle_hours)} with the engine running while parked burned about ${reason.idle_liters.toFixed(1)} L (${formatNgn(reason.idle_cost_ngn)})`
+    );
+  }
+  if (reason.unexplained_liters > 0) {
+    lines.push(
+      `${reason.unexplained_liters.toFixed(1)} L (${formatNgn(reason.unexplained_cost_ngn)}) the tracker cannot account for`
+    );
+  }
+  if (reason.harsh_event_count > 0) {
+    lines.push(
+      `${reason.harsh_event_count} harsh acceleration, braking or speeding events — these burn more than the baseline allows for`
+    );
+  }
+  return lines;
+}
+
+/** One-line summary for row-level use where a list would be too heavy. */
+export function lossReasonSummary(reason: LossReason | undefined | null): string | null {
+  if (!reason || reason.excess_liters <= 0) return null;
+  if (reason.unexplained_liters <= 0 && reason.idle_liters > 0) {
+    return `Fully explained by ${formatHours(reason.idle_hours)} of idling`;
+  }
+  if (reason.idle_liters <= 0) {
+    return `${reason.unexplained_liters.toFixed(1)} L unaccounted for — worth a look`;
+  }
+  return `${reason.idle_liters.toFixed(1)} L from idling, ${reason.unexplained_liters.toFixed(1)} L unaccounted for`;
+}
+
+function formatHours(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  const whole = Math.floor(hours);
+  const mins = Math.round((hours - whole) * 60);
+  return mins > 0 ? `${whole}h ${mins}m` : `${whole}h`;
+}
 
 export function formatMillionsNgn(amount: number) {
   if (amount >= 1_000_000) {

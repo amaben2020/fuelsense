@@ -32,6 +32,8 @@ import {
   anomalyConfidence,
   anomalyContextLines,
   formatMillionsNgn,
+  lossReasonLines,
+  lossReasonSummary,
   receiptMismatchConfidence,
   receiptMismatchContextLines,
   severityLabel,
@@ -128,12 +130,20 @@ export function FleetOperationsOverview({
   // depending on how far the fleet went for it. Everything here turns the spend
   // into rates a manager can judge, and compares them with the industry figures
   // already used as each vehicle's baseline.
+  //
+  // Every rate below is costed on fuel *burned*, never on what was paid at the
+  // pump. A ₦15,000 fill against 11 km of driving is not a ₦1,364/km vehicle —
+  // most of that fuel is still in the tank. Spend and burn are different
+  // questions and mixing them produced a fictional "overspend".
   const fuelContext = useMemo(() => {
     const distanceKm = efficiencySummary?.total_distance_km ?? 0;
     const liters = efficiencySummary?.total_fuel_used_liters ?? 0;
     if (!efficiencySummary || distanceKm <= 0 || liters <= 0) return null;
 
-    const costPerKm = fuelSpend / distanceKm;
+    const burnedCost =
+      efficiencySummary.total_telemetry_cost_ngn ??
+      liters * efficiencySummary.price_per_liter_ngn;
+    const costPerKm = burnedCost / distanceKm;
     const kmPerLiter = distanceKm / liters;
     const litersPer100km = (liters / distanceKm) * 100;
 
@@ -155,18 +165,23 @@ export function FleetOperationsOverview({
         ? efficiencySummary.price_per_liter_ngn / benchmarkKmPerLiter
         : null;
 
-    // What the same distance should have cost at the benchmark, and therefore
-    // what was saved or overspent against it. Shown with its arithmetic so the
-    // number can be checked rather than taken on trust.
+    // What this distance should have burned at the benchmark, and therefore how
+    // much of the burn was extra. Compared litre for litre against what the
+    // tracker measured — both sides of the sum are fuel that actually left the
+    // tank. Shown with its arithmetic so the number can be checked.
     const benchmarkLiters =
-      benchmarkKmPerLiter && benchmarkKmPerLiter > 0 ? distanceKm / benchmarkKmPerLiter : null;
+      efficiencySummary.total_expected_fuel_liters ??
+      (benchmarkKmPerLiter && benchmarkKmPerLiter > 0 ? distanceKm / benchmarkKmPerLiter : null);
     const benchmarkCost =
-      benchmarkLiters != null ? benchmarkLiters * efficiencySummary.price_per_liter_ngn : null;
-    const savedNgn = benchmarkCost != null ? benchmarkCost - fuelSpend : null;
+      efficiencySummary.total_expected_cost_ngn ??
+      (benchmarkLiters != null ? benchmarkLiters * efficiencySummary.price_per_liter_ngn : null);
+    const savedNgn = benchmarkCost != null ? benchmarkCost - burnedCost : null;
+    const savedLiters = benchmarkLiters != null ? benchmarkLiters - liters : null;
 
     return {
       distanceKm,
       liters,
+      burnedCost,
       costPerKm,
       kmPerLiter,
       litersPer100km,
@@ -175,14 +190,20 @@ export function FleetOperationsOverview({
       benchmarkLiters,
       benchmarkCost,
       savedNgn,
+      savedLiters,
       variancePercent:
         benchmarkKmPerLiter && benchmarkKmPerLiter > 0
           ? ((kmPerLiter - benchmarkKmPerLiter) / benchmarkKmPerLiter) * 100
           : null,
-      monthlyRunRate: (fuelSpend / periodDays) * 30,
+      monthlyRunRate: (burnedCost / periodDays) * 30,
       pricePerLiter: efficiencySummary.price_per_liter_ngn,
     };
-  }, [efficiencySummary, efficiency, fuelSpend, periodDays]);
+  }, [efficiencySummary, efficiency, periodDays]);
+
+  const lossLines = useMemo(
+    () => lossReasonLines(efficiencySummary?.loss_reason),
+    [efficiencySummary]
+  );
 
   const healthScore = summary ? fleetHealthScore(summary, efficiency) : null;
   const healthTone =
@@ -278,7 +299,8 @@ export function FleetOperationsOverview({
         title: TRUST_COPY.efficiencyFlagTitle,
         vehicle: row.license_plate,
         detail: `${row.efficiency_km_l?.toFixed(1) ?? '—'} km/L vs ${row.expected_efficiency_km_l.toFixed(1)} km/L baseline`,
-        reasons: ['Higher fuel burn than model baseline', 'May be route, load, or driving pattern'],
+        // Measured causes, not guesses about route or load.
+        reasons: lossReasonLines(row.loss_reason),
         confidence: 62,
         severityLevel: 'MEDIUM',
         source: 'OBD efficiency model',
@@ -393,25 +415,32 @@ export function FleetOperationsOverview({
             tone="hero"
             className="flex flex-col p-5 sm:col-span-2 sm:p-6 lg:col-span-6 lg:row-span-2"
           >
-            <div className="flex items-center gap-2 text-ink-dim">
-              <Fuel className="h-4 w-4" />
-              <span className="text-[10px] font-medium uppercase tracking-[0.14em]">
-                Fuel spend · last {periodDays} days
+            <div className="flex items-center gap-2.5 text-ink-dim">
+              <Fuel className="h-5 w-5" strokeWidth={1.75} />
+              <span className="text-xs font-semibold uppercase tracking-[0.12em]">
+                Fuel burned · last {periodDays} days
               </span>
             </div>
-            <p className="mt-2 text-4xl font-bold tabular-nums text-ink sm:text-5xl">
-              {fuelSpend > 0 ? formatNgn(fuelSpend) : '—'}
+            <p className="mt-3 text-5xl font-bold leading-none tracking-tight tabular-nums text-ink sm:text-6xl">
+              {fuelContext ? formatNgn(fuelContext.burnedCost) : '—'}
             </p>
-            <p className="mt-1.5 text-xs text-ink-dim">
+            <p className="mt-2.5 text-sm text-ink-mid">
               {fuelContext
-                ? `${Math.round(fuelContext.distanceKm)} km · ${fuelContext.liters.toFixed(
-                    1
-                  )} L at ${formatNgn(fuelContext.pricePerLiter)}/L`
-                : 'Telemetry-based spend'}
+                ? `${fuelContext.liters.toFixed(1)} L over ${Math.round(
+                    fuelContext.distanceKm
+                  )} km at ${formatNgn(fuelContext.pricePerLiter)}/L`
+                : 'Measured by the tracker'}
             </p>
+            {/* Bought and burned are different questions. Keeping the receipt
+                total visible but subordinate stops the two being read as one. */}
+            {fuelSpend > 0 && (
+              <p className="mt-1 text-xs text-ink-dim">
+                {formatNgn(fuelSpend)} paid at the pump this period — the rest is still in the tank
+              </p>
+            )}
 
             {fuelContext && (
-              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-edge pt-4">
+              <div className="mt-6 grid grid-cols-2 gap-4 border-t border-edge pt-5">
                 <Rate
                   label="Cost per km"
                   value={formatNgn(fuelContext.costPerKm)}
@@ -434,14 +463,14 @@ export function FleetOperationsOverview({
             )}
 
             {fuelContext && fuelContext.savedNgn != null && fuelContext.benchmarkCost != null && (
-              <div className="mt-4 rounded-lg border border-edge bg-canvas p-3">
+              <div className="mt-5 rounded-lg border border-edge bg-canvas p-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="text-xs text-ink-dim">
-                    {fuelContext.savedNgn >= 0 ? 'Money saved' : 'Overspent'} vs benchmark (
-                    {periodDays}d)
+                  <p className="text-xs font-medium uppercase tracking-[0.1em] text-ink-dim">
+                    {fuelContext.savedNgn >= 0 ? 'Under benchmark' : 'Over benchmark'} ·{' '}
+                    {periodDays}d
                   </p>
                   <p
-                    className={`font-mono text-lg font-semibold ${
+                    className={`font-mono text-xl font-semibold tabular-nums ${
                       // Green means one thing only: money genuinely kept.
                       fuelContext.savedNgn > 0 ? 'text-good' : 'text-ink'
                     }`}
@@ -449,15 +478,26 @@ export function FleetOperationsOverview({
                     {formatNgn(Math.abs(fuelContext.savedNgn))}
                   </p>
                 </div>
-                <p className="mt-1 text-[11px] leading-relaxed text-ink-dim">
+                <p className="mt-1.5 text-xs leading-relaxed text-ink-dim">
                   {Math.round(fuelContext.distanceKm)} km at the{' '}
-                  {fuelContext.benchmarkKmPerLiter?.toFixed(1)} km/L benchmark ={' '}
-                  {fuelContext.benchmarkLiters?.toFixed(1)} L, which at{' '}
-                  {formatNgn(fuelContext.pricePerLiter)}/L is{' '}
-                  {formatNgn(fuelContext.benchmarkCost)}. Actual spend was{' '}
-                  {formatNgn(fuelSpend)}, a {fuelContext.savedNgn >= 0 ? 'saving' : 'shortfall'} of{' '}
-                  {formatNgn(Math.abs(fuelContext.savedNgn))}.
+                  {fuelContext.benchmarkKmPerLiter?.toFixed(1)} km/L baseline should burn{' '}
+                  {fuelContext.benchmarkLiters?.toFixed(1)} L ({formatNgn(fuelContext.benchmarkCost)}
+                  ). The tracker measured {fuelContext.liters.toFixed(1)} L (
+                  {formatNgn(fuelContext.burnedCost)}) —{' '}
+                  {Math.abs(fuelContext.savedLiters ?? 0).toFixed(1)} L{' '}
+                  {fuelContext.savedNgn >= 0 ? 'less' : 'more'} than expected.
                 </p>
+                {/* Never show a loss without saying what caused it. */}
+                {lossLines.length > 0 && (
+                  <ul className="mt-3 space-y-1.5 border-t border-edge pt-3">
+                    {lossLines.map((line) => (
+                      <li key={line} className="flex gap-2 text-xs leading-relaxed text-ink-mid">
+                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-warn" />
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
 
@@ -756,6 +796,7 @@ export function FleetOperationsOverview({
                 efficiency.map((row) => {
                   const st = efficiencyStatus(row);
                   const open = expandedVehicle === row.vehicle_id;
+                  const reasonSummary = lossReasonSummary(row.loss_reason);
                   return (
                     <Fragment key={row.vehicle_id}>
                       <tr
@@ -773,6 +814,13 @@ export function FleetOperationsOverview({
                         </td>
                         <td className="px-5 py-3 font-medium text-ink">
                           {row.license_plate}
+                          {/* The cause travels with the flag, so a LOW status
+                              is never just a verdict without evidence. */}
+                          {reasonSummary && (
+                            <span className="mt-0.5 block text-[11px] font-normal text-ink-dim">
+                              {reasonSummary}
+                            </span>
+                          )}
                         </td>
                         <td className="px-5 py-3">{row.driver_name ?? '—'}</td>
                         <td className="px-5 py-3 font-mono">{row.distance_km} km</td>
@@ -791,7 +839,32 @@ export function FleetOperationsOverview({
                       </tr>
                       {open && (
                         <tr className="bg-canvas/60">
-                          <td colSpan={8} className="px-5 py-3 text-xs text-ink-dim">
+                          <td colSpan={8} className="px-5 py-4 text-xs text-ink-dim">
+                            {/* The loss is stated with its cause attached — a
+                                number on its own starts the wrong conversation
+                                with the driver. */}
+                            {row.efficiency_loss_ngn > 0 && (
+                              <div className="mb-3 rounded-lg border border-edge bg-panel p-3">
+                                <p className="text-sm leading-relaxed text-ink">
+                                  Burned {row.fuel_used_liters.toFixed(1)} L over {row.distance_km}{' '}
+                                  km where the {row.expected_efficiency_km_l.toFixed(1)} km/L
+                                  baseline expects{' '}
+                                  {row.expected_fuel_liters?.toFixed(1) ?? '—'} L —{' '}
+                                  <span className="text-warn">
+                                    {formatNgn(row.efficiency_loss_ngn)} extra
+                                  </span>
+                                  .
+                                </p>
+                                <ul className="mt-2 space-y-1">
+                                  {lossReasonLines(row.loss_reason).map((line) => (
+                                    <li key={line} className="flex gap-2 leading-relaxed">
+                                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-warn" />
+                                      {line}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
                             <ul className="grid gap-1 sm:grid-cols-2">
                               <li>
                                 Preventable loss:{' '}
@@ -879,14 +952,20 @@ function StatTile({
   }[tone];
 
   return (
-    <Tile className={`flex flex-col justify-between p-4 sm:p-5 ${className}`}>
-      <div className="flex items-center gap-1.5 text-ink-dim">
-        <Icon className="h-3.5 w-3.5 shrink-0" />
-        <span className="text-[10px] font-medium uppercase tracking-[0.14em]">{label}</span>
+    <Tile className={`flex flex-col justify-between p-5 ${className}`}>
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-canvas text-ink-dim">
+          <Icon className="h-[18px] w-[18px]" />
+        </span>
+        <span className="text-xs font-semibold uppercase leading-tight tracking-[0.1em] text-ink-dim">
+          {label}
+        </span>
       </div>
-      <div className="mt-3">
-        <p className={`text-2xl font-bold tabular-nums ${valueColor}`}>{value}</p>
-        {hint && <p className="mt-1 text-[11px] leading-snug text-ink-dim">{hint}</p>}
+      <div className="mt-4">
+        <p className={`text-3xl font-bold leading-none tracking-tight tabular-nums ${valueColor}`}>
+          {value}
+        </p>
+        {hint && <p className="mt-2 text-xs leading-snug text-ink-dim">{hint}</p>}
       </div>
     </Tile>
   );
@@ -903,9 +982,9 @@ function Rate({
 }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-[0.14em] text-ink-dim">{label}</p>
-      <p className="mt-1 font-mono text-lg text-ink">{value}</p>
-      {benchmark && <p className="text-[11px] text-ink-dim">{benchmark}</p>}
+      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-dim">{label}</p>
+      <p className="mt-1.5 font-mono text-2xl font-semibold tabular-nums text-ink">{value}</p>
+      {benchmark && <p className="mt-0.5 text-xs text-ink-dim">{benchmark}</p>}
     </div>
   );
 }

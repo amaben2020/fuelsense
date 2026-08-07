@@ -466,7 +466,12 @@ export interface FleetEfficiency {
 export interface FleetEfficiencySummary {
   total_distance_km: number;
   total_fuel_used_liters: number;
+  total_expected_fuel_liters?: number;
   total_expected_cost_ngn: number;
+  total_idle_hours?: number;
+  total_idle_fuel_liters?: number;
+  total_harsh_events?: number;
+  loss_reason?: LossReason;
   total_actual_cost_ngn: number;
   total_telemetry_cost_ngn?: number;
   total_loss_ngn: number;
@@ -1213,6 +1218,8 @@ export interface BehaviorVehicle {
   driver_name: string | null;
   model: string | null;
   distance_km: number;
+  idle_hours?: number;
+  idle_fuel_liters?: number;
   score: number;
   grade: string;
   total_events: number;
@@ -1227,7 +1234,10 @@ export interface DeviceEventsSummary {
     avg_score: number | null;
     total_events: number;
     security_events: number;
+    idle_hours?: number;
+    idle_fuel_liters?: number;
     counts_by_type: Record<string, number>;
   };
+  idle_burn_liters_per_hour?: number;
   vehicles: BehaviorVehicle[];
 }

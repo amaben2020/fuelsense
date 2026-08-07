@@ -88,6 +88,14 @@ const GRADE_STYLES: Record<string, string> = {
   F: 'bg-bad/20 text-bad',
 };
 
+function formatHours(hours: number | null | undefined): string {
+  if (hours == null) return '—';
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  const whole = Math.floor(hours);
+  const mins = Math.round((hours - whole) * 60);
+  return mins > 0 ? `${whole}h ${mins}m` : `${whole}h`;
+}
+
 function scoreBarColor(score: number) {
   if (score >= 80) return 'bg-good';
   if (score >= 60) return 'bg-warn';
@@ -213,7 +221,7 @@ export function DrivingBehaviorPanel({
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatTile
           label="Fleet safety score"
           value={summary?.fleet.avg_score != null ? `${summary.fleet.avg_score}/100` : '—'}
@@ -248,13 +256,26 @@ export function DrivingBehaviorPanel({
           )}
           hint="Acceleration · braking · cornering"
         />
+        {/* Idling is charged by the hour, not by the event — a forty-minute
+            wait and a traffic light are not the same thing. */}
+        <StatTile
+          label="Time idling"
+          value={formatHours(summary?.fleet.idle_hours)}
+          hint={
+            summary?.fleet.idle_fuel_liters
+              ? `≈${summary.fleet.idle_fuel_liters.toFixed(1)} L burned parked with the engine on`
+              : 'Engine on, vehicle stationary'
+          }
+          tone={(summary?.fleet.idle_hours ?? 0) >= 1 ? 'text-warn' : 'text-ink'}
+        />
       </div>
 
       <div className="rounded-lg border border-edge bg-panel">
         <div className="border-b border-edge px-6 py-4">
           <h3 className="text-sm font-semibold text-ink">Driver scores</h3>
           <p className="mt-0.5 text-xs text-ink-dim">
-            100 = clean driving. Crashes, overspeeding and harsh maneuvers deduct points per 100 km.
+            100 = clean driving. Crashes, overspeeding and harsh maneuvers deduct points per
+            100 km, as does idling beyond the first 30 minutes.
           </p>
         </div>
         {vehiclesWithData.length === 0 ? (
@@ -281,6 +302,13 @@ export function DrivingBehaviorPanel({
                       <p className="font-medium text-ink">{v.license_plate ?? 'Unknown'}</p>
                       <p className="text-xs text-ink-dim">
                         {v.driver_name ?? 'Unassigned'} · {v.distance_km} km
+                        {v.idle_hours != null && v.idle_hours > 0 && (
+                          <span className={v.idle_hours >= 1 ? 'text-warn' : undefined}>
+                            {' · '}
+                            {formatHours(v.idle_hours)} idling
+                            {v.idle_fuel_liters ? ` (≈${v.idle_fuel_liters.toFixed(1)} L)` : ''}
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
