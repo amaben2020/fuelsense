@@ -693,13 +693,16 @@ export function FleetOperationsOverview({
               week of preventable loss by 52 produces a large, alarming number
               that no evidence supports — a single bad week is not a year, and
               the figure reads as a forecast however it is captioned. */}
+          {/* Full width on row two. Removing the annualised projection left
+              three cards in a 2x2 slot and a visible hole beside this one;
+              stretching it squares the block off against the hero tile. */}
           <StatTile
             icon={Gauge}
             label="Fleet health"
             value={healthScore != null ? `${healthScore}/100` : '—'}
             hint="Offline trackers, open alerts, vehicles off baseline"
             tone={healthTone}
-            className="lg:col-span-3"
+            className="sm:col-span-2 lg:col-span-6"
           />
         </div>
       </section>
@@ -778,7 +781,7 @@ export function FleetOperationsOverview({
           </div>
         </Tile>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:col-span-4 lg:grid-cols-1 lg:content-start">
+        <div className="grid gap-3 sm:grid-cols-2 lg:col-span-4 lg:flex lg:flex-col">
           {/* Evidence replay — the one tile allowed to shout */}
           <Tile tone="accent" className="p-5 sm:col-span-2 lg:col-span-1">
             <p className="text-sm font-semibold text-ink">Evidence replay</p>
@@ -838,8 +841,10 @@ export function FleetOperationsOverview({
             )}
           </Tile>
 
-          {/* Driver accountability */}
-          <Tile className="p-5">
+          {/* Driver accountability. `lg:flex-1` lets this absorb the slack so
+              the rail's bottom edge lines up with the queue's instead of
+              stopping short of it. */}
+          <Tile className="p-5 lg:flex-1">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
               <Users className="h-4 w-4 text-ink-dim" /> Driver efficiency
             </h2>
