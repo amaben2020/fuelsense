@@ -933,7 +933,7 @@ export interface TripStop {
   arrived_at: string;
   departed_at: string;
   duration_minutes: number;
-  kind: 'origin' | 'stop' | 'destination';
+  kind: 'origin' | 'stop' | 'pause' | 'traffic' | 'destination';
   /** Present only when this spot is already in the place cache — resolving it
    *  live would bill a geocode per stop, every time the list is opened. */
   place_label?: string | null;

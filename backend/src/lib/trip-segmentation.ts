@@ -39,7 +39,7 @@ export interface TripStop {
   departed_at: string;
   duration_minutes: number;
   /** 'origin' and 'destination' bookend the trip; 'stop' is a mid-trip halt. */
-  kind: 'origin' | 'stop' | 'destination';
+  kind: 'origin' | 'stop' | 'pause' | 'traffic' | 'destination';
 }
 
 export interface Trip {
@@ -218,9 +218,19 @@ function downsamplePath(points: TelemetryTripPoint[]): [number, number][] {
 const isActive = (p: TelemetryTripPoint) =>
   p.ignitionOn === true || (p.speedKph != null && p.speedKph > 0);
 
-// A halt only counts as a stop once it lasts this long — shorter pauses are
-// traffic lights and junctions, which would bury the real visits in noise.
-const MIN_STOP_MINUTES = 3;
+// A halt only counts as parked once it lasts this long. Anything shorter is a
+// pause, not a visit — the driver did not get out and do anything.
+const MIN_STOP_MINUTES = 5;
+// Below the stop threshold but long enough that the driver remembers it. These
+// are reported as 'pause' rather than dropped: silently discarding a halt the
+// driver knows happened makes the whole trail look wrong to them.
+const MIN_PAUSE_MINUTES = 1.5;
+// Crawling, not halted: the engine is on and the vehicle is moving, just barely.
+// Sustained long enough it is congestion, which explains both the lost time and
+// the fuel burned — and it is not the driver's fault, so it is labelled as
+// traffic rather than counted against them.
+const TRAFFIC_MAX_KPH = 15;
+const MIN_TRAFFIC_MINUTES = 5;
 // How close two fixes must be to count as "did not move" across a long gap.
 const STATIONARY_GAP_M = 120;
 // Points inside one halt wander a little; average them so the pin lands on the
@@ -249,13 +259,13 @@ function findStops(segment: TelemetryTripPoint[]): TripStop[] {
     if (run.length >= 2) {
       const mins =
         (run[run.length - 1].recordedAt.getTime() - run[0].recordedAt.getTime()) / 60000;
-      if (mins >= MIN_STOP_MINUTES) {
+      if (mins >= MIN_PAUSE_MINUTES) {
         stops.push({
           ...centroid(run),
           arrived_at: run[0].recordedAt.toISOString(),
           departed_at: run[run.length - 1].recordedAt.toISOString(),
           duration_minutes: Math.round(mins),
-          kind: 'stop',
+          kind: mins >= MIN_STOP_MINUTES ? 'stop' : 'pause',
         });
       }
     }
@@ -269,6 +279,36 @@ function findStops(segment: TelemetryTripPoint[]): TripStop[] {
     else flush();
   }
   flush();
+
+  // Congestion: moving, but at a crawl, with the engine on. Detected separately
+  // from halts because the vehicle never stops — a run of slow fixes would
+  // otherwise read as normal driving and the lost time would go unexplained.
+  let crawl: TelemetryTripPoint[] = [];
+  const flushCrawl = () => {
+    if (crawl.length >= 2) {
+      const mins =
+        (crawl[crawl.length - 1].recordedAt.getTime() - crawl[0].recordedAt.getTime()) / 60000;
+      if (mins >= MIN_TRAFFIC_MINUTES) {
+        stops.push({
+          ...centroid(crawl),
+          arrived_at: crawl[0].recordedAt.toISOString(),
+          departed_at: crawl[crawl.length - 1].recordedAt.toISOString(),
+          duration_minutes: Math.round(mins),
+          kind: 'traffic',
+        });
+      }
+    }
+    crawl = [];
+  };
+
+  for (let i = 1; i < segment.length - 1; i++) {
+    const p = segment[i];
+    const speed = p.speedKph ?? 0;
+    const crawling = speed >= STOPPED_KPH && speed < TRAFFIC_MAX_KPH && p.ignitionOn !== false;
+    if (crawling) crawl.push(p);
+    else flushCrawl();
+  }
+  flushCrawl();
 
   // Sparse-data fallback. Trackers throttle to occasional heartbeats once the
   // engine is off, so a real stop can produce too few points to form a run —

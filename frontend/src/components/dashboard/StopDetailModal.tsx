@@ -7,8 +7,13 @@ import { StopPlace, TripStop, fetchStopPlace, placePhotoSrc } from '@/lib/api';
 const KIND_LABEL: Record<TripStop['kind'], string> = {
   origin: 'Trip started here',
   stop: 'Stopped here',
+  pause: 'Brief pause here',
+  traffic: 'Slow traffic through here',
   destination: 'Trip ended here',
 };
+
+/** Kinds where a duration is the meaningful figure, not a departure time. */
+const timedKinds = new Set<TripStop['kind']>(['stop', 'pause', 'traffic']);
 
 function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -158,12 +163,18 @@ export function StopDetailModal({
             </div>
             <div className="rounded-lg bg-canvas p-3">
               <p className="text-[11px] uppercase tracking-wider text-ink-dim">
-                {stop.kind === 'stop' ? 'Stayed' : 'Recorded'}
+                {stop.kind === 'traffic'
+                  ? 'Crawled for'
+                  : timedKinds.has(stop.kind)
+                    ? 'Stayed'
+                    : 'Recorded'}
               </p>
               <p className="mt-1 flex items-center gap-1 text-sm text-ink">
-                {stop.kind === 'stop' ? (
+                {timedKinds.has(stop.kind) ? (
                   <>
-                    <Clock className="h-3 w-3 text-warn" />
+                    <Clock
+                      className={`h-3 w-3 ${stop.kind === 'traffic' ? 'text-traffic' : 'text-warn'}`}
+                    />
                     {formatDuration(stop.duration_minutes)}
                   </>
                 ) : (

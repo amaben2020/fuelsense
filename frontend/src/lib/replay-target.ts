@@ -1,7 +1,14 @@
 export type ReplayTarget =
   | { kind: 'siphon'; id: string }
   | { kind: 'receipt'; id: string }
-  | { kind: 'daily'; vehicleId: string; activityDate: string; flagType?: string };
+  | {
+      kind: 'daily';
+      vehicleId: string;
+      activityDate: string;
+      flagType?: string;
+      /** ISO moment to centre on — turns a day review into an event replay. */
+      at?: string;
+    };
 
 export function replayApiPath(target: ReplayTarget): string {
   switch (target.kind) {
@@ -10,6 +17,6 @@ export function replayApiPath(target: ReplayTarget): string {
     case 'receipt':
       return `/fuel-events/receipts/${target.id}/replay`;
     case 'daily':
-      return `/telemetry/daily-activity/replay?vehicle_id=${encodeURIComponent(target.vehicleId)}&date=${encodeURIComponent(target.activityDate)}${target.flagType ? `&flag_type=${encodeURIComponent(target.flagType)}` : ''}`;
+      return `/telemetry/daily-activity/replay?vehicle_id=${encodeURIComponent(target.vehicleId)}&date=${encodeURIComponent(target.activityDate)}${target.flagType ? `&flag_type=${encodeURIComponent(target.flagType)}` : ''}${target.at ? `&at=${encodeURIComponent(target.at)}` : ''}`;
   }
 }

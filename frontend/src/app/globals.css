@@ -17,6 +17,7 @@
   --brand: #00e599;
   --good: #00e599;
   --warn: #ffb95f;
+  --traffic: #f5c518;
   --bad: #ffb4ab;
   --bad-bright: #ff6b6b;
   --bad-ink: #690005;
@@ -35,6 +36,7 @@
   --brand: #009e6c;
   --good: #00885d;
   --warn: #9a6206;
+  --traffic: #a37200;
   --bad: #c22f2f;
   --bad-bright: #d32f2f;
   --bad-ink: #ffffff;
@@ -78,6 +80,7 @@
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-warn-deep: #996100;
+  --color-traffic: var(--traffic);
   --color-bad: var(--bad);
   --color-bad-bright: var(--bad-bright);
   --color-bad-deep: #93000a;

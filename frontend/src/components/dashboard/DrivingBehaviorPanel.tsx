@@ -12,6 +12,7 @@ import {
   Radio,
   Route,
   ShieldAlert,
+  Play,
   Timer,
   TrendingDown,
   TrendingUp,
@@ -23,10 +24,23 @@ import {
   DeviceEventsResponse,
   DeviceEventsSummary,
 } from '@/lib/api';
+import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
+import { ReplayTarget } from '@/lib/replay-target';
+
+// A harsh brake or a swerve is a claim about how someone drove. Replaying the
+// surrounding telemetry is what turns it into something you can discuss with
+// the driver rather than a number to wave at them.
+const REPLAYABLE_TYPES = new Set([
+  'harsh_braking',
+  'harsh_cornering',
+  'harsh_acceleration',
+  'overspeeding',
+  'crash',
+]);
 
 const REFRESH_MS = 30000;
 
-type EventFilter = 'all' | 'driving' | 'security' | 'trips';
+type EventFilter = 'attention' | 'all' | 'driving' | 'security' | 'trips';
 
 const DRIVING_TYPES = new Set([
   'harsh_acceleration',
@@ -47,6 +61,19 @@ const SECURITY_TYPES = new Set([
   'geofence_exit',
 ]);
 const TRIP_TYPES = new Set(['trip_start', 'trip_stop']);
+
+// Raw ignition and trip edges are how the tracker talks, not what a manager
+// needs to see. They stay available under "Everything" but never lead the feed.
+const HOUSEKEEPING_TYPES = new Set([
+  'ignition_on',
+  'ignition_off',
+  'trip_start',
+  'trip_stop',
+]);
+
+/** An idle spell shorter than this is a junction or a queue, not a habit. */
+const IDLE_ATTENTION_MINUTES = 10;
+const IDLE_BURN_LPH_FALLBACK = 0.9;
 
 const EVENT_META: Record<
   string,
@@ -87,6 +114,122 @@ const GRADE_STYLES: Record<string, string> = {
   D: 'bg-warn/25 text-warn',
   F: 'bg-bad/20 text-bad',
 };
+
+type FeedItem = {
+  id: string;
+  eventType: string;
+  label: string;
+  vehicleId: string | null;
+  plate: string;
+  driverName: string | null;
+  occurredAt: string;
+  severity: string;
+  latitude: number | null;
+  longitude: number | null;
+  detail: string | null;
+  /** Set for merged idle spells so the row can lead with the duration. */
+  idleMinutes?: number;
+  idleLiters?: number;
+  needsAttention: boolean;
+};
+
+/**
+ * The device reports edges — idling started, idling ended, ignition on, ignition
+ * off. Rendering them one per row produced a feed that was technically complete
+ * and operationally useless. This pairs each idle spell into a single row that
+ * leads with how long the engine ran while parked, and marks the housekeeping
+ * edges so they can be kept out of the default view.
+ */
+function buildFeed(events: DeviceEvent[], idleBurnLph: number): FeedItem[] {
+  const chronological = [...events].sort(
+    (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
+  );
+  const openIdle = new Map<string, DeviceEvent>();
+  const items: FeedItem[] = [];
+
+  const base = (e: DeviceEvent) => ({
+    vehicleId: e.vehicle_id ?? null,
+    plate: e.license_plate ?? 'Unknown',
+    driverName: e.driver_name ?? null,
+    severity: e.severity,
+    latitude: e.latitude != null ? Number(e.latitude) : null,
+    longitude: e.longitude != null ? Number(e.longitude) : null,
+  });
+
+  for (const e of chronological) {
+    const key = e.vehicle_id ?? 'unknown';
+
+    if (e.event_type === 'idling_start') {
+      openIdle.set(key, e);
+      continue;
+    }
+
+    if (e.event_type === 'idling_end') {
+      const start = openIdle.get(key);
+      openIdle.delete(key);
+      if (!start) continue;
+      const minutes =
+        (new Date(e.occurred_at).getTime() - new Date(start.occurred_at).getTime()) / 60000;
+      if (minutes <= 0) continue;
+      const liters = (minutes / 60) * idleBurnLph;
+      items.push({
+        ...base(start),
+        id: `idle-${start.id}`,
+        eventType: 'idling',
+        label: `Idled ${formatMinutes(minutes)}`,
+        occurredAt: start.occurred_at,
+        detail: `Engine running while stationary · ≈${liters.toFixed(2)} L burned`,
+        idleMinutes: minutes,
+        idleLiters: liters,
+        needsAttention: minutes >= IDLE_ATTENTION_MINUTES,
+      });
+      continue;
+    }
+
+    items.push({
+      ...base(e),
+      id: String(e.id),
+      eventType: e.event_type,
+      label: eventLabel(e.event_type),
+      occurredAt: e.occurred_at,
+      detail: eventValueDetail(e),
+      needsAttention:
+        !HOUSEKEEPING_TYPES.has(e.event_type) &&
+        (e.severity !== 'info' || SECURITY_TYPES.has(e.event_type)),
+    });
+  }
+
+  // An idle spell still running when the window ends is real and worth showing.
+  for (const start of openIdle.values()) {
+    items.push({
+      ...base(start),
+      id: `idle-open-${start.id}`,
+      eventType: 'idling',
+      label: 'Idling started',
+      occurredAt: start.occurred_at,
+      detail: 'Still idling at the end of this window',
+      needsAttention: true,
+    });
+  }
+
+  return items.sort(
+    (a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+  );
+}
+
+function eventValueDetail(e: DeviceEvent): string | null {
+  if (e.value == null) return null;
+  if (e.unit === 'g') return `${Number(e.value).toFixed(2)} g`;
+  if (e.unit === 'km/h') return `${Math.round(Number(e.value))} km/h`;
+  return null;
+}
+
+function formatMinutes(minutes: number): string {
+  if (minutes < 60) return `${Math.round(minutes)}m`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
 
 function formatHours(hours: number | null | undefined): string {
   if (hours == null) return '—';
@@ -134,9 +277,10 @@ export function DrivingBehaviorPanel({
   const [days, setDays] = useState(7);
   const [summary, setSummary] = useState<DeviceEventsSummary | null>(null);
   const [events, setEvents] = useState<DeviceEvent[]>([]);
-  const [filter, setFilter] = useState<EventFilter>('all');
+  const [filter, setFilter] = useState<EventFilter>('attention');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -162,12 +306,22 @@ export function DrivingBehaviorPanel({
     return () => clearInterval(interval);
   }, [load]);
 
+  const feed = useMemo(
+    () => buildFeed(events, summary?.idle_burn_liters_per_hour ?? IDLE_BURN_LPH_FALLBACK),
+    [events, summary]
+  );
+
   const filteredEvents = useMemo(() => {
-    if (filter === 'all') return events;
-    const set =
-      filter === 'driving' ? DRIVING_TYPES : filter === 'security' ? SECURITY_TYPES : TRIP_TYPES;
-    return events.filter((e) => set.has(e.event_type));
-  }, [events, filter]);
+    if (filter === 'all') return feed;
+    if (filter === 'attention') return feed.filter((e) => e.needsAttention);
+    if (filter === 'driving') {
+      return feed.filter((e) => DRIVING_TYPES.has(e.eventType) || e.eventType === 'idling');
+    }
+    const set = filter === 'security' ? SECURITY_TYPES : TRIP_TYPES;
+    return feed.filter((e) => set.has(e.eventType));
+  }, [feed, filter]);
+
+  const mutedCount = feed.length - feed.filter((e) => e.needsAttention).length;
 
   const vehiclesWithData = useMemo(
     () => (summary?.vehicles ?? []).filter((v) => v.total_events > 0 || v.distance_km > 0),
@@ -184,6 +338,9 @@ export function DrivingBehaviorPanel({
 
   return (
     <div className="space-y-6">
+      {replayTarget && (
+        <EventReplayPanel target={replayTarget} onClose={() => setReplayTarget(null)} />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold text-ink">Driving behavior &amp; device events</h2>
@@ -356,14 +513,22 @@ export function DrivingBehaviorPanel({
 
       <div className="rounded-lg border border-edge bg-panel">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-6 py-4">
-          <h3 className="text-sm font-semibold text-ink">Event feed</h3>
+          <div>
+            <h3 className="text-sm font-semibold text-ink">Event feed</h3>
+            <p className="mt-0.5 text-xs text-ink-dim">
+              {filter === 'attention' && mutedCount > 0
+                ? `${mutedCount} ignition and trip edges hidden — switch to Everything to see them`
+                : 'Idle spells are merged into one row with the time the engine ran'}
+            </p>
+          </div>
           <div className="flex flex-wrap gap-2">
             {(
               [
-                ['all', 'All'],
+                ['attention', 'Needs attention'],
                 ['driving', 'Driving'],
                 ['security', 'Security'],
                 ['trips', 'Trips'],
+                ['all', 'Everything'],
               ] as [EventFilter, string][]
             ).map(([id, label]) => (
               <button
@@ -383,60 +548,88 @@ export function DrivingBehaviorPanel({
         </div>
         {filteredEvents.length === 0 ? (
           <p className="px-6 py-8 text-sm text-ink-dim">
-            No events in this window.
+            {filter === 'attention'
+              ? 'Nothing needs attention in this window. Switch to Everything to see the raw device feed.'
+              : 'No events in this window.'}
           </p>
         ) : (
           <ul className="max-h-[28rem] divide-y divide-edge overflow-y-auto">
-            {filteredEvents.map((event) => {
-              const Icon = EVENT_META[event.event_type]?.icon ?? Activity;
+            {filteredEvents.map((item) => {
+              const Icon =
+                item.eventType === 'idling' ? Timer : EVENT_META[item.eventType]?.icon ?? Activity;
+              const tone =
+                item.severity === 'critical'
+                  ? 'text-bad'
+                  : item.severity === 'warning' || item.eventType === 'idling'
+                    ? 'text-warn'
+                    : 'text-ink-dim';
               return (
                 <li
-                  key={event.id}
-                  className={`flex flex-wrap items-center justify-between gap-2 border-l-2 px-6 py-3 ${SEVERITY_STYLES[event.severity] ?? SEVERITY_STYLES.info}`}
+                  key={item.id}
+                  className={`flex flex-wrap items-center justify-between gap-2 border-l-2 px-6 py-3 ${
+                    SEVERITY_STYLES[item.severity] ?? SEVERITY_STYLES.info
+                  } ${item.needsAttention ? '' : 'opacity-60'}`}
                 >
-                  <div className="flex items-center gap-3">
-                    <Icon
-                      className={`h-4 w-4 ${
-                        event.severity === 'critical'
-                          ? 'text-bad'
-                          : event.severity === 'warning'
-                            ? 'text-warn'
-                            : 'text-ink-dim'
-                      }`}
-                    />
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-panel ${tone}`}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </span>
                     <div>
                       <p className="text-sm text-ink">
-                        <span className="font-medium">{event.license_plate ?? 'Unknown'}</span>
+                        <span className="font-medium">{item.plate}</span>
                         {' · '}
-                        {eventLabel(event.event_type)}
-                        {event.value != null && event.unit === 'g' && (
-                          <span className="ml-1 text-ink-mid">({Number(event.value).toFixed(2)} g)</span>
-                        )}
-                        {event.value != null && event.unit === 'km/h' && (
-                          <span className="ml-1 text-ink-mid">({Math.round(Number(event.value))} km/h)</span>
-                        )}
+                        <span className={item.eventType === 'idling' ? 'text-warn' : undefined}>
+                          {item.label}
+                        </span>
                       </p>
+                      {item.detail && (
+                        <p className="text-xs text-ink-mid">{item.detail}</p>
+                      )}
                       <p className="text-xs text-ink-dim">
-                        {new Date(event.occurred_at).toLocaleString()}
-                        {event.driver_name ? ` · ${event.driver_name}` : ''}
-                        {event.latitude != null && event.longitude != null && (
+                        {new Date(item.occurredAt).toLocaleString()}
+                        {item.driverName ? ` · ${item.driverName}` : ''}
+                        {item.latitude != null && item.longitude != null && (
                           <span className="ml-2 inline-flex items-center gap-1">
                             <MapPin className="h-3 w-3" />
-                            {Number(event.latitude).toFixed(4)}, {Number(event.longitude).toFixed(4)}
+                            {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}
                           </span>
                         )}
                       </p>
                     </div>
                   </div>
-                  {onViewOnMap && event.vehicle_id && (
-                    <button
-                      type="button"
-                      onClick={() => onViewOnMap(event.vehicle_id!)}
-                      className="shrink-0 rounded-lg border border-edge bg-canvas px-3 py-1 text-xs text-ink-mid hover:bg-panel-hover"
-                    >
-                      View on map
-                    </button>
-                  )}
+                  <div className="flex shrink-0 items-center gap-2">
+                    {REPLAYABLE_TYPES.has(item.eventType) && item.vehicleId && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReplayTarget({
+                            kind: 'daily',
+                            vehicleId: item.vehicleId!,
+                            activityDate: item.occurredAt.slice(0, 10),
+                            flagType: item.eventType,
+                            // Device events arrive as a timezone-less local
+                            // wall clock; replay readings are UTC. Send a true
+                            // instant so the two are comparable at all.
+                            at: new Date(item.occurredAt).toISOString(),
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white"
+                      >
+                        <Play className="h-3.5 w-3.5" /> Replay
+                      </button>
+                    )}
+                    {onViewOnMap && item.vehicleId && (
+                      <button
+                        type="button"
+                        onClick={() => onViewOnMap(item.vehicleId!)}
+                        className="rounded-lg border border-edge bg-canvas px-3 py-1 text-xs text-ink-mid hover:bg-panel-hover"
+                      >
+                        View on map
+                      </button>
+                    )}
+                  </div>
                 </li>
               );
             })}

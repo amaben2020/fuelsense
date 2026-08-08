@@ -7,10 +7,13 @@ import { lerp, timeAgo, tripColor } from '@/lib/map-utils';
 import {
   FleetVehicle,
   ServerTrip,
+  StopPlace,
   TripStop,
   TripsResponse,
   VehicleTrack,
+  fetchStopPlace,
   formatOdometerMiles,
+  placePhotoSrc,
 } from '@/lib/api';
 import {
   FLEET_MAPS_KEY,
@@ -34,6 +37,24 @@ const TRAIL_OPTIONS = [
   { label: '24h', value: 1440 },
   { label: '7d', value: 10080 },
 ] as const;
+
+// A halt is not one thing. A visit, a moment's pause and sitting in congestion
+// all look identical on a trail, so each gets its own mark and colour.
+const HALT_LABEL: Record<string, string> = {
+  stop: 'P',
+  pause: '·',
+  traffic: '≈',
+};
+const HALT_COLOR: Record<string, string> = {
+  stop: 'var(--warn)',
+  pause: 'var(--ink-dim)',
+  traffic: 'var(--traffic)',
+};
+const HALT_TITLE: Record<string, string> = {
+  stop: 'Stopped',
+  pause: 'Brief pause',
+  traffic: 'Slow traffic',
+};
 
 type AnimatedTrack = VehicleTrack & {
   displayLat: number;
@@ -455,14 +476,19 @@ export function LiveMonitoringMap({
             {selectedTrack &&
               selectedTrips.flatMap((trip, ti) =>
                 trip.stops
-                  .filter((s) => s.kind === 'stop')
+                  .filter(
+                    (s) => s.kind === 'stop' || s.kind === 'pause' || s.kind === 'traffic'
+                  )
                   .map((stop, si) => (
                     <TripBadgeMarker
                       key={`stop-${selectedTrack.vehicleId}-${ti}-${si}`}
                       lat={stop.lat}
                       lng={stop.lng}
-                      label="P"
-                      color="var(--warn)"
+                      // Three different things happened here and they read
+                      // differently: a visit, a moment's halt, and congestion.
+                      label={HALT_LABEL[stop.kind] ?? 'P'}
+                      color={HALT_COLOR[stop.kind] ?? 'var(--warn)'}
+                      title={`${HALT_TITLE[stop.kind] ?? 'Stopped'} · ${stop.duration_minutes}m`}
                       focused={
                         hoveredStop?.stop.arrived_at === stop.arrived_at &&
                         hoveredStop?.stop.lat === stop.lat
@@ -625,6 +651,14 @@ export function LiveMonitoringMap({
           <p className="mt-1 text-[10px] text-ink-dim">
             Updated {timeAgo(selectedTrack.current.recordedAt)}
           </p>
+
+          {/* Where the vehicle actually is, in words and in a picture. A pair of
+              coordinates tells a manager nothing; the kerbside view is what
+              makes "parked at the depot" checkable. */}
+          <CurrentPlaceCard
+            lat={selectedTrack.current.lat}
+            lng={selectedTrack.current.lng}
+          />
           <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
             <div className="rounded-lg bg-canvas p-2">
               <p className="text-ink-dim">Speed</p>
@@ -854,5 +888,101 @@ export function LiveMonitoringMap({
         onClose={() => setOpenStop(null)}
       />
     </div>
+  );
+}
+
+/**
+ * Where the vehicle is standing, in words and in a picture.
+ *
+ * Coordinates are not an answer to "where is it?" — a manager cannot check
+ * 9.0158, 7.6235 against anything. The kerbside image is the part that settles
+ * an argument, so it leads. Resolved only for the selected vehicle and only
+ * when its position actually moves, since each lookup is a billed Google call.
+ */
+function CurrentPlaceCard({ lat, lng }: { lat: number; lng: number }) {
+  // Result and the coordinates it belongs to are one value, so a stale place
+  // can never be shown against a new position — and nothing has to be reset
+  // synchronously when the vehicle moves.
+  const [resolved, setResolved] = useState<{
+    key: string;
+    place: StopPlace | null;
+    failed: boolean;
+  } | null>(null);
+
+  // Round before keying the effect: a parked vehicle jitters by a few metres on
+  // every fix, which would otherwise re-resolve the same doorway all day.
+  const keyLat = Number(lat.toFixed(4));
+  const keyLng = Number(lng.toFixed(4));
+  const key = `${keyLat},${keyLng}`;
+
+  useEffect(() => {
+    if (!Number.isFinite(keyLat) || !Number.isFinite(keyLng)) return;
+    let cancelled = false;
+    fetchStopPlace(keyLat, keyLng)
+      .then((result) => {
+        if (!cancelled) setResolved({ key: `${keyLat},${keyLng}`, place: result, failed: false });
+      })
+      .catch(() => {
+        if (!cancelled) setResolved({ key: `${keyLat},${keyLng}`, place: null, failed: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [keyLat, keyLng]);
+
+  const current = resolved?.key === key ? resolved : null;
+  const place = current?.place ?? null;
+  const failed = current?.failed ?? false;
+
+  if (failed) return null;
+
+  const label = place?.place_name ?? place?.formatted_address ?? null;
+  const photo = placePhotoSrc(place?.photo_url ?? null);
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-edge bg-canvas">
+      {photo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={photo}
+          alt={label ? `View of ${label}` : 'View of the vehicle location'}
+          className="h-24 w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-24 w-full items-center justify-center text-[10px] text-ink-dim">
+          {place ? 'No imagery for this spot' : 'Locating…'}
+        </div>
+      )}
+      <div className="p-2">
+        <p className="flex items-start gap-1 text-xs leading-snug text-ink">
+          <MapPinIcon />
+          <span className="min-w-0">{label ?? 'Resolving address…'}</span>
+        </p>
+        {place?.image_kind === 'street_view' && place.street_view_date && (
+          <p className="mt-1 text-[10px] text-ink-dim">
+            Street View · {place.street_view_date}
+          </p>
+        )}
+        {place?.image_kind === 'place_photo' && (
+          <p className="mt-1 text-[10px] text-ink-dim">Photo of a nearby place</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MapPinIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className="mt-0.5 h-3 w-3 shrink-0 text-brand"
+      aria-hidden="true"
+    >
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 1 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
   );
 }

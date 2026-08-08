@@ -72,7 +72,18 @@ function formatDuration(minutes: number): string {
 const STOP_DOT: Record<TripStop['kind'], string> = {
   origin: 'bg-brand',
   stop: 'bg-warn',
+  pause: 'bg-ink-dim',
+  traffic: 'bg-traffic',
   destination: 'bg-bad',
+};
+
+/** What the halt was, in the driver's words. */
+const STOP_VERB: Record<TripStop['kind'], string> = {
+  origin: 'Started',
+  stop: 'Stopped',
+  pause: 'Brief pause',
+  traffic: 'Slow traffic',
+  destination: 'Ended',
 };
 
 /** Full breakdown of every trip in the window — distance, idling, estimated
@@ -290,16 +301,24 @@ export function TripDetailModal({
                                   "Stopped" is not. Names appear only for spots
                                   already cached — see cachedPlaceNames. */}
                               <span className="min-w-0 truncate text-ink-mid">
-                                {item.stop.kind === 'origin'
-                                  ? 'Started'
-                                  : item.stop.kind === 'destination'
-                                    ? 'Ended'
-                                    : 'Stopped'}
+                                {STOP_VERB[item.stop.kind]}
                                 {item.stop.place_label ? ` at ${item.stop.place_label}` : ''}
                               </span>
                               <span className="text-ink-dim">{clockTime(item.at)}</span>
-                              {item.stop.kind === 'stop' && (
-                                <span className="text-warn">for {item.stop.duration_minutes}m</span>
+                              {(item.stop.kind === 'stop' ||
+                                item.stop.kind === 'pause' ||
+                                item.stop.kind === 'traffic') && (
+                                <span
+                                  className={
+                                    item.stop.kind === 'traffic'
+                                      ? 'text-traffic'
+                                      : item.stop.kind === 'pause'
+                                        ? 'text-ink-dim'
+                                        : 'text-warn'
+                                  }
+                                >
+                                  for {item.stop.duration_minutes}m
+                                </span>
                               )}
                               <span className="ml-auto text-brand">View place →</span>
                             </button>

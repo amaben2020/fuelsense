@@ -980,6 +980,7 @@ router.get('/daily-activity/replay', async (req: Request, res: Response) => {
   const vehicleId = String(req.query.vehicle_id || '').trim();
   const date = String(req.query.date || '').trim();
   const flagType = String(req.query.flag_type || 'efficiency').trim();
+  const focusAt = String(req.query.at || '').trim();
 
   if (!vehicleId || !date) {
     res.status(400).json({ error: 'vehicle_id and date are required' });
@@ -992,6 +993,7 @@ router.get('/daily-activity/replay', async (req: Request, res: Response) => {
       vehicleId,
       activityDate: date,
       flagType,
+      focusAt: focusAt || undefined,
     });
     if (!replay) {
       res.status(404).json({ error: 'No replay data for this day' });

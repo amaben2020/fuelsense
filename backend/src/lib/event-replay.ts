@@ -675,10 +675,13 @@ function buildDailyReplay({
   vehicle,
   rawRows,
   flagType,
+  focused = false,
 }: {
   vehicle: Record<string, unknown>;
   rawRows: RawRow[];
   flagType: string;
+  /** True when the window is already centred on a specific manoeuvre. */
+  focused?: boolean;
 }): unknown | null {
   let rows = downsampleReadings(rawRows.map(serializeReading));
   if (!rows.length) return null;
@@ -696,9 +699,19 @@ function buildDailyReplay({
       ? 'data_anomaly'
       : flagType === 'low_efficiency' || flagType === 'high_fuel_per_km'
         ? 'low_efficiency'
-        : 'daily_flag';
+        : MANOEUVRE_REASON[flagType]
+          ? flagType
+          : 'daily_flag';
 
   const reasons: string[] = [];
+  // A focused replay is about the manoeuvre itself, so it says what the tracker
+  // reported rather than talking about the day around it.
+  if (MANOEUVRE_REASON[flagType]) {
+    reasons.push(MANOEUVRE_REASON[flagType]);
+    reasons.push(
+      `Speed and position either side of the event, ±${FOCUS_WINDOW_MINUTES} minutes`
+    );
+  }
   if (drop >= 3)
     reasons.push(`Largest fuel drop this day: −${drop.toFixed(1)}L`);
   if (flagType === 'data_anomaly')
@@ -706,7 +719,11 @@ function buildDailyReplay({
   if (flagType === 'low_efficiency')
     reasons.push('Daily consumption above vehicle baseline');
   if (!reasons.length)
-    reasons.push('Review full-day telemetry for operational waste');
+    reasons.push(
+      focused
+        ? 'Telemetry around the reported moment'
+        : 'Review full-day telemetry for operational waste'
+    );
 
   return attachMoments(
     {
@@ -743,11 +760,14 @@ export async function buildDailyActivityReplay({
   vehicleId,
   activityDate,
   flagType,
+  focusAt,
 }: {
   customerId: string;
   vehicleId: string;
   activityDate: string;
   flagType: string;
+  /** Centre the replay on one moment — a harsh brake is a second, not a day. */
+  focusAt?: string;
 }): Promise<unknown | null> {
   const vehicleResult = await db.execute(sql`
     SELECT v.id AS vehicle_id, v.license_plate, v.model,
@@ -760,24 +780,76 @@ export async function buildDailyActivityReplay({
   const vehicle = vehicleResult.rows[0] as Record<string, unknown> | undefined;
   if (!vehicle) return null;
 
-  const siphonResult = await db.execute(sql`
-    SELECT id FROM siphon_events
-    WHERE vehicle_id = ${vehicleId}
-      AND customer_id = ${customerId}
-      AND DATE(occurred_at AT TIME ZONE 'Africa/Lagos') = ${activityDate}::date
-    ORDER BY occurred_at DESC
-    LIMIT 1
-  `);
-  if ((siphonResult.rows[0] as { id?: string } | undefined)?.id) {
-    return buildSiphonEventReplay({
-      customerId,
-      eventId: (siphonResult.rows[0] as { id: string }).id,
-    });
+  // A focused replay is about one manoeuvre, so a siphon elsewhere that day is
+  // not what the user asked to see.
+  if (!focusAt) {
+    const siphonResult = await db.execute(sql`
+      SELECT id FROM siphon_events
+      WHERE vehicle_id = ${vehicleId}
+        AND customer_id = ${customerId}
+        AND DATE(occurred_at AT TIME ZONE 'Africa/Lagos') = ${activityDate}::date
+      ORDER BY occurred_at DESC
+      LIMIT 1
+    `);
+    if ((siphonResult.rows[0] as { id?: string } | undefined)?.id) {
+      return buildSiphonEventReplay({
+        customerId,
+        eventId: (siphonResult.rows[0] as { id: string }).id,
+      });
+    }
   }
 
-  const rows = await loadTelemetryDay({ vehicleId, customerId, activityDate });
-  return buildDailyReplay({ vehicle, rawRows: rows as RawRow[], flagType });
+  const rows = (await loadTelemetryDay({
+    vehicleId,
+    customerId,
+    activityDate,
+  })) as RawRow[];
+
+  // Narrow to the minutes either side of the event. Wide enough to show the
+  // approach and the recovery, tight enough that the manoeuvre is the subject.
+  let focused = rows;
+  if (focusAt) {
+    const centre = parseInstant(focusAt);
+    if (Number.isFinite(centre)) {
+      const window = FOCUS_WINDOW_MINUTES * 60_000;
+      const near = rows.filter((r) => {
+        const t = parseInstant(r.recorded_at as string | Date);
+        return Math.abs(t - centre) <= window;
+      });
+      // Fall back to the whole day rather than showing an empty replay.
+      if (near.length >= 2) focused = near;
+    }
+  }
+
+  return buildDailyReplay({ vehicle, rawRows: focused, flagType, focused: !!focusAt });
 }
+
+/** Minutes either side of a focused event that the replay covers. */
+const FOCUS_WINDOW_MINUTES = 5;
+
+/**
+ * Timestamps reach us in two shapes: a Date from pg, and a timezone-less string
+ * like "2026-08-07 18:19:35" once it has been through JSON and back from the
+ * browser. `new Date` reads the second as *server-local*, which silently shifted
+ * the focus window by the host's UTC offset and made it miss the event
+ * entirely. Everything stored is UTC, so say so.
+ */
+function parseInstant(value: string | Date): number {
+  if (value instanceof Date) return value.getTime();
+  const text = String(value).trim();
+  const hasZone = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text);
+  const normalized = hasZone ? text : `${text.replace(' ', 'T')}Z`;
+  return new Date(normalized).getTime();
+}
+
+/** What the tracker reported, stated plainly — the replay is the evidence. */
+const MANOEUVRE_REASON: Record<string, string> = {
+  harsh_braking: 'Tracker reported harsh braking at this point',
+  harsh_acceleration: 'Tracker reported harsh acceleration at this point',
+  harsh_cornering: 'Tracker reported harsh cornering at this point',
+  overspeeding: 'Tracker reported speed above the configured limit',
+  crash: 'Tracker reported a crash-level impact',
+};
 
 export async function buildSiphonEventReplay({
   customerId,
