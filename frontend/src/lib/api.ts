@@ -672,6 +672,56 @@ export interface Driver {
   created_at: string;
 }
 
+/** One calendar month of measured activity for a driver. */
+export interface DriverMonth {
+  month: string;
+  distance_km: number;
+  fuel_liters: number;
+  /** null until there is enough distance and fuel to divide. */
+  efficiency_km_l: number | null;
+  efficiency_mpg: number | null;
+  baseline_km_l: number | null;
+  /** Share of the fuel this distance should have burned that was actually logged. */
+  fuel_coverage: number | null;
+  /** False when the fuel record is too patchy for km/L to mean anything. */
+  fuel_complete: boolean;
+  moving_hours: number;
+  idle_hours: number;
+  trips: number;
+  active_days: number;
+  vehicles: number;
+  last_seen_at: string | null;
+  top_location: {
+    /** null when the coordinates were never geocoded — not a fallback label. */
+    name: string | null;
+    address: string | null;
+    latitude: number;
+    longitude: number;
+    visits: number;
+  } | null;
+}
+
+export interface DriverReport {
+  driver_id: string | null;
+  driver_name: string;
+  months: DriverMonth[];
+}
+
+export interface DriverReportsResponse {
+  months: number;
+  /**
+   * Telemetry has no driver column, so figures are attributed via the
+   * vehicle's current assignment. The UI states this rather than implying the
+   * tracker identified the driver.
+   */
+  attribution: 'vehicle_assignment';
+  drivers: DriverReport[];
+}
+
+export function fetchDriverReports(months = 6): Promise<DriverReportsResponse> {
+  return api<DriverReportsResponse>(`/drivers/reports?months=${months}`);
+}
+
 export interface FuelPurchaseTimeline {
   purchased_at: string | null;
   obd_refuel_detected_at: string | null;

@@ -10,6 +10,8 @@ import { useEstimatedConsumption } from './EstimatedConsumptionTable';
 import { VirtualFuelGauge } from './VirtualFuelGauge';
 import { FuelLevelChart } from './FuelLevelChart';
 import { VehicleSignalsTable } from './VehicleSignalsTable';
+import { LiquidFuelGauge, SpeedGauge } from './Gauges';
+import { HatchBar, Panel, StatusChip } from '@/components/ui/chrome';
 
 const Vehicle3D = dynamic(() => import('./Vehicle3D').then((m) => m.Vehicle3D), {
   ssr: false,
@@ -22,66 +24,33 @@ const Vehicle3D = dynamic(() => import('./Vehicle3D').then((m) => m.Vehicle3D), 
 
 const SPEED_MAX_KPH = 160;
 
-function polar(cx: number, cy: number, r: number, deg: number): [number, number] {
-  const rad = (deg * Math.PI) / 180;
-  return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
-}
-
-function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
-  const [x1, y1] = polar(cx, cy, r, startDeg);
-  const [x2, y2] = polar(cx, cy, r, endDeg);
-  const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
-  return `M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)}`;
-}
-
-function SpeedGauge({ speedKph }: { speedKph: number }) {
+/**
+ * Speed panel. The dial itself is the shared Haulix instrument; this wrapper
+ * only supplies the card and the severity chip.
+ */
+function SpeedPanel({ speedKph }: { speedKph: number }) {
   const clamped = Math.max(0, Math.min(speedKph, SPEED_MAX_KPH));
-  const needleDeg = 180 + (clamped / SPEED_MAX_KPH) * 180;
-  const [nx, ny] = polar(110, 112, 74, needleDeg);
-
   return (
-    <div className="rounded-lg border border-edge bg-panel-deep p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs uppercase tracking-wider text-ink-dim">Speed</p>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-            clamped > 100
-              ? 'bg-bad-deep/30 text-bad'
-              : clamped > 0
-                ? 'bg-good/10 text-good'
-                : 'bg-panel-hover text-ink-dim'
-          }`}
-        >
+    <Panel
+      title="Speed"
+      chip={
+        <StatusChip tone={clamped > 100 ? 'bad' : clamped > 0 ? 'good' : 'neutral'}>
           {clamped > 100 ? 'High' : clamped > 0 ? 'Moving' : 'Stopped'}
-        </span>
-      </div>
-      <svg viewBox="0 0 220 132" className="mt-2 w-full">
-        {/* colored speed bands */}
-        <path d={arcPath(110, 112, 88, 180, 288)} stroke="var(--good)" strokeWidth="10" fill="none" strokeLinecap="round" opacity="0.85" />
-        <path d={arcPath(110, 112, 88, 292, 333)} stroke="var(--warn)" strokeWidth="10" fill="none" strokeLinecap="round" opacity="0.85" />
-        <path d={arcPath(110, 112, 88, 337, 360)} stroke="var(--bad-bright)" strokeWidth="10" fill="none" strokeLinecap="round" opacity="0.85" />
-        {/* tick labels */}
-        {[0, 40, 80, 120, 160].map((v) => {
-          const deg = 180 + (v / SPEED_MAX_KPH) * 180;
-          const [tx, ty] = polar(110, 112, 64, deg);
-          return (
-            <text key={v} x={tx} y={ty + 3} textAnchor="middle" fontSize="10" fill="var(--ink-dim)">
-              {v}
-            </text>
-          );
-        })}
-        {/* needle */}
-        <line x1="110" y1="112" x2={nx} y2={ny} stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" />
-        <circle cx="110" cy="112" r="7" fill="var(--panel)" stroke="var(--ink)" strokeWidth="2" />
-      </svg>
-      <p className="text-center font-mono text-2xl font-bold text-ink">
-        {Math.round(clamped)} <span className="text-sm font-normal text-ink-dim">km/h</span>
-      </p>
-    </div>
+        </StatusChip>
+      }
+      className="bg-panel-deep"
+    >
+      <SpeedGauge value={clamped} max={SPEED_MAX_KPH} unit="km/h" label="Speed" size={210} />
+    </Panel>
   );
 }
 
-function FuelGauge({
+/**
+ * Fuel panel for vehicles with a real level reading. Falls back to the 7-day
+ * estimate when no sensor is fitted, which is why the heading and the chip
+ * both change — a modelled figure must never be presented as a measurement.
+ */
+function FuelPanel({
   fuelLiters,
   tankLiters,
   estimatedUsedLiters,
@@ -99,63 +68,44 @@ function FuelGauge({
       ? Math.max(0, Math.min(100, (estimatedUsedLiters / tankLiters) * 100))
       : null;
 
-  const circumference = 2 * Math.PI * 54;
-  const frac = pct != null ? pct / 100 : 0;
-  const color = hasSensor
-    ? pct != null && pct < 15
-      ? 'var(--bad-bright)'
-      : pct != null && pct < 40
-        ? 'var(--warn)'
-        : 'var(--good)'
-    : 'var(--good)';
-
   return (
-    <div className="rounded-lg border border-edge bg-panel-deep p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs uppercase tracking-wider text-ink-dim">
-          {hasSensor ? 'Fuel level' : 'Fuel used (7d)'}
-        </p>
-        {!hasSensor && (
-          <span className="rounded-full bg-good/10 px-2 py-0.5 text-[10px] font-semibold text-good">
-            EST
-          </span>
-        )}
-      </div>
-      <div className="relative mx-auto mt-2 h-[140px] w-[140px]">
-        <svg viewBox="0 0 140 140" className="h-full w-full -rotate-90">
-          <circle cx="70" cy="70" r="54" stroke="var(--divider)" strokeWidth="11" fill="none" />
-          {pct != null && (
-            <circle
-              cx="70"
-              cy="70"
-              r="54"
-              stroke={color}
-              strokeWidth="11"
-              fill="none"
-              strokeLinecap="round"
-              strokeDasharray={`${(circumference * frac).toFixed(1)} ${circumference.toFixed(1)}`}
-            />
-          )}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <Fuel className="h-4 w-4 text-ink-dim" />
-          <p className="mt-1 font-mono text-xl font-bold text-ink">
-            {hasSensor
-              ? `${Number(fuelLiters).toFixed(1)} L`
-              : estimatedUsedLiters != null
-                ? `${estimatedUsedLiters.toFixed(1)} L`
-                : '—'}
-          </p>
-          <p className="text-[10px] text-ink-dim">
+    <Panel
+      title={hasSensor ? 'Fuel level' : 'Fuel used (7d)'}
+      chip={
+        hasSensor ? (
+          pct != null ? (
+            <StatusChip tone={pct < 15 ? 'bad' : pct < 40 ? 'warn' : 'good'}>
+              {Math.round(pct)}%
+            </StatusChip>
+          ) : null
+        ) : (
+          <StatusChip tone="accent">EST</StatusChip>
+        )
+      }
+      className="bg-panel-deep"
+    >
+      <LiquidFuelGauge
+        percent={pct}
+        icon={Fuel}
+        size={180}
+        primary={
+          hasSensor
+            ? `${Number(fuelLiters).toFixed(1)} L`
+            : estimatedUsedLiters != null
+              ? `${estimatedUsedLiters.toFixed(1)} L`
+              : '—'
+        }
+        secondary={
+          <span className="text-[10px] text-ink-dim">
             {hasSensor
               ? `${Math.round(pct ?? 0)}% of tank`
               : estimatedCostNgn != null
                 ? `≈ ${formatNgn(estimatedCostNgn)}`
                 : 'no sensor data'}
-          </p>
-        </div>
-      </div>
-    </div>
+          </span>
+        }
+      />
+    </Panel>
   );
 }
 
@@ -259,14 +209,14 @@ export function VehicleShowcase({
                   {todayRow ? `${todayRow.distance_km.toLocaleString()} km` : '0 km'}
                 </span>
               </div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-divider">
-                <div
-                  className="h-full rounded-full bg-good"
-                  style={{
-                    width: `${Math.min(100, ((todayRow?.distance_km ?? 0) / Math.max(estimateRow?.distance_km ?? 1, 1)) * 100)}%`,
-                  }}
-                />
-              </div>
+              {/* Today against the 7-day total, so the bar reads as "share of
+                  the week's driving done today" rather than a raw distance. */}
+              <HatchBar
+                className="mt-3"
+                tone="good"
+                value={todayRow?.distance_km ?? 0}
+                max={Math.max(estimateRow?.distance_km ?? 1, 1)}
+              />
               <div className="mt-3 flex items-center justify-between text-xs text-ink-dim">
                 <span>7-day total: {estimateRow ? `${estimateRow.distance_km.toLocaleString()} km` : '—'}</span>
                 <span>
@@ -278,16 +228,13 @@ export function VehicleShowcase({
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <SpeedGauge speedKph={Number(vehicle.speed_kph ?? 0)} />
+            <SpeedPanel speedKph={Number(vehicle.speed_kph ?? 0)} />
             {vehicle.fuel_source === 'virtual' || vehicle.virtual_tank_liters != null ? (
-              <div className="rounded-lg border border-edge bg-panel-deep p-4">
-                <p className="text-xs uppercase tracking-wider text-ink-dim">Fuel level</p>
-                <div className="mt-2">
-                  <VirtualFuelGauge vehicle={vehicle} />
-                </div>
-              </div>
+              <Panel title="Fuel level" className="bg-panel-deep">
+                <VirtualFuelGauge vehicle={vehicle} />
+              </Panel>
             ) : (
-              <FuelGauge
+              <FuelPanel
                 fuelLiters={vehicle.fuel_level_liters != null ? Number(vehicle.fuel_level_liters) : null}
                 tankLiters={vehicle.tank_capacity_liters}
                 estimatedUsedLiters={estimateRow?.estimated_fuel_liters ?? null}

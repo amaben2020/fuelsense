@@ -4,19 +4,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Activity,
-  AlertTriangle,
+  Bell,
+  Calculator,
+  Clock,
   Fuel,
-  Gauge,
+  History,
+  LayoutDashboard,
+  LogOut,
   Menu,
+  RadioTower,
+  ReceiptText,
   Route,
-  Truck,
-  Play,
-  Plus,
-  Radio,
-  Receipt,
+  Search,
   Settings,
   ShieldAlert,
+  Siren,
+  Truck,
+  Plus,
+  Users,
   X,
 } from 'lucide-react';
 import {
@@ -68,6 +73,16 @@ import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList'
 import { LoadErrorBanner } from '@/components/dashboard/LoadErrorBanner';
 import { isPro } from '@/lib/plan';
 import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
+import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPanel';
+import {
+  IconRail,
+  PageHeader,
+  Panel,
+  RoundButton,
+  StatPills,
+  type RailItem,
+  type StatPill,
+} from '@/components/ui/chrome';
 import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 
 // Full dashboard reload cadence. Keep this modest — each cycle fires ~10 API
@@ -81,6 +96,7 @@ type DashboardView =
   | 'vehicle'
   | 'trips'
   | 'behavior'
+  | 'drivers'
   | 'fuel'
   | 'estimate'
   | 'receipts'
@@ -95,6 +111,7 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
   vehicle: 'vehicle_view',
   trips: 'trip_history',
   behavior: 'driving_behavior',
+  drivers: 'driver_management',
   fuel: 'fuel_analytics',
   estimate: 'fuel_estimate',
   receipts: 'receipts',
@@ -106,12 +123,37 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
 /** Views that depend on hardware a BASIC fleet does not have. */
 const PRO_ONLY_VIEWS = new Set<DashboardView>(['anomalies']);
 
+/**
+ * One record per destination. The rail, the mobile drawer and the page title
+ * all read from here, so a new view needs a single entry rather than three
+ * parallel edits. `nav` is the rail tooltip / drawer label; `title` is the
+ * heading the page shows once the view is open.
+ */
+const VIEW_META: Record<
+  DashboardView,
+  { icon: React.ComponentType<{ className?: string }>; nav: string; title: string }
+> = {
+  overview: { icon: LayoutDashboard, nav: 'Fleet overview', title: 'Operations Dashboard' },
+  live: { icon: RadioTower, nav: 'Live monitoring', title: 'Live monitoring' },
+  vehicle: { icon: Truck, nav: 'Vehicle view', title: 'Vehicle view' },
+  trips: { icon: Route, nav: 'Trip history', title: 'Trip history' },
+  behavior: { icon: ShieldAlert, nav: 'Driving behavior', title: 'Driving behavior' },
+  drivers: { icon: Users, nav: 'Driver management', title: 'Driver Management' },
+  fuel: { icon: Fuel, nav: 'Fuel analytics', title: 'Fuel analytics' },
+  estimate: { icon: Calculator, nav: 'Fuel estimate', title: 'Fuel estimate' },
+  receipts: { icon: ReceiptText, nav: 'Receipts', title: 'Receipts' },
+  anomalies: { icon: History, nav: 'Replay events', title: 'Replay events' },
+  alerts: { icon: Siren, nav: 'Alerts', title: 'Alerts' },
+  settings: { icon: Settings, nav: 'Settings', title: 'Settings' },
+};
+
 const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'overview', label: 'Operations', hash: 'overview' },
   { id: 'live', label: 'Live monitoring', hash: 'live' },
   { id: 'vehicle', label: 'Vehicle view', hash: 'vehicle' },
   { id: 'trips', label: 'Trip history', hash: 'trips' },
   { id: 'behavior', label: 'Driving behavior', hash: 'behavior' },
+  { id: 'drivers', label: 'Driver management', hash: 'drivers' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
@@ -152,6 +194,13 @@ export default function DashboardPage() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [followVehicle, setFollowVehicle] = useState(true);
+  // Window the operational snapshot aggregates over. The API caps `days` at 90,
+  // so a "year" option would have to be faked — these three are all real.
+  const [periodDays, setPeriodDays] = useState(7);
+  const periodDaysRef = useRef(7);
+  periodDaysRef.current = periodDays;
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   // Sidebar visibility. Defaults to everything on so the nav never flashes
   // empty while the flags load; the server response then narrows it.
   const [flags, setFlags] = useState<FeatureFlags>({});
@@ -182,6 +231,23 @@ export default function DashboardPage() {
   );
 
   const onlineCount = fleet.filter((v) => v.connection_status === 'online').length;
+
+  /**
+   * Quick-jump for the top-bar search. Scoped to the fleet the dashboard has
+   * already loaded, so it never issues a request — the field is a navigation
+   * shortcut, not a backend search.
+   */
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return fleet
+      .filter((v) =>
+        [v.license_plate, v.make, v.model, v.driver_name]
+          .filter(Boolean)
+          .some((field) => String(field).toLowerCase().includes(q))
+      )
+      .slice(0, 6);
+  }, [searchQuery, fleet]);
 
   const loadFuelPurchases = async (page = fuelPurchasePage, forReceipts = false) => {
     try {
@@ -252,7 +318,7 @@ export default function DashboardPage() {
 
       try {
         const efficiencyData = await api<FleetEfficiencyResponse>(
-          '/telemetry/fleet-efficiency?days=7'
+          `/telemetry/fleet-efficiency?days=${periodDaysRef.current}`
         );
         efficiencyRows = efficiencyData.vehicles ?? [];
         setEfficiencySummary(efficiencyData.summary ?? null);
@@ -265,7 +331,9 @@ export default function DashboardPage() {
       }
 
       try {
-        summaryRow = await api<DashboardSummary>('/dashboard/summary?days=7');
+        summaryRow = await api<DashboardSummary>(
+          `/dashboard/summary?days=${periodDaysRef.current}`
+        );
       } catch {
         summaryRow = null;
       }
@@ -382,11 +450,39 @@ export default function DashboardPage() {
     loadFuelPurchases(fuelPurchasePage, activeView === 'receipts');
   }, [fuelPurchasePage, activeView]);
 
+  // Refetch when the snapshot window changes. Skips the first run so changing
+  // the period costs one request, not two on top of the initial load.
+  const periodPrimed = useRef(false);
+  useEffect(() => {
+    if (!periodPrimed.current) {
+      periodPrimed.current = true;
+      return;
+    }
+    if (!getToken()) return;
+    loadDashboard();
+  }, [periodDays]);
+
   useEffect(() => {
     const hash = globalThis.window?.location.hash.replace('#', '') as DashboardView;
     if (hash && VIEWS.some((v) => v.id === hash)) {
       setActiveView(hash);
     }
+  }, []);
+
+  // ⌘K / Ctrl-K focuses the quick-jump, matching the hint rendered in the field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (e.key === 'Escape') {
+        setSearchQuery('');
+        searchRef.current?.blur();
+      }
+    };
+    globalThis.window?.addEventListener('keydown', onKey);
+    return () => globalThis.window?.removeEventListener('keydown', onKey);
   }, []);
 
   // Unmapped views and not-yet-loaded flags both show, so nothing disappears
@@ -445,23 +541,124 @@ export default function DashboardPage() {
     switchView('overview');
   };
 
-  const viewTitle = {
-    overview: 'Operations',
-    live: 'Live monitoring',
-    vehicle: 'Vehicle view',
-    trips: 'Trip history',
-    behavior: 'Driving behavior',
-    fuel: 'Fuel analytics',
-    estimate: 'Fuel estimate',
-    receipts: 'Receipts',
-    anomalies: 'Replay events',
-    alerts: 'Alerts',
-    settings: 'Settings',
-  }[activeView];
+  const viewTitle = VIEW_META[activeView].title;
+
+  const todayLabel = new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const initials = (customer?.company_name || customer?.name || 'FuelSense')
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0] ?? '')
+    .join('')
+    .toUpperCase();
+
+  /** Badge counts are only meaningful on a handful of destinations. */
+  const navBadge: Partial<Record<DashboardView, number | undefined>> = {
+    live: liveTracks.length || undefined,
+    receipts: fuelPurchases?.total || undefined,
+    anomalies: fuelEventCount || undefined,
+    alerts: alerts.length || undefined,
+  };
+
+  const navItems: RailItem<DashboardView>[] = VIEWS.filter((v) => isVisible(v.id)).map((v) => ({
+    id: v.id,
+    icon: VIEW_META[v.id].icon,
+    label: VIEW_META[v.id].nav,
+    badge: navBadge[v.id],
+  }));
+
+  /** The Haulix metric strip. Values stay terse — the row has to stay one line. */
+  const statPills: StatPill[] = [
+    {
+      icon: Truck,
+      label: 'Active',
+      value: `${onlineCount}/${fleet.length}`,
+      title: 'Vehicles reporting in the last cycle',
+    },
+    { icon: Users, label: 'Drivers', value: String(drivers.length) },
+    {
+      icon: Route,
+      label: 'Trips',
+      value: String(trips?.vehicles.reduce((n, v) => n + v.trips.length, 0) ?? 0),
+    },
+    // Efficiency is only shown once the backend has enough distance and fuel to
+    // divide; an early "0.0 km/L" would read as a broken fleet rather than a
+    // fleet that has not driven yet.
+    ...(summary?.avg_efficiency_km_l != null
+      ? [
+          {
+            icon: Fuel,
+            label: 'Avg.',
+            value: `${Number(summary.avg_efficiency_km_l).toFixed(1)} km/L`,
+          } satisfies StatPill,
+        ]
+      : []),
+    {
+      // An absolute clock time rather than "12s ago": the relative form has to
+      // read the wall clock during render, which is impure and re-renders
+      // unpredictably.
+      icon: Clock,
+      label: 'Updated',
+      value: lastUpdated
+        ? lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '—',
+    },
+  ];
 
   if (loading) {
     return <FleetCommandLoader />;
   }
+
+  /* The rail mark. Falls back to the FuelSense satellite when a white-label
+     customer has not supplied their own logo. */
+  const brandMark = customer?.logo_url ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={customer.logo_url}
+      alt={customer.company_name ?? customer.name}
+      className="h-9 w-9 rounded-xl object-contain"
+    />
+  ) : (
+    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-y text-accent-y-ink">
+      <svg
+        viewBox="0 0 64 64"
+        className="h-6 w-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        role="img"
+        aria-label={customer?.company_name || 'FuelSense'}
+      >
+        <rect x="26" y="26" width="12" height="12" rx="2.5" />
+        <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
+        <path d="M32 38v8" />
+        <path d="M24 52a11 11 0 0 1 16 0" />
+      </svg>
+    </div>
+  );
+
+  const rail = (
+    <IconRail
+      brand={brandMark}
+      brandLabel={customer?.company_name || customer?.name || 'FuelSense'}
+      items={navItems}
+      active={activeView}
+      onSelect={switchView}
+      footer={
+        <>
+          <ThemeToggle />
+          <RoundButton icon={LogOut} label="Sign out" onClick={handleLogout} size="sm" />
+        </>
+      }
+    />
+  );
 
   const sidebar = (
     <>
@@ -514,87 +711,16 @@ export default function DashboardPage() {
         </p>
       </div>
       <nav className="space-y-1 px-3">
-        {isVisible('overview') && (<NavItem
-          icon={Activity}
-          label="Fleet overview"
-          active={activeView === 'overview'}
-          onClick={() => switchView('overview')}
-        />
-        )}
-        {isVisible('live') && (<NavItem
-          icon={Radio}
-          label="Live monitoring"
-          active={activeView === 'live'}
-          onClick={() => switchView('live')}
-          badge={liveTracks.length || undefined}
-        />
-        )}
-        {isVisible('vehicle') && (<NavItem
-          icon={Truck}
-          label="Vehicle view"
-          active={activeView === 'vehicle'}
-          onClick={() => switchView('vehicle')}
-        />
-        )}
-        {isVisible('trips') && (<NavItem
-          icon={Route}
-          label="Trip history"
-          active={activeView === 'trips'}
-          onClick={() => switchView('trips')}
-        />
-        )}
-        {isVisible('behavior') && (<NavItem
-          icon={ShieldAlert}
-          label="Driving behavior"
-          active={activeView === 'behavior'}
-          onClick={() => switchView('behavior')}
-        />
-        )}
-        {isVisible('fuel') && (<NavItem
-          icon={Fuel}
-          label="Fuel analytics"
-          active={activeView === 'fuel'}
-          onClick={() => switchView('fuel')}
-        />
-        )}
-        {isVisible('estimate') && (<NavItem
-          icon={Gauge}
-          label="Fuel estimate"
-          active={activeView === 'estimate'}
-          onClick={() => switchView('estimate')}
-        />
-        )}
-        {isVisible('receipts') && (<NavItem
-          icon={Receipt}
-          label="Receipts"
-          badge={fuelPurchases?.total || undefined}
-          active={activeView === 'receipts'}
-          onClick={() => switchView('receipts')}
-        />
-        )}
-        {isVisible('anomalies') && (<NavItem
-          icon={Play}
-          label="Replay events"
-          badge={fuelEventCount || undefined}
-          active={activeView === 'anomalies'}
-          onClick={() => switchView('anomalies')}
-        />
-        )}
-        {isVisible('alerts') && (<NavItem
-          icon={AlertTriangle}
-          label="Alerts"
-          badge={alerts.length || undefined}
-          active={activeView === 'alerts'}
-          onClick={() => switchView('alerts')}
-        />
-        )}
-        {isVisible('settings') && (<NavItem
-          icon={Settings}
-          label="Settings"
-          active={activeView === 'settings'}
-          onClick={() => switchView('settings')}
-        />
-        )}
+        {navItems.map((item) => (
+          <NavItem
+            key={item.id}
+            icon={item.icon}
+            label={item.label}
+            badge={item.badge}
+            active={activeView === item.id}
+            onClick={() => switchView(item.id)}
+          />
+        ))}
       </nav>
     </>
   );
@@ -603,8 +729,8 @@ export default function DashboardPage() {
     <div
       className={`bg-canvas text-ink ${activeView === 'live' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}
     >
-      <aside className="fixed left-0 top-0 z-40 hidden h-full w-64 border-r border-edge bg-panel lg:block">
-        {sidebar}
+      <aside className="fixed left-0 top-0 z-40 hidden h-full border-r border-edge bg-panel lg:block">
+        {rail}
       </aside>
 
       {mobileNavOpen && (
@@ -628,7 +754,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <main className={`lg:ml-64 ${activeView === 'live' ? 'h-screen overflow-hidden' : ''}`}>
+      <main
+        className={`lg:ml-[76px] ${activeView === 'live' ? 'h-screen overflow-hidden' : ''}`}
+      >
         <div
           className={
             activeView === 'live'
@@ -636,80 +764,160 @@ export default function DashboardPage() {
               : 'mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8'
           }
         >
+          {/* Metric strip + global search + identity. Scrolls away with the
+              page rather than sticking, matching the reference. */}
+          <div
+            className={`flex flex-wrap items-center justify-between gap-3 ${
+              activeView === 'live' ? 'mb-2 shrink-0 px-1' : 'mb-7'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(true)}
+                aria-label="Open menu"
+                className="rounded-full border border-edge bg-panel p-2.5 lg:hidden"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <StatPills items={statPills} className="hidden sm:flex" />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="relative hidden md:block">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-dim" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  ref={searchRef}
+                  placeholder="Search vehicles, trips, or more…"
+                  aria-label="Search vehicles and trips"
+                  className="w-64 rounded-full border border-edge bg-panel py-2.5 pl-10 pr-14 text-sm text-ink placeholder:text-ink-dim focus:border-accent-y focus:outline-none lg:w-80"
+                />
+                <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-edge bg-panel-deep px-1.5 py-0.5 text-[10px] font-medium text-ink-dim">
+                  ⌘K
+                </kbd>
+                {searchQuery.trim() !== '' && (
+                  <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-edge bg-panel shadow-xl">
+                    {searchResults.length === 0 ? (
+                      <p className="px-4 py-3 text-sm text-ink-dim">
+                        No vehicle matches “{searchQuery.trim()}”
+                      </p>
+                    ) : (
+                      searchResults.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedVehicleId(v.id);
+                            setSearchQuery('');
+                            searchRef.current?.blur();
+                            switchView('vehicle');
+                          }}
+                          className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-panel-hover"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-ink">
+                              {v.license_plate}
+                            </span>
+                            <span className="block truncate text-xs text-ink-dim">
+                              {[v.make, v.model].filter(Boolean).join(' ') || 'Unknown model'}
+                              {v.driver_name ? ` · ${v.driver_name}` : ''}
+                            </span>
+                          </span>
+                          <span
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              v.connection_status === 'online' ? 'bg-good' : 'bg-ink-dim'
+                            }`}
+                          />
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <RoundButton
+                  icon={Bell}
+                  label={`Alerts${alerts.length ? ` (${alerts.length})` : ''}`}
+                  onClick={() => switchView('alerts')}
+                />
+                {alerts.length > 0 && (
+                  <span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-w-[1.15rem] justify-center rounded-full bg-bad-bright px-1 text-[10px] font-bold leading-[1.15rem] text-white">
+                    {alerts.length > 99 ? '99+' : alerts.length}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2.5 rounded-full border border-edge bg-panel py-1.5 pl-1.5 pr-3.5">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-accent-y text-xs font-bold text-accent-y-ink">
+                  {initials}
+                </span>
+                <div className="hidden leading-tight sm:block">
+                  <p className="text-xs font-semibold text-ink">
+                    {customer?.company_name || customer?.name || 'FuelSense'}
+                  </p>
+                  <p className="text-[10px] text-ink-dim">Manager</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <header
             className={`flex flex-wrap items-start justify-between gap-4 ${
               activeView === 'live' ? 'mb-2 shrink-0 px-1' : 'mb-8'
             }`}
           >
-            <div className="flex items-start gap-3">
-              <button
-                type="button"
-                onClick={() => setMobileNavOpen(true)}
-                className="rounded-lg border border-edge bg-panel p-2 lg:hidden"
-              >
-                <Menu className="h-5 w-5" />
-              </button>
-              <div>
-                <h1 className="text-2xl font-bold text-ink">{viewTitle}</h1>
-                {activeView !== 'live' && (
-                  <>
-                    <p className="mt-1 text-ink-mid">
-                      {customer?.company_name || customer?.name} · Real-time fuel intelligence
-                    </p>
-                    <p className="mt-1 text-xs text-ink-dim">
-                      {lastUpdated
-                        ? `Updated ${Math.round((Date.now() - lastUpdated.getTime()) / 1000)}s ago`
-                        : 'Updating…'}
-                    </p>
-                  </>
-                )}
-                {activeView === 'live' && (
-                  <p className="mt-1 text-xs text-ink-dim">
-                    {customer?.company_name || customer?.name} · {onlineCount} vehicles · refresh
-                    every {LIVE_REFRESH_MS / 1000}s
-                  </p>
-                )}
-              </div>
-            </div>
+            <PageHeader
+              title={viewTitle}
+              subtitle={
+                activeView === 'live'
+                  ? `${customer?.company_name || customer?.name} · ${onlineCount} vehicles · refresh every ${LIVE_REFRESH_MS / 1000}s`
+                  : `${todayLabel} · ${
+                      lastUpdated
+                        ? `updated ${lastUpdated.toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                          })}`
+                        : 'updating…'
+                    }`
+              }
+            />
+            {/* Theme toggle and sign-out now live in the rail footer, so the
+                header keeps only the controls that act on the current view. */}
             <div className="flex flex-wrap items-center gap-2">
               {activeView === 'live' && (
                 <button
                   type="button"
                   onClick={() => setFollowVehicle((v) => !v)}
-                  className={`rounded-lg border px-3 py-2 text-sm ${
+                  className={`rounded-full border px-4 py-2 text-sm transition-colors ${
                     followVehicle
                       ? 'border-good bg-good/10 text-good'
-                      : 'border-edge bg-panel text-ink-mid'
+                      : 'border-edge bg-panel text-ink-mid hover:bg-panel-hover'
                   }`}
                 >
                   {followVehicle ? 'Following vehicle' : 'Free map'}
                 </button>
               )}
-              <div className="flex items-center gap-2 rounded-lg border border-edge bg-panel px-3 py-2 text-sm">
+              <div className="flex items-center gap-2 rounded-full border border-edge bg-panel px-4 py-2 text-sm">
                 <span className="relative flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-good opacity-75" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-good" />
                 </span>
                 <span className="text-good">{onlineCount} live</span>
               </div>
-              <ThemeToggle />
               <Link
                 href="/dashboard/orders/new"
-                className="rounded-lg border border-edge bg-panel px-4 py-2 text-sm text-ink-mid hover:bg-panel-hover"
+                className="rounded-full border border-edge bg-panel px-4 py-2 text-sm text-ink-mid transition-colors hover:bg-panel-hover"
               >
                 Buy trackers
               </Link>
               <button
                 onClick={() => setModalOpen(true)}
-                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-strong"
+                className="flex items-center gap-2 rounded-full bg-accent-y px-4 py-2 text-sm font-semibold text-accent-y-ink transition-opacity hover:opacity-90"
               >
                 <Plus className="h-4 w-4" /> Add device
-              </button>
-              <button
-                onClick={handleLogout}
-                className="rounded-lg border border-edge bg-panel px-4 py-2 text-sm text-ink-mid hover:bg-panel-hover"
-              >
-                Sign out
               </button>
             </div>
           </header>
@@ -725,6 +933,8 @@ export default function DashboardPage() {
             <div className="space-y-6">
               <TheftAlertBanner alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
               <FleetOperationsOverview
+                periodDays={periodDays}
+                onPeriodChange={setPeriodDays}
                 summary={summary}
                 todaySummary={todaySummary}
                 efficiency={efficiency}
@@ -837,6 +1047,10 @@ export default function DashboardPage() {
             />
           )}
 
+          {activeView === 'drivers' && (
+            <DriverManagementPanel onViewVehicle={() => switchView('vehicle')} />
+          )}
+
           {activeView === 'vehicle' && (
             <VehicleShowcase
               fleet={fleet}
@@ -884,34 +1098,66 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'settings' && (
-            <div className="space-y-6">
-              <div className="rounded-lg border border-edge bg-panel p-6">
-                <h2 className="font-semibold text-ink">Fleet settings</h2>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => setModalOpen(true)}
-                    className="rounded-lg border border-edge bg-canvas px-4 py-3 text-left text-sm hover:bg-panel-hover"
-                  >
-                    <p className="font-medium text-ink">Add vehicle + IMEI</p>
-                    <p className="text-xs text-ink-dim">Register a new tracker</p>
-                  </button>
-                <Link
-                  href="/driver"
-                  className="rounded-lg border border-edge bg-canvas px-4 py-3 text-left text-sm hover:bg-panel-hover"
-                >
-                  <p className="font-medium text-ink">Driver receipt portal</p>
-                  <p className="text-xs text-ink-dim">Mobile upload — matches OBD automatically</p>
-                </Link>
-                <Link
-                  href="/dashboard/orders/new"
-                  className="rounded-lg border border-edge bg-canvas px-4 py-3 text-left text-sm hover:bg-panel-hover"
-                >
-                  <p className="font-medium text-ink">Order trackers</p>
-                  <p className="text-xs text-ink-dim">Buy additional FMC150 devices</p>
-                </Link>
+            /* Settings was three components with three different container
+               styles stacked in a full-width column, which read as unrelated
+               pages. One Panel shell, one column width, and the shortcuts as a
+               uniform icon grid pulls it back into a single screen. */
+            <div className="mx-auto max-w-4xl space-y-4">
+              <Panel
+                icon={Settings}
+                title="Fleet setup"
+                subtitle="Register hardware and hand drivers the tools they need"
+              >
+                <div className="grid gap-2.5 sm:grid-cols-3">
+                  {[
+                    {
+                      key: 'add-device',
+                      icon: Plus,
+                      title: 'Add vehicle + IMEI',
+                      hint: 'Register a new tracker',
+                      onClick: () => setModalOpen(true),
+                    },
+                    {
+                      key: 'driver-portal',
+                      icon: ReceiptText,
+                      title: 'Driver receipt portal',
+                      hint: 'Mobile upload — matches OBD automatically',
+                      href: '/driver',
+                    },
+                    {
+                      key: 'order',
+                      icon: Truck,
+                      title: 'Order trackers',
+                      hint: 'Buy additional FMC150 devices',
+                      href: '/dashboard/orders/new',
+                    },
+                  ].map(({ key, icon: ItemIcon, title, hint, onClick, href }) => {
+                    const body = (
+                      <>
+                        <span className="mb-2.5 flex h-10 w-10 items-center justify-center rounded-xl border border-edge bg-canvas text-ink-mid">
+                          <ItemIcon className="h-[18px] w-[18px]" />
+                        </span>
+                        <span className="block text-sm font-semibold text-ink">{title}</span>
+                        <span className="mt-0.5 block text-xs leading-snug text-ink-dim">
+                          {hint}
+                        </span>
+                      </>
+                    );
+                    const shell =
+                      'block rounded-xl border border-edge bg-panel-deep p-4 text-left transition-colors hover:bg-panel-hover';
+                    return href ? (
+                      <Link key={key} href={href} className={shell}>
+                        {body}
+                      </Link>
+                    ) : (
+                      <button key={key} type="button" onClick={onClick} className={shell}>
+                        {body}
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
+              </Panel>
+
               <FuelPricePanel />
               <DriverSettingsPanel
                 drivers={drivers}

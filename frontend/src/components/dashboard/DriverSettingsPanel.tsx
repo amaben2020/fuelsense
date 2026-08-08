@@ -99,7 +99,7 @@ export function DriverSettingsPanel({
           <button
             type="submit"
             disabled={adding || !addForm.full_name.trim()}
-            className="rounded-lg bg-accent px-4 py-1.5 text-sm text-white disabled:opacity-40"
+            className="rounded-lg bg-accent px-4 py-1.5 text-sm text-accent-y-ink disabled:opacity-40"
           >
             {adding ? 'Adding…' : 'Add driver'}
           </button>
@@ -146,7 +146,7 @@ export function DriverSettingsPanel({
                     type="button"
                     disabled={!assignments[driver.id] || saving === driver.id}
                     onClick={() => handleAssign(driver.id)}
-                    className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-40"
+                    className="rounded-lg bg-accent px-3 py-1.5 text-xs text-accent-y-ink disabled:opacity-40"
                   >
                     {saving === driver.id ? 'Saving…' : 'Assign'}
                   </button>

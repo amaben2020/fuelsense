@@ -25,9 +25,9 @@ STREET = rgb("1c2431")
 GRID = rgb("161d28")
 EDGE = rgb("28303d")
 ROUTE_BASE = rgb("3a4557")
-GOOD = rgb("00e599")
-BRAND = rgb("7df5c8")
-ACCENT = rgb("2e5bff")
+GOOD = rgb("cde04a")   # lemon — matches --good/--brand
+BRAND = rgb("e3ef8c")  # pale lemon highlight
+ACCENT = rgb("9aa832")  # lemon-dim; the blue read as a second brand
 INK = rgb("e8ecf4")
 AMBER = rgb("ffd66b")
 

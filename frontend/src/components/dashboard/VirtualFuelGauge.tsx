@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Fuel, ShieldCheck, ShieldAlert, X } from 'lucide-react';
 import { FleetVehicle, calibrateVirtualTank } from '@/lib/api';
+import { LiquidFuelGauge } from './Gauges';
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -43,9 +44,6 @@ export function VirtualFuelGauge({
   const confidence = vehicle.virtual_tank_confidence ?? null;
   const calibratedAt = vehicle.virtual_tank_calibrated_at ?? null;
 
-  const ringColor =
-    pct == null ? '#2d3449' : pct > 40 ? '#4edea3' : pct > 15 ? '#ffb95f' : '#ffb4ab';
-
   const submitCalibration = async (litersValue: number | null) => {
     setSaving(true);
     setError(null);
@@ -63,33 +61,17 @@ export function VirtualFuelGauge({
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative h-32 w-32">
-        <svg className="h-full w-full -rotate-90 transform">
-          <circle cx="64" cy="64" r="56" fill="none" stroke="#2d3449" strokeWidth="12" />
-          {pct != null && (
-            <circle
-              cx="64"
-              cy="64"
-              r="56"
-              fill="none"
-              stroke={ringColor}
-              strokeWidth="12"
-              strokeDasharray="351.86"
-              strokeDashoffset={351.86 * (1 - pct / 100)}
-              strokeLinecap="round"
-              className="transition-all duration-700"
-            />
-          )}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-2xl font-bold text-ink">
-            {pct != null ? `${pct}%` : '—'}
-          </span>
+      <LiquidFuelGauge
+        percent={pct}
+        icon={Fuel}
+        size={170}
+        primary={liters != null ? `${liters.toFixed(1)} L` : '—'}
+        secondary={
           <span className="text-xs text-ink-dim">
-            {liters != null ? `${liters.toFixed(1)} L` : 'No data'}
+            {pct != null ? `${pct}% of tank` : 'No data'}
           </span>
-        </div>
-      </div>
+        }
+      />
 
       {isVirtual && (
         <div className="mt-3 flex flex-col items-center gap-1.5">
@@ -154,7 +136,7 @@ export function VirtualFuelGauge({
               type="button"
               disabled={saving}
               onClick={() => submitCalibration(null)}
-              className="mt-4 w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-canvas transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="mt-4 w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-accent-y-ink transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               {saving ? 'Saving…' : `Full tank${capacity ? ` (${capacity} L)` : ''}`}
             </button>

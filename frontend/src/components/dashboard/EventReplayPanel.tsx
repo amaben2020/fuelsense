@@ -616,7 +616,7 @@ export function EventReplayPanel({
             type="button"
             disabled={!readings.length}
             onClick={() => setPlaying((p) => !p)}
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-y-ink disabled:opacity-40"
           >
             {playing ? (
               <Pause className="h-4 w-4" />

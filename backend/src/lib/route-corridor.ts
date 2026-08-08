@@ -270,22 +270,31 @@ export function assessRoute(input: RouteVerdictInput): RouteAssessment {
   const { stats } = input;
   const reasons: string[] = [];
 
-  const detourKm =
+  // Every figure below is carried at full precision and rounded only for
+  // display. Rounding litres to 0.1 before pricing them quietly inflates short
+  // detours: a 1.1 km detour at the 7.0 km/L baseline is 0.157 L, which
+  // rounded to 0.2 L bills the driver ₦260 instead of ₦204 — a 27% overstatement
+  // produced entirely by the rounding, on a number a manager may put to a driver.
+  const rawDetourKm =
     input.expectedDistanceKm != null
-      ? round1(input.actualDistanceKm - input.expectedDistanceKm)
+      ? input.actualDistanceKm - input.expectedDistanceKm
       : null;
 
-  const extraLiters =
-    detourKm != null && detourKm > 0 && input.consumptionL100km != null
-      ? round1((detourKm * input.consumptionL100km) / 100)
-      : detourKm != null && detourKm > 0
+  const detourKm = rawDetourKm != null ? round1(rawDetourKm) : null;
+
+  const rawExtraLiters =
+    rawDetourKm != null && rawDetourKm > 0 && input.consumptionL100km != null
+      ? (rawDetourKm * input.consumptionL100km) / 100
+      : rawDetourKm != null && rawDetourKm > 0
         ? null
         : 0;
 
+  const extraLiters = rawExtraLiters != null ? round1(rawExtraLiters) : null;
+
   const extraCost =
-    extraLiters != null && extraLiters > 0 && input.pricePerLiter != null
-      ? Math.round(extraLiters * input.pricePerLiter)
-      : extraLiters === 0
+    rawExtraLiters != null && rawExtraLiters > 0 && input.pricePerLiter != null
+      ? Math.round(rawExtraLiters * input.pricePerLiter)
+      : rawExtraLiters === 0
         ? 0
         : null;
 

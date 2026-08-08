@@ -6,8 +6,8 @@ export const FLEET_MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID;
 export const LAGOS_CENTER = { lat: 6.5244, lng: 3.3792 };
 
 /** Uber/Bolt-style primary route accent on dark maps */
-export const ROUTE_PRIMARY = '#276EF1';
-export const ROUTE_ACTIVE = '#5B9DFF';
+export const ROUTE_PRIMARY = '#cde04a';  // lemon — matches --brand/--accent
+export const ROUTE_ACTIVE = '#e3ef8c';   // brighter lemon for the selected trail
 export const ROUTE_GLOW = '#FFFFFF';
 export const ROUTE_DIM = '#1A2238';
 

@@ -94,7 +94,7 @@ export default function DriverPortalPage() {
             </label>
             <button
               type="submit"
-              className="w-full rounded-xl bg-accent py-3.5 text-sm font-semibold text-white"
+              className="w-full rounded-xl bg-accent py-3.5 text-sm font-semibold text-accent-y-ink"
             >
               Sign in
             </button>

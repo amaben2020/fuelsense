@@ -465,7 +465,7 @@ export function DriverFuelScreen({
               type="button"
               disabled={submitting}
               onClick={handleSubmit}
-              className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-white disabled:opacity-50"
+              className="flex-1 rounded-xl bg-accent py-3 text-sm font-medium text-accent-y-ink disabled:opacity-50"
             >
               {submitting
                 ? 'Submitting…'

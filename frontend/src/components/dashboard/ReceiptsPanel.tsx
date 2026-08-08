@@ -231,7 +231,7 @@ export function ReceiptsPanel({
           <button
             type="button"
             onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white"
+            className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-y-ink"
           >
             Manual entry
           </button>
@@ -297,7 +297,7 @@ export function ReceiptsPanel({
               type="button"
               disabled={submitting}
               onClick={submitReceipt}
-              className="mt-3 rounded-lg bg-good px-4 py-2 text-xs font-medium text-canvas"
+              className="mt-3 rounded-lg bg-good px-4 py-2 text-xs font-semibold text-accent-y-ink"
             >
               {submitting ? 'Saving…' : 'Save receipt — check against tracker'}
             </button>

@@ -2,8 +2,32 @@ import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, drivers, vehicles, eq, and, sql } from '../lib/db-helpers';
+import { driverMonthlyCte, driverTopPlaceCte, driverTripsCte } from '../lib/driver-report-sql';
+import { round1, round2, baselineEfficiencyKmL, kmLToMpg } from '../lib/fuel-metrics';
+import { withCache, cacheKey } from '../lib/redis';
 
 const router = express.Router();
+
+// Every route here reads `req.user.customerId`, but the middleware was imported
+// and never mounted — so the whole router answered 500 on any call, which is
+// why the dashboard has always reported zero drivers.
+router.use(authenticateCustomer);
+
+/** Longest window the monthly report will aggregate over. */
+const MAX_REPORT_MONTHS = 12;
+/**
+ * Stationary fixes needed before a grid square counts as a place the driver
+ * actually visited. At a ~30 s cadence this is roughly three minutes parked,
+ * which clears traffic lights and junction queues.
+ */
+const MIN_PLACE_FIXES = 6;
+/** A stop longer than this ends a trip and the next movement starts a new one. */
+const TRIP_GAP_MINUTES = 10;
+/**
+ * Minimum share of the fuel a month's distance should have burned that must
+ * actually appear as level deltas before the km/L ratio is reported at all.
+ */
+const FUEL_COVERAGE_FLOOR = 0.6;
 
 // Matches the cost used everywhere else a driver PIN is written.
 const PIN_ROUNDS = 12;
@@ -226,6 +250,191 @@ router.patch('/assign', async (req: Request, res: Response) => {
     }
 
     res.json(vehicle);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * Monthly performance report per driver.
+ *
+ * Everything returned is measured from telemetry — distance from the odometer
+ * with the same capping the fleet figures use, fuel from consumption-only level
+ * deltas, places from stationary fixes joined to the geocode cache. Where a
+ * figure cannot be derived it is returned as null; nothing is modelled or
+ * back-filled, because these numbers get put to drivers.
+ */
+router.get('/reports', async (req: Request, res: Response) => {
+  const months = Math.min(Math.max(Number(req.query.months) || 6, 1), MAX_REPORT_MONTHS);
+
+  try {
+    const customerId = req.user.customerId;
+
+    const payload = await withCache(cacheKey(customerId, 'driver-reports', String(months)), 60, async () => {
+      const monthly = await db.execute(sql`
+        WITH ${driverMonthlyCte({ customerId, months })},
+        ${driverTripsCte({ gapMinutes: TRIP_GAP_MINUTES })},
+        totals AS (
+          SELECT
+            driver_id,
+            driver_name,
+            month,
+            MIN(model) AS model,
+            COUNT(DISTINCT license_plate) AS vehicles,
+            COALESCE(SUM(dist_delta), 0) AS distance_km,
+            COALESCE(SUM(fuel_delta), 0) AS fuel_liters,
+            COALESCE(SUM(idle_delta_s), 0) AS idle_seconds,
+            COALESCE(SUM(moving_delta_s), 0) AS moving_seconds,
+            COUNT(DISTINCT CASE WHEN dist_delta > 0 THEN recorded_at::date END) AS active_days,
+            MAX(recorded_at) AS last_seen_at
+          FROM deltas
+          WHERE driver_name IS NOT NULL
+          GROUP BY driver_id, driver_name, month
+        )
+        SELECT
+          t.driver_id,
+          t.driver_name,
+          to_char(t.month, 'YYYY-MM') AS month,
+          t.model,
+          t.vehicles,
+          t.distance_km,
+          t.fuel_liters,
+          t.idle_seconds,
+          t.moving_seconds,
+          COALESCE(tc.trips, 0) AS trips,
+          t.active_days,
+          t.last_seen_at
+        FROM totals t
+        LEFT JOIN trip_counts tc
+          ON tc.driver_name = t.driver_name AND tc.month = t.month
+        ORDER BY t.driver_name, t.month DESC
+      `);
+
+      const places = await db.execute(sql`
+        WITH ${driverMonthlyCte({ customerId, months })},
+        ${driverTopPlaceCte({ minFixes: MIN_PLACE_FIXES })}
+        SELECT
+          driver_id,
+          driver_name,
+          to_char(month, 'YYYY-MM') AS month,
+          place_name,
+          formatted_address,
+          lat_key,
+          lng_key,
+          fixes
+        FROM ranked_places
+        WHERE rn = 1
+      `);
+
+      type PlaceRow = {
+        driver_id: string | null;
+        driver_name: string;
+        month: string;
+        place_name: string | null;
+        formatted_address: string | null;
+        lat_key: string;
+        lng_key: string;
+        fixes: string;
+      };
+
+      const placeFor = new Map<string, PlaceRow>();
+      for (const row of places.rows as unknown as PlaceRow[]) {
+        placeFor.set(`${row.driver_name}|${row.month}`, row);
+      }
+
+      type MonthRow = {
+        driver_id: string | null;
+        driver_name: string;
+        month: string;
+        model: string | null;
+        vehicles: string;
+        distance_km: string;
+        fuel_liters: string;
+        idle_seconds: string;
+        moving_seconds: string;
+        trips: string;
+        active_days: string;
+        last_seen_at: string | null;
+      };
+
+      const byDriver = new Map<
+        string,
+        { driver_id: string | null; driver_name: string; months: unknown[] }
+      >();
+
+      for (const row of monthly.rows as unknown as MonthRow[]) {
+        const distanceKm = Number(row.distance_km);
+        const fuelLiters = Number(row.fuel_liters);
+        const baselineKmL = row.model ? round1(baselineEfficiencyKmL(row.model)) : null;
+
+        // How much of the fuel this distance must have burned actually shows up
+        // as level deltas. Months where the tracker logged movement but only
+        // patchy fuel levels otherwise divide a full distance by a partial
+        // litre count and report a RAV4 doing double its rated economy — a
+        // flattering number with nothing behind it. Below the floor the ratio
+        // is withheld rather than shown with a caveat nobody reads.
+        const expectedLiters =
+          baselineKmL != null && baselineKmL > 0 ? distanceKm / baselineKmL : null;
+        const fuelCoverage =
+          expectedLiters != null && expectedLiters > 0
+            ? round2(fuelLiters / expectedLiters)
+            : null;
+        const fuelComplete = fuelCoverage == null || fuelCoverage >= FUEL_COVERAGE_FLOOR;
+
+        // km/L only means something once there is enough of both to divide,
+        // and only when the fuel side of that division is trustworthy.
+        const efficiencyKmL =
+          distanceKm > 1 && fuelLiters > 0.5 && fuelComplete
+            ? round2(distanceKm / fuelLiters)
+            : null;
+        const place = placeFor.get(`${row.driver_name}|${row.month}`) ?? null;
+
+        const entry = byDriver.get(row.driver_name) ?? {
+          driver_id: row.driver_id,
+          driver_name: row.driver_name,
+          months: [],
+        };
+        entry.months.push({
+          month: row.month,
+          distance_km: round1(distanceKm),
+          fuel_liters: round1(fuelLiters),
+          efficiency_km_l: efficiencyKmL,
+          efficiency_mpg: kmLToMpg(efficiencyKmL),
+          baseline_km_l: baselineKmL,
+          // Lets the UI say "partial fuel data" instead of leaving a bare dash.
+          fuel_coverage: fuelCoverage,
+          fuel_complete: fuelComplete,
+          moving_hours: round1(Number(row.moving_seconds) / 3600),
+          idle_hours: round1(Number(row.idle_seconds) / 3600),
+          trips: Number(row.trips),
+          active_days: Number(row.active_days),
+          vehicles: Number(row.vehicles),
+          last_seen_at: row.last_seen_at,
+          top_location: place
+            ? {
+                // Null name = the coordinates were never geocoded. Reported as
+                // such rather than labelled with a guess.
+                name: place.place_name,
+                address: place.formatted_address,
+                latitude: Number(place.lat_key),
+                longitude: Number(place.lng_key),
+                visits: Number(place.fixes),
+              }
+            : null,
+        });
+        byDriver.set(row.driver_name, entry);
+      }
+
+      return {
+        months,
+        // Telemetry carries no driver identity, so every figure is attributed
+        // through the vehicle's current assignment. Surfaced so the UI can say so.
+        attribution: 'vehicle_assignment' as const,
+        drivers: [...byDriver.values()],
+      };
+    });
+
+    res.json(payload);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

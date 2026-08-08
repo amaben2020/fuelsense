@@ -26,6 +26,8 @@ import {
   TripBadgeMarker,
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
+import { Crosshair } from 'lucide-react';
+import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { TripDetailModal } from './TripDetailModal';
 import { StopDetailModal } from './StopDetailModal';
 
@@ -113,6 +115,51 @@ function clockTime(iso: string): string {
   return Number.isNaN(d.getTime())
     ? '—'
     : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Refits the camera onto every plotted vehicle. Lives inside <Map> because
+ * `useMap` only resolves within the provider; the button itself is portalled
+ * out to the control stack via an absolutely positioned wrapper.
+ */
+function RecenterControl({
+  tracks,
+  onRecenter,
+}: {
+  tracks: AnimatedTrack[];
+  onRecenter?: () => void;
+}) {
+  const map = useMap();
+
+  const recenter = () => {
+    if (!map) return;
+    const points = tracks.filter((t) => t.displayLat != null && t.displayLng != null);
+    if (points.length === 0) return;
+    const bounds = new google.maps.LatLngBounds();
+    for (const t of points) bounds.extend({ lat: t.displayLat, lng: t.displayLng });
+    // A single vehicle has zero-area bounds, which fitBounds resolves to the
+    // maximum zoom — pan and pick a sane level instead.
+    if (points.length === 1) {
+      map.panTo({ lat: points[0].displayLat, lng: points[0].displayLng });
+      map.setZoom(15);
+    } else {
+      map.fitBounds(bounds, 90);
+    }
+    onRecenter?.();
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={recenter}
+      disabled={tracks.length === 0}
+      title="Recenter on fleet"
+      aria-label="Recenter on fleet"
+      className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-edge bg-panel/95 text-ink-mid shadow-lg backdrop-blur transition-colors hover:text-ink disabled:opacity-40"
+    >
+      <Crosshair className="h-4 w-4" />
+    </button>
+  );
 }
 
 /** Zooms the camera to a trip's bounds when the user picks one from the list. */
@@ -512,6 +559,9 @@ export function LiveMonitoringMap({
                 onClick={() => handleSelectVehicle(track.vehicleId)}
               />
             ))}
+            <div className="pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col gap-2">
+              <RecenterControl tracks={animated} onRecenter={onUserPan} />
+            </div>
           </Map>
         </APIProvider>
       </div>
@@ -542,7 +592,7 @@ export function LiveMonitoringMap({
                     // one is active — that mismatch is what made the control
                     // read as broken.
                     !dateRange && trailMinutes === value
-                      ? 'bg-accent text-white'
+                      ? 'bg-accent text-accent-y-ink'
                       : 'text-ink-dim hover:text-ink'
                   }`}
                 >
@@ -555,7 +605,7 @@ export function LiveMonitoringMap({
                   setRangeOpen((v) => !v);
                 }}
                 className={`border-l border-edge px-2.5 py-1.5 transition-colors ${
-                  dateRange ? 'bg-accent text-white' : 'text-ink-dim hover:text-ink'
+                  dateRange ? 'bg-accent text-accent-y-ink' : 'text-ink-dim hover:text-ink'
                 }`}
                 title="Pick an exact date range"
               >
@@ -660,22 +710,41 @@ export function LiveMonitoringMap({
             lng={selectedTrack.current.lng}
           />
           <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
-            <div className="rounded-lg bg-canvas p-2">
+            {/* The same instrument as the vehicle view, sized down. A dial
+                reads faster than a number on a map you are scanning. */}
+            <div className="rounded-xl bg-canvas p-2">
               <p className="text-ink-dim">Speed</p>
-              <p className="font-mono text-lg text-ink">{selectedTrack.current.speedKph ?? 0} <span className="text-[10px]">km/h</span></p>
+              <SpeedGauge
+                value={selectedTrack.current.speedKph ?? 0}
+                max={160}
+                unit="km/h"
+                size={128}
+                className="mt-1"
+              />
             </div>
             {/* "Fuel" alone read as a trip statistic next to "Last trip". This
                 is the modelled level still IN the tank, so it says so — with
                 the percentage and the confidence that the GPS-derived tank
                 model attaches to it, since it is an estimate, not a sender
                 reading. */}
-            <div className="rounded-lg bg-canvas p-2">
+            <div className="rounded-xl bg-canvas p-2">
               <p className="text-ink-dim">Fuel left</p>
-              <p className="font-mono text-lg text-good">
-                {selectedTrack.current.fuelLiters != null
-                  ? `${selectedTrack.current.fuelLiters.toFixed(1)}L`
-                  : '—'}
-              </p>
+              {(() => {
+                const meta = fleetMeta.get(selectedTrack.vehicleId);
+                const litres = selectedTrack.current.fuelLiters;
+                const pct =
+                  litres != null && meta?.tankCapacity
+                    ? Math.round((litres / meta.tankCapacity) * 100)
+                    : null;
+                return (
+                  <LiquidFuelGauge
+                    percent={pct}
+                    size={116}
+                    className="mt-1"
+                    primary={litres != null ? `${litres.toFixed(1)}L` : '—'}
+                  />
+                );
+              })()}
               {(() => {
                 const meta = fleetMeta.get(selectedTrack.vehicleId);
                 const litres = selectedTrack.current.fuelLiters;

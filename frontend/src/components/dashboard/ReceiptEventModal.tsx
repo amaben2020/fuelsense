@@ -319,7 +319,7 @@ export function ReceiptEventModal({
           <button
             type="button"
             onClick={onClose}
-            className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-white hover:bg-accent-soft"
+            className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-accent-y-ink hover:bg-accent-soft"
           >
             Close
           </button>

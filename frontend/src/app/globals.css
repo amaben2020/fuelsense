@@ -14,13 +14,29 @@
   --ink: #e8ecf4;
   --ink-mid: #b7bfcc;
   --ink-dim: #7d8697;
-  --brand: #00e599;
-  --good: #00e599;
-  --warn: #ffb95f;
-  --traffic: #f5c518;
+  /* Lemon green is the single accent — the old neon mint (#00e599) and its
+     glow are gone. Because "good" is now a yellow-green, `--warn` has been
+     pushed off yellow and onto a clear orange: a lemon good-state next to an
+     amber warn-state is indistinguishable at status-chip size. */
+  --brand: #cde04a;
+  --good: #cde04a;
+  --warn: #ff9436;
+  --traffic: #ff9436;
   --bad: #ffb4ab;
   --bad-bright: #ff6b6b;
   --bad-ink: #690005;
+
+  /* Chrome accent, unified onto the same lemon as --brand. Keeping a separate
+     pale yellow here would have sat a hair away from the new brand colour and
+     read as a printing error rather than a second accent. */
+  --accent-y: #cde04a;
+  --accent-y-dim: #9aa832;
+  --accent-y-ink: #16190a;
+  --fuel-amber: #dfa94a;
+  --fuel-amber-deep: #a97a2c;
+  /* Rail/instrument surfaces sit above --panel so gauges read as inset. */
+  --instrument: #1c1f26;
+  --instrument-tick: #4a5261;
 }
 
 .light {
@@ -33,24 +49,32 @@
   --ink: #0e1420;
   --ink-mid: #3d4757;
   --ink-dim: #69738a;
-  --brand: #009e6c;
-  --good: #00885d;
-  --warn: #9a6206;
-  --traffic: #a37200;
+  /* Lemon is near-invisible on white, so light mode drops to a dark olive for
+     anything that has to read as text or a 1px border. */
+  --brand: #5c7410;
+  --good: #5c7410;
+  --warn: #b4530a;
+  --traffic: #b4530a;
   --bad: #c22f2f;
   --bad-bright: #d32f2f;
   --bad-ink: #ffffff;
+
+  /* The fill stays saturated for solid surfaces (a lemon button with dark ink
+     reads fine on white); only text-weight uses drop to the olive. */
+  --accent-y: #c6d63c;
+  --accent-y-dim: #55670f;
+  --accent-y-ink: #16190a;
+  --fuel-amber: #b8801f;
+  --fuel-amber-deep: #7d560f;
+  --instrument: #eef1f5;
+  --instrument-tick: #9aa4b4;
 }
 
-/* Neon.tech-style glowing text — glow only in dark mode; light mode stays crisp */
+/* Formerly a Neon.tech-style glow. The glow is gone in both themes — the class
+   is kept only so the many existing call sites keep their brand colour without
+   a sweep through every template. It is now plain lemon text. */
 .neon-text {
   color: var(--brand);
-  text-shadow:
-    0 0 8px color-mix(in srgb, var(--brand) 55%, transparent),
-    0 0 28px color-mix(in srgb, var(--brand) 25%, transparent);
-}
-
-.light .neon-text {
   text-shadow: none;
 }
 
@@ -74,9 +98,13 @@
   --color-ink-mid: var(--ink-mid);
   --color-ink-dim: var(--ink-dim);
   --color-brand: var(--brand);
-  --color-accent: #2e5bff;
-  --color-accent-strong: #2448cc;
-  --color-accent-soft: #3d6bff;
+  /* `accent` was an electric blue that survived the lemon switch and read as a
+     second brand colour on every primary button, the range selector and the
+     trip markers. Repointed at the lemon so the design system has one accent;
+     anything that needs to sit ON it uses --color-accent-y-ink. */
+  --color-accent: var(--accent-y);
+  --color-accent-strong: var(--accent-y-dim);
+  --color-accent-soft: var(--accent-y);
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-warn-deep: #996100;
@@ -85,6 +113,17 @@
   --color-bad-bright: var(--bad-bright);
   --color-bad-deep: #93000a;
   --color-bad-ink: var(--bad-ink);
+
+  --color-accent-y: var(--accent-y);
+  --color-accent-y-dim: var(--accent-y-dim);
+  --color-accent-y-ink: var(--accent-y-ink);
+  --color-fuel-amber: var(--fuel-amber);
+  --color-fuel-amber-deep: var(--fuel-amber-deep);
+  --color-instrument: var(--instrument);
+  --color-instrument-tick: var(--instrument-tick);
+
+  /* Haulix pills and rail buttons are fully round; cards are a soft 20px. */
+  --radius-2xl: 1.25rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -132,4 +171,120 @@ body {
   width: 1.25rem;
   text-align: left;
   animation: fleet-loader-dots 1.4s ease-in-out infinite;
+}
+
+/* Haulix capacity bars are hatched rather than solid, which reads as "measured"
+   and keeps a 100% bar legible against a same-hue track. `currentColor` drives
+   the stripe so one class covers the amber and red variants. */
+.hatch-fill {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    currentColor 0 3px,
+    transparent 3px 6px
+  );
+  background-color: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+/* Wave pair for the fuel dial. Two layers drift in opposite directions at
+   different speeds so the surface never visibly loops. The shift is one full
+   wave period in SVG user units (see Gauges.tsx WAVE_PERIOD) — a percentage
+   would resolve against the element box and break the seam. */
+@keyframes fuel-wave-a {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100px);
+  }
+}
+
+@keyframes fuel-wave-b {
+  from {
+    transform: translateX(-100px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.fuel-wave-a {
+  animation: fuel-wave-a 4.5s linear infinite;
+}
+
+.fuel-wave-b {
+  animation: fuel-wave-b 7s linear infinite;
+}
+
+/* Vertical slosh. Rides on its own group above the drift and below the fill
+   level — three nested transforms, because a CSS animation replaces the whole
+   transform and would otherwise wipe out the level or the drift. The two
+   layers use different periods so the surface tilts rather than pumping. */
+@keyframes fuel-bob-a {
+  0%,
+  100% {
+    transform: translateY(-3px);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+
+@keyframes fuel-bob-b {
+  0%,
+  100% {
+    transform: translateY(2.5px);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+
+.fuel-bob-a {
+  animation: fuel-bob-a 3.1s ease-in-out infinite;
+}
+
+.fuel-bob-b {
+  animation: fuel-bob-b 4.3s ease-in-out infinite;
+}
+
+/* Slow bob for raised icon tiles — enough to feel alive on a static card
+   without becoming a distraction on a dashboard someone stares at all day. */
+@keyframes icon-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.icon-float {
+  animation: icon-float 4.2s ease-in-out infinite;
+}
+
+/* Sweep for the yellow selection glow on cards and map pins. */
+@keyframes accent-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+.accent-pulse {
+  animation: accent-pulse 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fuel-wave-a,
+  .fuel-wave-b,
+  .fuel-bob-a,
+  .fuel-bob-b,
+  .icon-float,
+  .accent-pulse {
+    animation: none;
+  }
 }

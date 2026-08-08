@@ -171,7 +171,7 @@ export function DateRangePicker({
               aria-pressed={Boolean(isEdge)}
               className={`mx-auto flex h-8 w-8 items-center justify-center rounded-md text-xs transition-colors ${
                 isEdge
-                  ? 'bg-brand font-semibold text-canvas'
+                  ? 'bg-brand font-semibold text-accent-y-ink'
                   : between
                     ? 'bg-brand/15 text-ink'
                     : future
@@ -203,7 +203,7 @@ export function DateRangePicker({
             // final day's driving.
             onApply({ from: startOfDay(from).toISOString(), to: endOfDay(to).toISOString() });
           }}
-          className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white transition-opacity disabled:opacity-40"
+          className="flex-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-y-ink transition-opacity disabled:opacity-40"
         >
           Apply
         </button>

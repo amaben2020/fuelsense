@@ -136,9 +136,11 @@ describe('assessRoute', () => {
 
     expect(result.verdict).toBe('deviated')
     expect(result.detour_km).toBe(2)
-    // 2 km at 12 L/100km = 0.24 L, at ₦1300 = ₦312.
+    // 2 km at 12 L/100km = 0.24 L, at ₦1300 = ₦312. The litre figure is rounded
+    // for display only; the price is taken from the unrounded 0.24 L, so this
+    // must be ₦312 and not the ₦260 that pricing a display-rounded 0.2 L gives.
     expect(result.extra_liters).toBe(0.2)
-    expect(result.extra_cost_naira).toBe(260)
+    expect(result.extra_cost_naira).toBe(312)
     expect(result.summary).toContain('closure or a reroute')
   })
 

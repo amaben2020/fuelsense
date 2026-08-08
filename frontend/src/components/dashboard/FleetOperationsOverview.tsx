@@ -11,9 +11,9 @@ import {
   Gauge,
   MapPin,
   Play,
-  TrendingUp,
   Truck,
   Users,
+  X,
 } from 'lucide-react';
 import {
   Alert,
@@ -26,12 +26,12 @@ import {
   formatNgn,
 } from '@/lib/api';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
+import { IconTile } from '@/components/ui/chrome';
 import { ReplayTarget } from '@/lib/replay-target';
 import {
   TRUST_COPY,
   anomalyConfidence,
   anomalyContextLines,
-  formatMillionsNgn,
   lossReasonLines,
   lossReasonSummary,
   receiptMismatchConfidence,
@@ -91,6 +91,8 @@ export function FleetOperationsOverview({
   summary,
   todaySummary,
   efficiency,
+  periodDays: periodDaysProp,
+  onPeriodChange,
   efficiencySummary,
   alerts,
   anomalies,
@@ -103,6 +105,9 @@ export function FleetOperationsOverview({
   summary: DashboardSummary | null;
   todaySummary: DashboardSummary | null;
   efficiency: FleetEfficiency[];
+  /** Days the snapshot aggregates over; the API caps this at 90. */
+  periodDays: number;
+  onPeriodChange: (days: number) => void;
   efficiencySummary: FleetEfficiencySummary | null;
   alerts: Alert[];
   anomalies: FuelAnomaly[];
@@ -115,10 +120,13 @@ export function FleetOperationsOverview({
   const [expandedVehicle, setExpandedVehicle] = useState<string | null>(null);
   const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
   const [financialDetailsOpen, setFinancialDetailsOpen] = useState(false);
+  /** The row whose full evidence is open. Null = queue view. */
+  const [detailItem, setDetailItem] = useState<AttentionItem | null>(null);
 
-  const periodDays = efficiencySummary?.period_days ?? 7;
+  // Prefer what the API actually aggregated over what was asked for, so the
+  // label never claims a window the data does not cover.
+  const periodDays = efficiencySummary?.period_days ?? periodDaysProp;
   const preventableLoss = efficiencySummary?.total_loss_ngn ?? summary?.estimated_theft_loss_ngn ?? 0;
-  const annualSavingsOpportunity = Math.round((preventableLoss / periodDays) * 365);
 
   const fuelSpend =
     efficiencySummary?.total_actual_cost_ngn ??
@@ -400,13 +408,141 @@ export function FleetOperationsOverview({
         <EventReplayPanel target={replayTarget} onClose={() => setReplayTarget(null)} />
       )}
 
+      {/* Full evidence for one queue row. Everything the compact row omits
+          lives here, so the queue stays scannable without losing the detail a
+          manager needs before putting anything to a driver. */}
+      {detailItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={detailItem.title}
+          onClick={() => setDetailItem(null)}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-edge bg-panel sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 border-b border-edge px-5 py-4">
+              <span
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                  detailItem.severity === 'critical'
+                    ? 'bg-bad-deep/40 text-bad'
+                    : 'bg-warn-deep/30 text-warn'
+                }`}
+              >
+                {detailItem.severity === 'critical' ? (
+                  <AlertOctagon className="h-5 w-5" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5" />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-bold tracking-tight text-ink">{detailItem.title}</h3>
+                  <ConfidenceBadge
+                    confidence={detailItem.confidence}
+                    severity={detailItem.severityLevel}
+                  />
+                </div>
+                <p className="mt-0.5 text-xs text-ink-dim">
+                  Vehicle <span className="font-mono text-ink-mid">{detailItem.vehicle}</span> ·{' '}
+                  {detailItem.source}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailItem(null)}
+                aria-label="Close"
+                className="shrink-0 rounded-lg p-1 text-ink-dim hover:text-ink"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <p className="text-sm leading-relaxed text-ink-mid">{detailItem.detail}</p>
+
+              {detailItem.reasons.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+                    How this was determined
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {detailItem.reasons.map((reason) => (
+                      <li key={reason} className="flex gap-2 text-xs leading-relaxed text-ink-mid">
+                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-warn" />
+                        {reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {detailItem.lossNgn != null && detailItem.lossNgn > 0 && (
+                <div className="rounded-xl border border-warn/30 bg-warn-deep/15 px-4 py-3">
+                  <p className="text-sm font-semibold text-warn">
+                    Est. impact {formatNgn(detailItem.lossNgn)}
+                  </p>
+                  <p className="mt-0.5 text-xs text-ink-dim">{TRUST_COPY.requiresReview}</p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                {detailItem.replayTarget && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReplayTarget(detailItem.replayTarget!);
+                      setDetailItem(null);
+                    }}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-accent-y px-4 py-2.5 text-xs font-semibold text-accent-y-ink"
+                  >
+                    <Play className="h-4 w-4" /> {TRUST_COPY.investigateCta}
+                  </button>
+                )}
+                {detailItem.vehicleId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onViewOnMap(detailItem.vehicleId!);
+                      setDetailItem(null);
+                    }}
+                    className="rounded-xl border border-edge px-4 py-2.5 text-xs font-medium text-ink-mid hover:bg-panel-hover"
+                  >
+                    View live
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. Snapshot bento — one hero tile carries the money so the eye has
           somewhere to land; every other tile states exactly one fact. */}
       <section>
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-ink-dim">
-            Operational snapshot
-          </h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-ink-dim">
+              Operational snapshot
+            </h2>
+            {/* Real windows only. The summary API caps `days` at 90, so an
+                annual option could not be backed by data. */}
+            <label className="relative inline-flex items-center">
+              <span className="sr-only">Snapshot period</span>
+              <select
+                value={periodDaysProp}
+                onChange={(e) => onPeriodChange(Number(e.target.value))}
+                className="appearance-none rounded-full border border-edge bg-panel py-1.5 pl-3.5 pr-8 text-xs font-medium text-ink focus:border-accent-y focus:outline-none"
+              >
+                <option value={1}>Today</option>
+                <option value={7}>Last 7 days</option>
+                <option value={30}>Last 30 days</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-ink-dim" />
+            </label>
+          </div>
           <p className="text-xs text-ink-dim">{TRUST_COPY.notVerdict}</p>
         </div>
 
@@ -553,13 +689,10 @@ export function FleetOperationsOverview({
             tone={summary.active_alerts > 0 ? 'warn' : 'good'}
             className="lg:col-span-3"
           />
-          <StatTile
-            icon={TrendingUp}
-            label="If this week repeated all year"
-            value={formatMillionsNgn(annualSavingsOpportunity)}
-            hint={`Straight projection of ${formatNgn(preventableLoss)} — a scale, not a forecast`}
-            className="lg:col-span-3"
-          />
+          {/* The annualised projection was removed deliberately. Multiplying one
+              week of preventable loss by 52 produces a large, alarming number
+              that no evidence supports — a single bad week is not a year, and
+              the figure reads as a forecast however it is captioned. */}
           <StatTile
             icon={Gauge}
             label="Fleet health"
@@ -589,69 +722,46 @@ export function FleetOperationsOverview({
             ) : (
               <ul className="divide-y divide-divider">
                 {attentionItems.map((item) => (
-                  <li
-                    key={item.id}
-                    className="flex flex-wrap items-start gap-3 px-5 py-4 hover:bg-panel-hover/40"
-                  >
-                    <span
-                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                        item.severity === 'critical'
-                          ? 'bg-bad-deep/40 text-bad'
-                          : 'bg-warn-deep/30 text-warn'
-                      }`}
+                  <li key={item.id}>
+                    {/* One scannable line each. The full narrative — reasons,
+                        source, confidence, cost — moves into the modal, because
+                        six paragraphs of prose is not a triage queue. */}
+                    <button
+                      type="button"
+                      onClick={() => setDetailItem(item)}
+                      className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-panel-hover/40"
                     >
-                      {item.severity === 'critical' ? (
-                        <AlertOctagon className="h-4 w-4" />
-                      ) : (
-                        <AlertTriangle className="h-4 w-4" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-ink">{item.title}</p>
-                        <ConfidenceBadge
-                          confidence={item.confidence}
-                          severity={item.severityLevel}
-                        />
-                      </div>
-                      <p className="mt-0.5 text-sm text-ink-mid">
-                        Vehicle <span className="font-mono text-ink">{item.vehicle}</span>
-                        <span className="ml-2 text-ink-dim">· {item.source}</span>
-                      </p>
-                      <p className="mt-1 text-xs text-ink-mid">{item.detail}</p>
-                      {/* One wrapped line rather than a bulleted paragraph — the
-                          reasons are supporting detail, not the headline. */}
-                      {item.reasons.length > 0 && (
-                        <p className="mt-1.5 text-xs leading-relaxed text-ink-dim">
-                          {item.reasons.join(' · ')}
-                        </p>
-                      )}
-                      {item.lossNgn != null && item.lossNgn > 0 && (
-                        <p className="mt-2 text-xs text-warn">
-                          Est. impact {formatNgn(item.lossNgn)} · {TRUST_COPY.requiresReview}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-                      {item.replayTarget && (
-                        <button
-                          type="button"
-                          onClick={() => setReplayTarget(item.replayTarget!)}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-accent/20"
-                        >
-                          <Play className="h-4 w-4" /> {TRUST_COPY.investigateCta} ▶
-                        </button>
-                      )}
-                      {item.vehicleId && (
-                        <button
-                          type="button"
-                          onClick={() => onViewOnMap(item.vehicleId!)}
-                          className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-mid"
-                        >
-                          Live
-                        </button>
-                      )}
-                    </div>
+                      <span
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                          item.severity === 'critical'
+                            ? 'bg-bad-deep/40 text-bad'
+                            : 'bg-warn-deep/30 text-warn'
+                        }`}
+                      >
+                        {item.severity === 'critical' ? (
+                          <AlertOctagon className="h-4 w-4" />
+                        ) : (
+                          <AlertTriangle className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-ink">{item.title}</span>
+                          <ConfidenceBadge
+                            confidence={item.confidence}
+                            severity={item.severityLevel}
+                          />
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-ink-dim">
+                          <span className="font-mono text-ink-mid">{item.vehicle}</span>
+                          {item.lossNgn != null && item.lossNgn > 0
+                            ? ` · est. ${formatNgn(item.lossNgn)}`
+                            : ''}
+                          {` · ${item.source}`}
+                        </span>
+                      </span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-ink-dim" />
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -679,7 +789,7 @@ export function FleetOperationsOverview({
               <button
                 type="button"
                 onClick={onOpenAnomalies}
-                className="flex items-center justify-center gap-2 rounded-lg bg-accent py-3 text-sm font-semibold text-white shadow-lg shadow-accent/25"
+                className="flex items-center justify-center gap-2 rounded-lg bg-accent py-3 text-sm font-semibold text-accent-y-ink shadow-lg shadow-accent/25"
               >
                 <Play className="h-4 w-4" /> {TRUST_COPY.viewEvidenceCta} ▶
               </button>
@@ -951,22 +1061,41 @@ function StatTile({
     bad: 'text-bad',
   }[tone];
 
+  // A full-card diagonal wash tinted the whole surface and fought the panel
+  // colour, so the tone is now carried by the icon tile alone — a contained
+  // glow behind the glyph rather than a gradient across the card.
+  const tileTone = {
+    default: 'neutral',
+    good: 'good',
+    warn: 'warn',
+    bad: 'bad',
+  }[tone] as 'neutral' | 'good' | 'warn' | 'bad';
+
+  /*
+   * These tiles are grid-stretched to the tallest cell in the row, so the old
+   * `justify-between` dumped the inherited height into a hole between label and
+   * value. The value block now takes the slack with `flex-1`, and the hint is
+   * pinned to the bottom edge — the card fills instead of leaving a void.
+   *
+   * Deliberately no sparkline: none of these figures arrives with a time series
+   * behind it, and drawing one would mean inventing history.
+   */
   return (
-    <Tile className={`flex flex-col justify-between p-5 ${className}`}>
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-canvas text-ink-dim">
-          <Icon className="h-[18px] w-[18px]" />
-        </span>
+    <Tile className={`relative flex flex-col overflow-hidden p-5 ${className}`}>
+      <div className="relative flex items-start gap-2.5">
+        <IconTile icon={Icon} tone={tileTone} size={44} float className="mt-0.5" />
         <span className="text-xs font-semibold uppercase leading-tight tracking-[0.1em] text-ink-dim">
           {label}
         </span>
       </div>
-      <div className="mt-4">
-        <p className={`text-3xl font-bold leading-none tracking-tight tabular-nums ${valueColor}`}>
+      <div className="relative mt-4 flex flex-1 flex-col justify-center">
+        <p
+          className={`text-4xl font-bold leading-none tracking-tight tabular-nums ${valueColor}`}
+        >
           {value}
         </p>
-        {hint && <p className="mt-2 text-xs leading-snug text-ink-dim">{hint}</p>}
       </div>
+      {hint && <p className="relative mt-3 text-xs leading-snug text-ink-dim">{hint}</p>}
     </Tile>
   );
 }

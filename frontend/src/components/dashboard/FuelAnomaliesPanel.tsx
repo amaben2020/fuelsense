@@ -254,7 +254,7 @@ function SiphonCard({
             e.stopPropagation();
             onReplay();
           }}
-          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg bg-accent py-2.5 text-xs font-semibold text-white shadow-lg shadow-accent/20"
+          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg bg-accent py-2.5 text-xs font-semibold text-accent-y-ink shadow-lg shadow-accent/20"
         >
           <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
         </button>
@@ -271,14 +271,14 @@ function SiphonCard({
             <button
               type="button"
               onClick={onReplay}
-              className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-accent py-2 text-xs font-medium text-white"
+              className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-accent py-2 text-xs font-medium text-accent-y-ink"
             >
               <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
             </button>
             <button
               type="button"
               onClick={onResolve}
-              className="flex-1 rounded-lg bg-good py-2 text-xs font-medium text-canvas"
+              className="flex-1 rounded-lg bg-good py-2 text-xs font-semibold text-accent-y-ink"
             >
               Mark resolved
             </button>
@@ -336,14 +336,14 @@ function ReceiptFlagCard({
         <button
           type="button"
           onClick={onReplay}
-          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-accent py-2.5 text-xs font-semibold text-white"
+          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-accent py-2.5 text-xs font-semibold text-accent-y-ink"
         >
           <Play className="h-3.5 w-3.5" /> {TRUST_COPY.investigateCta} ▶
         </button>
         <button
           type="button"
           onClick={onResolve}
-          className="flex-1 rounded-lg bg-good py-2 text-xs font-medium text-canvas"
+          className="flex-1 rounded-lg bg-good py-2 text-xs font-semibold text-accent-y-ink"
         >
           Resolve
         </button>
