@@ -28,7 +28,20 @@ export interface AvlDefinition {
   precision?: number;
   /** Enumerated values, for elements where the number is a state code. */
   states?: Record<number, string>;
+  /**
+   * Raw values that are error codes rather than readings. Teltonika's BLE
+   * elements report 32767 for "sensor not found", which scaled naively renders
+   * as a confident 327.67 °C.
+   */
+  sentinels?: Record<number, string>;
 }
+
+/** Shared across every BLE temperature slot. */
+const BLE_TEMP_SENTINELS: Record<number, string> = {
+  32767: 'No sensor',
+  32768: 'Sensor error',
+  32769: 'Value not read',
+};
 
 const ON_OFF: Record<number, string> = { 0: 'Off', 1: 'On' };
 
@@ -38,6 +51,46 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
   3: { label: 'Digital input 3', group: 'electrical', states: ON_OFF },
   9: { label: 'Analog input 1', group: 'electrical', unit: 'V', scale: 1000, precision: 2 },
   10: { label: 'Analog input 2', group: 'electrical', unit: 'V', scale: 1000, precision: 2 },
+
+  // BLE sensor block. These arrive as a group once Bluetooth sensors are
+  // enabled in the configurator, and read empty (battery 0, temperature 32767)
+  // until a sensor is actually paired — which is not a fault.
+  20: { label: 'BLE battery #2', group: 'electrical', unit: '%' },
+  22: { label: 'BLE battery #3', group: 'electrical', unit: '%' },
+  23: { label: 'BLE battery #4', group: 'electrical', unit: '%' },
+  29: {
+    label: 'BLE battery #1',
+    group: 'electrical',
+    unit: '%',
+    description:
+      'Charge left in a paired Bluetooth sensor. Reads 0 when no sensor is paired to this slot.',
+  },
+  25: {
+    label: 'BLE temperature #1',
+    group: 'engine',
+    unit: '°C',
+    scale: 100,
+    precision: 2,
+    sentinels: BLE_TEMP_SENTINELS,
+    description:
+      'Reading from a paired Bluetooth temperature sensor — typically a refrigerated or cold-chain load. "No sensor" means the slot is empty.',
+  },
+  26: {
+    label: 'BLE temperature #2',
+    group: 'engine',
+    unit: '°C',
+    scale: 100,
+    precision: 2,
+    sentinels: BLE_TEMP_SENTINELS,
+  },
+  27: {
+    label: 'BLE temperature #3',
+    group: 'engine',
+    unit: '°C',
+    scale: 100,
+    precision: 2,
+    sentinels: BLE_TEMP_SENTINELS,
+  },
 
   12: {
     label: 'Fuel used (GPS)',
@@ -259,6 +312,23 @@ export function decodeSignal(avlId: number, raw: number): DecodedSignal {
       value: null,
       unit: null,
       display: GSM_OPERATORS[raw] ?? String(raw),
+      known: true,
+    };
+  }
+
+  // Checked before scaling: an error code run through the divisor becomes a
+  // plausible-looking reading (32767 → 327.67 °C) that nothing downstream can
+  // tell apart from a real one.
+  if (def.sentinels?.[raw]) {
+    return {
+      avl_id: avlId,
+      label: def.label,
+      description: def.description ?? null,
+      group: def.group,
+      raw,
+      value: null,
+      unit: null,
+      display: def.sentinels[raw],
       known: true,
     };
   }

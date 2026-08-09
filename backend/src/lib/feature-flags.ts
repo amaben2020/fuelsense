@@ -37,6 +37,13 @@ export const FEATURES: FeatureDefinition[] = [
     defaultEnabled: true,
   },
   {
+    key: 'geofences',
+    label: 'Geofencing',
+    description:
+      'Depot, customer-site and no-go zones, with entry and exit activity. Evaluated against position fixes, so it works on GPS-only vehicles.',
+    defaultEnabled: true,
+  },
+  {
     key: 'driving_behavior',
     label: 'Driving behavior',
     description:

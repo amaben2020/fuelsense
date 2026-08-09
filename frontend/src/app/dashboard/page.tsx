@@ -17,6 +17,7 @@ import {
   ReceiptText,
   Route,
   Search,
+  Pentagon,
   Settings,
   ShieldAlert,
   Siren,
@@ -75,6 +76,7 @@ import { LoadErrorBanner } from '@/components/dashboard/LoadErrorBanner';
 import { isPro } from '@/lib/plan';
 import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
 import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPanel';
+import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
 import { FleetIntelligencePanel } from '@/components/dashboard/FleetIntelligencePanel';
 import {
   IconRail,
@@ -100,6 +102,7 @@ type DashboardView =
   | 'behavior'
   | 'drivers'
   | 'intel'
+  | 'geofences'
   | 'fuel'
   | 'estimate'
   | 'receipts'
@@ -116,6 +119,7 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
   behavior: 'driving_behavior',
   drivers: 'driver_management',
   intel: 'fleet_intelligence',
+  geofences: 'geofences',
   fuel: 'fuel_analytics',
   estimate: 'fuel_estimate',
   receipts: 'receipts',
@@ -144,6 +148,7 @@ const VIEW_META: Record<
   behavior: { icon: ShieldAlert, nav: 'Driving behavior', title: 'Driving behavior' },
   drivers: { icon: Users, nav: 'Driver management', title: 'Driver Management' },
   intel: { icon: Gauge, nav: 'Fleet intelligence', title: 'Fleet Intelligence' },
+  geofences: { icon: Pentagon, nav: 'Geofencing', title: 'Geofencing' },
   fuel: { icon: Fuel, nav: 'Fuel analytics', title: 'Fuel analytics' },
   estimate: { icon: Calculator, nav: 'Fuel estimate', title: 'Fuel estimate' },
   receipts: { icon: ReceiptText, nav: 'Receipts', title: 'Receipts' },
@@ -160,6 +165,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'behavior', label: 'Driving behavior', hash: 'behavior' },
   { id: 'drivers', label: 'Driver management', hash: 'drivers' },
   { id: 'intel', label: 'Fleet intelligence', hash: 'intel' },
+  { id: 'geofences', label: 'Geofencing', hash: 'geofences' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
@@ -1054,6 +1060,10 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'intel' && <FleetIntelligencePanel />}
+
+          {activeView === 'geofences' && (
+            <GeofencesPanel onDrawZone={() => switchView('live')} />
+          )}
 
           {activeView === 'drivers' && (
             <DriverManagementPanel onViewVehicle={() => switchView('vehicle')} />
