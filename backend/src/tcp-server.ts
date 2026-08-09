@@ -3,13 +3,14 @@ import {
   TeltonikaDataCodec,
   TeltonikaGPRSCodec,
 } from '@groupe-savoy/teltonika-sdk';
-import { db, devices, telemetry, deviceFrames, vehicles, eq, and } from './lib/db-helpers';
+import { db, devices, telemetry, deviceFrames, vehicles, eq, and, sql } from './lib/db-helpers';
 import { detectAnomalies } from './lib/anomaly-detector';
 import { invalidate } from './lib/redis';
 import { getIoValue, serializeIo } from './lib/avl-io';
 import { decodeScenarioEvent, recordDeviceEvent, resolveClosedAlert } from './lib/device-event-decoder';
 import { handleIgnitionForTripStart, closeTripStartAlert } from './lib/trip-notifier';
 import { handleIdleForRecord } from './lib/idle-detector';
+import { handleGeofenceForRecord } from './lib/geofence-monitor';
 import { handleFuelStopForRecord } from './lib/fuel-stop-detector';
 import {
   FUEL_USED_GPS_AVL_ID,
@@ -153,7 +154,14 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     const speedKph = !ignitionOn ? 0 : rawSpeedKph;
 
     const [vehicleRow] = await db
-      .select({ license_plate: vehicles.licensePlate })
+      .select({
+        license_plate: vehicles.licensePlate,
+        // Carried for geofence alert phrasing — "LIVE-FMC150 (Benneth) left
+        // the depot" is actionable in a way a bare plate is not.
+        driver_name: sql<string | null>`(
+          SELECT d.name FROM drivers d WHERE d.id = ${vehicles.driverId}
+        )`,
+      })
       .from(vehicles)
       .where(eq(vehicles.id, device.vehicleId!))
       .limit(1);
@@ -299,6 +307,24 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       if (!ignitionOn) await closeTripStartAlert(device.customerId!, device.vehicleId!);
     } catch (err) {
       console.error(`[trip_notifier] failed for ${device.imei}:`, err);
+    }
+
+    try {
+      const crossings = await handleGeofenceForRecord({
+        imei: device.imei,
+        customerId: device.customerId!,
+        vehicleId: device.vehicleId!,
+        latitude: telemetryRow.latitude != null ? Number(telemetryRow.latitude) : null,
+        longitude: telemetryRow.longitude != null ? Number(telemetryRow.longitude) : null,
+        recordedAt,
+        licensePlate: vehicleRow?.license_plate ?? undefined,
+        driverName: vehicleRow?.driver_name ?? null,
+      });
+      for (const c of crossings) {
+        logReal(device.imei, `geofence ${c.direction} ${c.zoneName}`);
+      }
+    } catch (err) {
+      console.error(`[geofence] failed for ${device.imei}:`, err);
     }
 
     try {

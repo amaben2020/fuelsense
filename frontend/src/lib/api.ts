@@ -1399,6 +1399,8 @@ export interface Geofence {
   radius_m: number | null;
   purpose: string;
   notify_on: string;
+  vehicle_id: string | null;
+  driver_id: string | null;
   active: boolean;
 }
 
@@ -1435,6 +1437,8 @@ export function createGeofence(input: {
   radius_m: number;
   purpose?: string;
   notify_on?: string;
+  vehicle_id?: string | null;
+  driver_id?: string | null;
 }): Promise<Geofence> {
   return api<Geofence>('/geofences', { method: 'POST', body: JSON.stringify(input) });
 }

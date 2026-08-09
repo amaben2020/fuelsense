@@ -31,6 +31,8 @@ router.post('/', async (req: Request, res: Response) => {
     polygon,
     purpose = 'depot',
     notify_on: notifyOn = 'both',
+    vehicle_id: vehicleId = null,
+    driver_id: driverId = null,
   } = req.body ?? {};
 
   if (!name?.trim()) {
@@ -59,6 +61,10 @@ router.post('/', async (req: Request, res: Response) => {
         polygon: shape === 'polygon' ? polygon : null,
         purpose,
         notifyOn,
+        // Null scope = whole fleet. Empty strings arrive from unset <select>
+        // elements and must not be inserted as invalid uuids.
+        vehicleId: vehicleId || null,
+        driverId: driverId || null,
       })
       .returning();
     res.status(201).json(row);

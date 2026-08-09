@@ -108,7 +108,7 @@ export function GeofencesPanel({ onDrawZone }: { onDrawZone?: () => void }) {
                     </StatusChip>
                   </div>
                   <p className="mt-0.5 text-xs text-ink-dim tabular-nums">
-                    {metresLabel(z.radius_m)}
+                    {z.vehicle_id ? 'One vehicle' : 'All vehicles'} · {metresLabel(z.radius_m)}
                     {z.center_lat && z.center_lng
                       ? ` · ${Number(z.center_lat).toFixed(4)}, ${Number(z.center_lng).toFixed(4)}`
                       : ''}

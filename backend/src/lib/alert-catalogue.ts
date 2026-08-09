@@ -99,6 +99,28 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     emailable: true,
   },
   {
+    type: 'geofence_exit',
+    label: 'Left a zone',
+    severity: 'warning',
+    meaning:
+      'A vehicle crossed out of a zone you drew. For a depot or customer site this is a departure; for a restricted area it is the breach ending.',
+    trigger:
+      'A position fix outside the zone boundary when the previous fix was inside, with a 25 m hysteresis band so GPS scatter on the edge cannot oscillate.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
+    type: 'geofence_entry',
+    label: 'Entered a zone',
+    severity: 'info',
+    meaning:
+      'A vehicle crossed into a zone you drew — arriving at a depot or customer site, or entering a restricted area.',
+    trigger:
+      'A position fix inside the zone boundary when the previous fix was outside. The first fix after a zone is created only sets a baseline and never alerts.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
     type: 'excessive_idle',
     label: 'Excessive idling',
     severity: 'warning',

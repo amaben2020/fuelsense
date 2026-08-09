@@ -8,6 +8,27 @@ import {
   anomalyPinSvgDataUrl,
   car3dSvgDataUrl,
 } from '@/lib/fleet-map-theme';
+import { vehicleSprite } from '@/lib/vehicle-sprite';
+
+/**
+ * Soft radial puck the vehicle sits on. Drawn as an SVG data URL rather than a
+ * google.maps.Circle so it keeps a constant screen size — this is a highlight
+ * on the marker, not a distance on the ground.
+ */
+function glowPuckDataUrl(accent: string, selected: boolean): string {
+  const opacity = selected ? 0.5 : 0.26;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+    <defs>
+      <radialGradient id="g">
+        <stop offset="0%" stop-color="${accent}" stop-opacity="${opacity}"/>
+        <stop offset="34%" stop-color="${accent}" stop-opacity="${opacity * 0.42}"/>
+        <stop offset="72%" stop-color="${accent}" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <circle cx="64" cy="64" r="64" fill="url(#g)"/>
+  </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
 
 // SVG arc path for a unit circle — used as the dotted trail symbol.
 // Numeric SymbolPath.CIRCLE (0) is avoided to keep the import side-effect-free.
@@ -301,24 +322,50 @@ export const VehicleCarMarker = memo(function VehicleCarMarker({
 
   const icon = useMemo(() => {
     if (!maps) return undefined;
-    const size = selected ? 56 : 48;
+    const size = selected ? 78 : 64;
+    // Real 3D render, falling back to the flat SVG wherever WebGL is
+    // unavailable — a missing marker is far worse than a plain one.
+    const sprite = vehicleSprite(heading, accent);
     return {
-      url: car3dSvgDataUrl(heading, selected, accent),
+      url: sprite ?? car3dSvgDataUrl(heading, selected, accent),
       scaledSize: new maps.Size(size, size),
       anchor: new maps.Point(size / 2, size / 2),
     };
   }, [maps, heading, selected, accent]);
 
+  // Warm puck under the vehicle. A separate, lower-zIndex marker rather than
+  // part of the sprite: it has to stay circular as the vehicle turns, and it
+  // pulses on the selected vehicle without re-rendering the model.
+  const glow = useMemo(() => {
+    if (!maps) return undefined;
+    const size = selected ? 101 : 78;
+    return {
+      url: glowPuckDataUrl(ROUTE_PRIMARY, selected),
+      scaledSize: new maps.Size(size, size),
+      anchor: new maps.Point(size / 2, size / 2),
+    };
+  }, [maps, selected]);
+
   if (!icon) return null;
 
   return (
-    <Marker
-      position={{ lat, lng }}
-      icon={icon}
-      zIndex={selected ? 1000 : 200}
-      title={title}
-      onClick={onClick}
-    />
+    <>
+      {glow && (
+        <Marker
+          position={{ lat, lng }}
+          icon={glow}
+          zIndex={selected ? 998 : 198}
+          clickable={false}
+        />
+      )}
+      <Marker
+        position={{ lat, lng }}
+        icon={icon}
+        zIndex={selected ? 1000 : 200}
+        title={title}
+        onClick={onClick}
+      />
+    </>
   );
 });
 

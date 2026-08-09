@@ -211,9 +211,12 @@ export function VehicleShowcase({
                 </span>
               </div>
               {/* Today against the 7-day total, so the bar reads as "share of
-                  the week's driving done today" rather than a raw distance. */}
+                  the week's driving done today" rather than a raw distance.
+                  The percentage is meaningless without saying what it is a
+                  percentage OF, so the caption is not optional. */}
+              <p className="mt-3 text-[11px] text-ink-dim">Share of this week&rsquo;s driving</p>
               <HatchBar
-                className="mt-3"
+                className="mt-1.5"
                 tone="good"
                 value={todayRow?.distance_km ?? 0}
                 max={Math.max(estimateRow?.distance_km ?? 1, 1)}
@@ -227,6 +230,11 @@ export function VehicleShowcase({
               </div>
             </div>
           </div>
+
+          <PowerDiagnostics
+            vehicleId={vehicle.id}
+            refreshKey={vehicle.last_telemetry_at ?? 0}
+          />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <SpeedPanel speedKph={Number(vehicle.speed_kph ?? 0)} />
@@ -243,11 +251,6 @@ export function VehicleShowcase({
               />
             )}
           </div>
-
-          <PowerDiagnostics
-            vehicleId={vehicle.id}
-            refreshKey={vehicle.last_telemetry_at ?? 0}
-          />
 
           {!online && vehicle.connection_status !== 'no_device' && (
             <div className="flex items-center gap-3 rounded-lg border border-warn/40 bg-warn-deep/20 px-4 py-3 text-sm text-warn">

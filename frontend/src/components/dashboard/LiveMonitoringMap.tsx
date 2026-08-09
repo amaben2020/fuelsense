@@ -574,6 +574,11 @@ export function LiveMonitoringMap({
     { lat: number; lng: number; radius: number } | null
   >(null);
   const [zoneName, setZoneName] = useState('');
+  // '' = whole fleet. A depot is not per-vehicle, but a customer site
+  // assigned to one driver is, and only the vehicle scope can express that.
+  const [zoneVehicleId, setZoneVehicleId] = useState('');
+  const [zonePurpose, setZonePurpose] = useState('depot');
+  const [zoneNotifyOn, setZoneNotifyOn] = useState('both');
   const [savingZone, setSavingZone] = useState(false);
   const [zoneError, setZoneError] = useState<string | null>(null);
 
@@ -597,9 +602,13 @@ export function LiveMonitoringMap({
         center_lat: pendingZone.lat,
         center_lng: pendingZone.lng,
         radius_m: Math.round(pendingZone.radius),
+        purpose: zonePurpose,
+        notify_on: zoneNotifyOn,
+        vehicle_id: zoneVehicleId || null,
       });
       setPendingZone(null);
       setZoneName('');
+      setZoneVehicleId('');
       setDrawing(false);
       loadZones();
     } catch (err) {
@@ -871,6 +880,48 @@ export function LiveMonitoringMap({
                     className="mt-1.5 w-full accent-[var(--accent-y)]"
                   />
                 </label>
+                <label className="mt-3 block">
+                  <span className="text-[11px] text-ink-dim">Applies to</span>
+                  <select
+                    value={zoneVehicleId}
+                    onChange={(e) => setZoneVehicleId(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink focus:border-accent-y focus:outline-none"
+                  >
+                    <option value="">All vehicles</option>
+                    {fleet.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.license_plate}
+                        {v.driver_name ? ` — ${v.driver_name}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-[11px] text-ink-dim">Purpose</span>
+                    <select
+                      value={zonePurpose}
+                      onChange={(e) => setZonePurpose(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-edge bg-canvas px-2 py-2 text-xs text-ink focus:border-accent-y focus:outline-none"
+                    >
+                      <option value="depot">Depot</option>
+                      <option value="customer">Customer site</option>
+                      <option value="restricted">Restricted</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] text-ink-dim">Alert on</span>
+                    <select
+                      value={zoneNotifyOn}
+                      onChange={(e) => setZoneNotifyOn(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-edge bg-canvas px-2 py-2 text-xs text-ink focus:border-accent-y focus:outline-none"
+                    >
+                      <option value="both">Enter &amp; leave</option>
+                      <option value="exit">Leaving only</option>
+                      <option value="enter">Entering only</option>
+                    </select>
+                  </label>
+                </div>
                 {zoneError && <p className="mt-2 text-xs text-bad">{zoneError}</p>}
                 <div className="mt-3 flex gap-2">
                   <button
@@ -983,34 +1034,94 @@ export function LiveMonitoringMap({
       </div>
 
       {/* Vehicle cards strip */}
-      <div className="absolute bottom-4 left-4 right-4 z-10 flex gap-2 overflow-x-auto pb-1">
+      {/* Centred, not bottom-left: the row used to sit on top of the stops
+          legend. Hovering a chip opens the full card, so the collapsed state
+          can stay small enough not to cover the map. */}
+      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 flex max-w-[min(46rem,calc(100%-8rem))] -translate-x-1/2 gap-2 overflow-x-auto pb-1">
         {animated.map((track) => {
           const status = fleetStatus.get(track.vehicleId) ?? 'offline';
           const meta = fleetMeta.get(track.vehicleId);
           return (
-            <button
-              key={track.vehicleId}
-              type="button"
-              onClick={() => handleSelectVehicle(track.vehicleId)}
-              className={`pointer-events-auto shrink-0 rounded-xl border px-3 py-2 text-left backdrop-blur-md transition ${
-                track.vehicleId === selectedVehicleId
-                  ? 'border-brand bg-panel/95 ring-1 ring-brand/40'
-                  : 'border-edge bg-panel/85 hover:bg-panel-hover/90'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: track.color }} />
-                <span className="text-sm font-medium text-ink">{track.licensePlate}</span>
-                <span className={`text-[10px] capitalize ${status === 'online' ? 'text-good' : 'text-bad'}`}>
-                  {status}
-                </span>
+            <div key={track.vehicleId} className="group relative shrink-0">
+              {/* Detail card. CSS hover rather than React state: it must not
+                  re-render the animated tracks 60 times a second. */}
+              <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-64 -translate-x-1/2 scale-95 rounded-2xl border border-edge bg-panel/95 p-3.5 opacity-0 shadow-2xl backdrop-blur-md transition-all duration-150 group-hover:scale-100 group-hover:opacity-100">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-mono text-sm font-bold text-ink">{track.licensePlate}</p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${
+                      status === 'online' ? 'bg-good/15 text-good' : 'bg-bad/15 text-bad'
+                    }`}
+                  >
+                    {status}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[11px] text-ink-dim">
+                  {meta?.driver || 'Unassigned driver'}
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Speed', value: `${Math.round(track.current.speedKph ?? 0)} km/h` },
+                    {
+                      label: 'Fuel',
+                      value:
+                        track.current.fuelLiters != null
+                          ? `${track.current.fuelLiters.toFixed(1)} L`
+                          : '—',
+                    },
+                    // Vehicle-battery voltage is not on the fleet endpoint yet —
+                    // it lives in device_frames io_raw and only /vehicle-signals
+                    // decodes it. Odometer until that is exposed here.
+                    {
+                      label: 'Odometer',
+                      value:
+                        meta?.odometer != null
+                          ? formatOdometerMiles(Number(meta.odometer))
+                          : '—',
+                    },
+                    {
+                      label: 'Ignition',
+                      value: track.current.ignitionOn == null
+                        ? '—'
+                        : track.current.ignitionOn
+                          ? 'On'
+                          : 'Off',
+                    },
+                  ].map((stat) => (
+                    <div key={stat.label} className="rounded-lg bg-panel-deep px-2.5 py-1.5">
+                      <p className="text-[10px] uppercase tracking-wider text-ink-dim">
+                        {stat.label}
+                      </p>
+                      <p className="text-sm font-semibold tabular-nums text-ink">{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2.5 text-[10px] text-ink-dim">
+                  Updated {timeAgo(track.current.recordedAt)}
+                </p>
               </div>
-              <p className="mt-0.5 text-xs text-ink-dim">
-                {meta?.driver ? `${meta.driver} · ` : ''}
-                {track.current.speedKph ?? 0} km/h
-                {track.current.fuelLiters != null ? ` · ${track.current.fuelLiters.toFixed(1)} L` : ''}
-              </p>
-            </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectVehicle(track.vehicleId)}
+                className={`pointer-events-auto flex items-center gap-2 rounded-full border px-3.5 py-2 text-left backdrop-blur-md transition ${
+                  track.vehicleId === selectedVehicleId
+                    ? 'border-brand bg-panel/95 ring-1 ring-brand/40'
+                    : 'border-edge bg-panel/85 hover:bg-panel-hover/90'
+                }`}
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: track.color }}
+                />
+                <span className="font-mono text-sm font-medium text-ink">
+                  {track.licensePlate}
+                </span>
+                <span className="text-xs tabular-nums text-ink-dim">
+                  {Math.round(track.current.speedKph ?? 0)} km/h
+                </span>
+              </button>
+            </div>
           );
         })}
       </div>

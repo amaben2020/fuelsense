@@ -12,6 +12,7 @@ import {
   text,
   unique,
   index,
+  uniqueIndex,
   jsonb,
 } from 'drizzle-orm/pg-core';
 
@@ -514,8 +515,43 @@ export const geofences = pgTable(
     purpose: varchar('purpose', { length: 24 }).notNull().default('depot'),
     /** Alert when a vehicle enters, leaves, or both. */
     notifyOn: varchar('notify_on', { length: 12 }).notNull().default('both'),
+    /**
+     * Scope. NULL means the zone applies to the whole fleet — a depot is not
+     * per-vehicle, but a customer site assigned to one driver is. Set both and
+     * the zone only fires for that vehicle while that driver is assigned.
+     */
+    vehicleId: uuid('vehicle_id').references(() => vehicles.id, { onDelete: 'cascade' }),
+    driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'cascade' }),
     active: boolean('active').notNull().default(true),
     createdAt: timestamp('created_at').defaultNow(),
   },
   (table) => [index('geofence_customer_idx').on(table.customerId)]
+);
+
+/**
+ * Last known inside/outside verdict per vehicle per zone.
+ *
+ * A crossing is a *change* of containment, which cannot be read from a single
+ * fix — the previous verdict has to be durable. Kept in a table rather than in
+ * memory (as the idle detector does) because a missed crossing is a missed
+ * alert about a vehicle leaving a site, and a process restart must not silently
+ * swallow one.
+ */
+export const geofenceStates = pgTable(
+  'geofence_states',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    geofenceId: uuid('geofence_id')
+      .notNull()
+      .references(() => geofences.id, { onDelete: 'cascade' }),
+    vehicleId: uuid('vehicle_id')
+      .notNull()
+      .references(() => vehicles.id, { onDelete: 'cascade' }),
+    inside: boolean('inside').notNull(),
+    changedAt: timestamp('changed_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('geofence_state_zone_vehicle_idx').on(table.geofenceId, table.vehicleId),
+  ]
 );
