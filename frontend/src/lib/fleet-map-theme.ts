@@ -11,21 +11,25 @@ export const ROUTE_ACTIVE = '#e3ef8c';   // brighter lemon for the selected trai
 export const ROUTE_GLOW = '#FFFFFF';
 export const ROUTE_DIM = '#1A2238';
 
-/** Muted dark basemap — roads visible, POI clutter hidden (Uber-like) */
+/**
+ * Neutral greyscale basemap. Deliberately desaturated: the palette carries a
+ * single lemon accent, and a blue-tinted canvas competed with it — the route
+ * line stopped reading as the one thing on the map that matters.
+ */
 export const FLEET_DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
-  { elementType: 'geometry', stylers: [{ color: '#151a28' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#5c637a' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#151a28' }] },
+  { elementType: 'geometry', stylers: [{ color: '#141414' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#6b6b6b' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#141414' }] },
   { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
   {
     featureType: 'administrative',
     elementType: 'geometry.stroke',
-    stylers: [{ color: '#252d42' }],
+    stylers: [{ color: '#2b2b2b' }],
   },
   {
     featureType: 'landscape',
     elementType: 'geometry',
-    stylers: [{ color: '#151a28' }],
+    stylers: [{ color: '#141414' }],
   },
   {
     featureType: 'poi',
@@ -34,22 +38,22 @@ export const FLEET_DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'road',
     elementType: 'geometry.fill',
-    stylers: [{ color: '#242b3f' }],
+    stylers: [{ color: '#262626' }],
   },
   {
     featureType: 'road',
     elementType: 'geometry.stroke',
-    stylers: [{ color: '#151a28' }],
+    stylers: [{ color: '#141414' }],
   },
   {
     featureType: 'road.highway',
     elementType: 'geometry.fill',
-    stylers: [{ color: '#2f3850' }],
+    stylers: [{ color: '#333333' }],
   },
   {
     featureType: 'road.highway',
     elementType: 'geometry.stroke',
-    stylers: [{ color: '#151a28' }],
+    stylers: [{ color: '#141414' }],
   },
   {
     featureType: 'transit',
@@ -58,7 +62,7 @@ export const FLEET_DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
   {
     featureType: 'water',
     elementType: 'geometry',
-    stylers: [{ color: '#0c101a' }],
+    stylers: [{ color: '#0d0d0d' }],
   },
 ];
 
@@ -73,7 +77,7 @@ export const FLEET_DARK_MAP_STYLES_POI: google.maps.MapTypeStyle[] = [
   {
     featureType: 'poi.business',
     elementType: 'labels.text.fill',
-    stylers: [{ color: '#7a8098' }],
+    stylers: [{ color: '#828282' }],
   },
   {
     featureType: 'poi.business',
@@ -91,7 +95,7 @@ export function fleetMapLayerProps(showPoi = false) {
   }
   return {
     styles: showPoi ? FLEET_DARK_MAP_STYLES_POI : FLEET_DARK_MAP_STYLES,
-    backgroundColor: '#151a28',
+    backgroundColor: '#141414',
   };
 }
 

@@ -26,7 +26,7 @@ import {
   TripBadgeMarker,
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
-import { Crosshair } from 'lucide-react';
+import { Crosshair, Minus, Plus } from 'lucide-react';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { TripDetailModal } from './TripDetailModal';
 import { StopDetailModal } from './StopDetailModal';
@@ -115,6 +115,109 @@ function clockTime(iso: string): string {
   return Number.isNaN(d.getTime())
     ? '—'
     : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Compass rose. Reads the live camera heading, so it stays honest when the map
+ * is rotated rather than being a decorative north arrow.
+ */
+function CompassRose() {
+  const map = useMap();
+  const [heading, setHeading] = useState(0);
+
+  useEffect(() => {
+    if (!map) return;
+    const sync = () => setHeading(map.getHeading?.() ?? 0);
+    sync();
+    const listener = map.addListener('heading_changed', sync);
+    return () => listener.remove();
+  }, [map]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => map?.setHeading?.(0)}
+      title="Reset bearing to north"
+      aria-label="Reset bearing to north"
+      className="pointer-events-auto relative flex h-14 w-14 items-center justify-center rounded-full border border-edge bg-panel/90 shadow-xl backdrop-blur transition-colors hover:bg-panel"
+    >
+      <svg viewBox="0 0 56 56" className="h-full w-full" style={{ transform: `rotate(${-heading}deg)` }}>
+        {/* Tick ring — the detail that makes it read as an instrument. */}
+        {Array.from({ length: 36 }, (_, i) => {
+          const deg = i * 10;
+          const rad = (deg * Math.PI) / 180;
+          const major = i % 9 === 0;
+          const r1 = major ? 18 : 21;
+          return (
+            <line
+              key={i}
+              x1={28 + r1 * Math.sin(rad)}
+              y1={28 - r1 * Math.cos(rad)}
+              x2={28 + 24 * Math.sin(rad)}
+              y2={28 - 24 * Math.cos(rad)}
+              stroke={major ? 'var(--accent-y)' : 'var(--instrument-tick)'}
+              strokeWidth={major ? 1.4 : 0.8}
+              opacity={major ? 0.9 : 0.45}
+            />
+          );
+        })}
+        <polygon points="28,10 31.5,26 28,23 24.5,26" fill="var(--bad-bright)" />
+        <polygon points="28,46 24.5,30 28,33 31.5,30" fill="var(--ink-dim)" />
+        <text
+          x={28}
+          y={28}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={9}
+          fontWeight={700}
+          fill="var(--ink)"
+        >
+          N
+        </text>
+      </svg>
+    </button>
+  );
+}
+
+/** Circular map control, matching the rail's button language. */
+function MapControl({
+  icon: Icon,
+  label,
+  onClick,
+  disabled = false,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-edge bg-panel/90 text-ink-mid shadow-lg backdrop-blur transition-colors hover:bg-panel hover:text-ink disabled:opacity-40"
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
+/** Zoom pair, driving the camera directly rather than Google's stock buttons. */
+function ZoomControls() {
+  const map = useMap();
+  const step = (delta: number) => {
+    if (!map) return;
+    map.setZoom((map.getZoom() ?? 13) + delta);
+  };
+  return (
+    <>
+      <MapControl icon={Plus} label="Zoom in" onClick={() => step(1)} />
+      <MapControl icon={Minus} label="Zoom out" onClick={() => step(-1)} />
+    </>
+  );
 }
 
 /**
@@ -400,7 +503,17 @@ export function LiveMonitoringMap({
   const mapOptions = useMemo(
     () =>
       fleetMapDefaults(
-        { defaultCenter: LAGOS_CENTER, defaultZoom: 13 },
+        {
+          defaultCenter: LAGOS_CENTER,
+          defaultZoom: 13,
+          // Google's stock controls are replaced by the custom stack below, so
+          // the map carries one control language instead of two.
+          disableDefaultUI: true,
+          zoomControl: false,
+          fullscreenControl: false,
+          streetViewControl: false,
+          mapTypeControl: false,
+        },
         showPoi,
       ),
     [showPoi],
@@ -559,9 +672,19 @@ export function LiveMonitoringMap({
                 onClick={() => handleSelectVehicle(track.vehicleId)}
               />
             ))}
-            <div className="pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col gap-2">
+            {/* Instrument cluster on the right edge: compass above, camera
+                controls below — the Haulix arrangement, and it keeps the
+                left half of the map clear for the vehicle card. */}
+            <div className="pointer-events-none absolute right-4 top-4 z-20">
+              <CompassRose />
+            </div>
+            <div className="pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col items-center gap-2">
+              <ZoomControls />
               <RecenterControl tracks={animated} onRecenter={onUserPan} />
             </div>
+            <p className="pointer-events-none absolute bottom-4 right-4 z-10 text-[10px] text-ink-dim/70">
+              Drag to pan · scroll to zoom
+            </p>
           </Map>
         </APIProvider>
       </div>
