@@ -454,3 +454,68 @@ export const deviceFrames = pgTable('device_frames', {
   // All AVL IO keys from this record. Buffer values are serialised as {hex, dec}.
   ioRaw: jsonb('io_raw'),
 });
+
+/**
+ * Service intervals per vehicle, measured against the tracker's own odometer
+ * (AVL 16) rather than a number somebody typed in. That is the whole point:
+ * a schedule anchored to hand-entered mileage drifts the moment a driver
+ * forgets, and every "overdue" figure after that is fiction.
+ */
+export const maintenanceSchedules = pgTable(
+  'maintenance_schedules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    vehicleId: uuid('vehicle_id')
+      .notNull()
+      .references(() => vehicles.id, { onDelete: 'cascade' }),
+    /** 'oil_change' | 'tyres' | 'brakes' | 'service' | free text */
+    kind: varchar('kind', { length: 40 }).notNull(),
+    /** Distance between services. Null = time-based only. */
+    intervalKm: integer('interval_km'),
+    /** Days between services. Null = distance-based only. */
+    intervalDays: integer('interval_days'),
+    /** Odometer reading at the last service, in km. */
+    lastServiceKm: integer('last_service_km'),
+    lastServiceAt: timestamp('last_service_at'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (table) => [
+    unique().on(table.vehicleId, table.kind),
+    index('maintenance_customer_idx').on(table.customerId),
+  ]
+);
+
+/**
+ * Zones a fleet cares about. Stored as either a circle (centre + radius) or a
+ * polygon ring, because depots are circles and territories are not, and
+ * forcing one shape onto the other produces alerts nobody trusts.
+ */
+export const geofences = pgTable(
+  'geofences',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 120 }).notNull(),
+    /** 'circle' | 'polygon' */
+    shape: varchar('shape', { length: 12 }).notNull().default('circle'),
+    centerLat: numeric('center_lat', { precision: 10, scale: 6 }),
+    centerLng: numeric('center_lng', { precision: 11, scale: 6 }),
+    radiusM: integer('radius_m'),
+    /** [[lat, lng], ...] ring for polygon zones. */
+    polygon: jsonb('polygon'),
+    /** 'depot' | 'customer' | 'restricted' — drives how a breach is phrased. */
+    purpose: varchar('purpose', { length: 24 }).notNull().default('depot'),
+    /** Alert when a vehicle enters, leaves, or both. */
+    notifyOn: varchar('notify_on', { length: 12 }).notNull().default('both'),
+    active: boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (table) => [index('geofence_customer_idx').on(table.customerId)]
+);

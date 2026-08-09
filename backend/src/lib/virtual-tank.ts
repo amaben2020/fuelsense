@@ -571,6 +571,13 @@ export async function calibrateTank(
       // next device reading re-baseline, so a stale pointer can never be billed
       // as a phantom catch-up delta.
       lastFuelUsedMl: null,
+      // The anchor has to go with it. `applyFuelGpsReading` recomputes the
+      // level from (anchorLevel − travelled × k) and only falls back to the
+      // calibrated level when no anchor is stored, so leaving a stale anchor
+      // here meant the very next frame recomputed the old level and silently
+      // threw the calibration away.
+      anchorLevelMl: null,
+      anchorAccumulatorMl: null,
       calibratedAt: sql`NOW()`,
       calibrationSource: source,
       consumedSinceCalibrationMl: 0,

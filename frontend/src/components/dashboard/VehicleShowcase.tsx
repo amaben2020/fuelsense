@@ -10,6 +10,7 @@ import { useEstimatedConsumption } from './EstimatedConsumptionTable';
 import { VirtualFuelGauge } from './VirtualFuelGauge';
 import { FuelLevelChart } from './FuelLevelChart';
 import { VehicleSignalsTable } from './VehicleSignalsTable';
+import { PowerDiagnostics } from './PowerDiagnostics';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { HatchBar, Panel, StatusChip } from '@/components/ui/chrome';
 
@@ -242,6 +243,11 @@ export function VehicleShowcase({
               />
             )}
           </div>
+
+          <PowerDiagnostics
+            vehicleId={vehicle.id}
+            refreshKey={vehicle.last_telemetry_at ?? 0}
+          />
 
           {!online && vehicle.connection_status !== 'no_device' && (
             <div className="flex items-center gap-3 rounded-lg border border-warn/40 bg-warn-deep/20 px-4 py-3 text-sm text-warn">

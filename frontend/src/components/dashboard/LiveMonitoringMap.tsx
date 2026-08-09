@@ -6,11 +6,14 @@ import { DateRangePicker } from './DateRangePicker';
 import { lerp, timeAgo, tripColor } from '@/lib/map-utils';
 import {
   FleetVehicle,
+  Geofence,
   ServerTrip,
   StopPlace,
   TripStop,
   TripsResponse,
   VehicleTrack,
+  createGeofence,
+  fetchGeofences,
   fetchStopPlace,
   formatOdometerMiles,
   placePhotoSrc,
@@ -18,6 +21,8 @@ import {
 import {
   FLEET_MAPS_KEY,
   LAGOS_CENTER,
+  ROUTE_ACTIVE,
+  ROUTE_PRIMARY,
   fleetMapDefaults,
 } from '@/lib/fleet-map-theme';
 import {
@@ -26,7 +31,7 @@ import {
   TripBadgeMarker,
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
-import { Crosshair, Minus, Plus } from 'lucide-react';
+import { Crosshair, Minus, Pentagon, Plus } from 'lucide-react';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { TripDetailModal } from './TripDetailModal';
 import { StopDetailModal } from './StopDetailModal';
@@ -115,6 +120,67 @@ function clockTime(iso: string): string {
   return Number.isNaN(d.getTime())
     ? '—'
     : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Draws saved zones onto the map.
+ *
+ * google.maps.Circle rather than an SVG overlay: a circle in screen pixels
+ * would keep its size as the user zooms, which is exactly wrong — a 400 m
+ * depot has to stay 400 m of ground however far out you are.
+ */
+function GeofenceCircles({
+  zones,
+  pending,
+}: {
+  zones: Geofence[];
+  pending: { lat: number; lng: number; radius: number } | null;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+    const drawn: google.maps.Circle[] = [];
+
+    for (const z of zones) {
+      if (z.center_lat == null || z.center_lng == null || !z.radius_m) continue;
+      drawn.push(
+        new google.maps.Circle({
+          map,
+          center: { lat: Number(z.center_lat), lng: Number(z.center_lng) },
+          radius: z.radius_m,
+          strokeColor: ROUTE_PRIMARY,
+          strokeOpacity: 0.9,
+          strokeWeight: 2,
+          fillColor: ROUTE_PRIMARY,
+          fillOpacity: 0.1,
+          clickable: false,
+        })
+      );
+    }
+
+    if (pending) {
+      drawn.push(
+        new google.maps.Circle({
+          map,
+          center: { lat: pending.lat, lng: pending.lng },
+          radius: pending.radius,
+          strokeColor: ROUTE_ACTIVE,
+          strokeOpacity: 1,
+          strokeWeight: 2,
+          // Dashed would be ideal; the API has no dash option for circles, so
+          // the unsaved zone is distinguished by a brighter stroke and fill.
+          fillColor: ROUTE_ACTIVE,
+          fillOpacity: 0.2,
+          clickable: false,
+        })
+      );
+    }
+
+    return () => drawn.forEach((c) => c.setMap(null));
+  }, [map, zones, pending]);
+
+  return null;
 }
 
 /**
@@ -500,6 +566,49 @@ export function LiveMonitoringMap({
     [fleet],
   );
 
+  // Zone drawing. Kept local to the map because a half-drawn zone is not
+  // application state — leaving the view should discard it, not persist it.
+  const [zones, setZones] = useState<Geofence[]>([]);
+  const [drawing, setDrawing] = useState(false);
+  const [pendingZone, setPendingZone] = useState<
+    { lat: number; lng: number; radius: number } | null
+  >(null);
+  const [zoneName, setZoneName] = useState('');
+  const [savingZone, setSavingZone] = useState(false);
+  const [zoneError, setZoneError] = useState<string | null>(null);
+
+  const loadZones = useCallback(() => {
+    fetchGeofences()
+      .then(setZones)
+      .catch(() => setZones([]));
+  }, []);
+
+  useEffect(() => {
+    loadZones();
+  }, [loadZones]);
+
+  const saveZone = async () => {
+    if (!pendingZone || !zoneName.trim()) return;
+    setSavingZone(true);
+    setZoneError(null);
+    try {
+      await createGeofence({
+        name: zoneName.trim(),
+        center_lat: pendingZone.lat,
+        center_lng: pendingZone.lng,
+        radius_m: Math.round(pendingZone.radius),
+      });
+      setPendingZone(null);
+      setZoneName('');
+      setDrawing(false);
+      loadZones();
+    } catch (err) {
+      setZoneError((err as Error).message);
+    } finally {
+      setSavingZone(false);
+    }
+  };
+
   const mapOptions = useMemo(
     () =>
       fleetMapDefaults(
@@ -568,8 +677,17 @@ export function LiveMonitoringMap({
             defaultCenter={initialCenter ?? latestFix ?? LAGOS_CENTER}
             defaultZoom={13}
             style={{ width: '100%', height: '100%' }}
+            onClick={(e) => {
+              if (!drawing || !e.detail.latLng) return;
+              setPendingZone({
+                lat: e.detail.latLng.lat,
+                lng: e.detail.latLng.lng,
+                radius: pendingZone?.radius ?? 400,
+              });
+            }}
           >
             <MapResizeFix />
+            <GeofenceCircles zones={zones} pending={pendingZone} />
             <MapInitialRecenter
               target={
                 selectedTrack
@@ -607,6 +725,7 @@ export function LiveMonitoringMap({
                     path={path}
                     color={tripColor(i)}
                     emphasized={emphasized}
+                    flowing={!!trip.active}
                   />
                 );
               });
@@ -681,9 +800,104 @@ export function LiveMonitoringMap({
             <div className="pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col items-center gap-2">
               <ZoomControls />
               <RecenterControl tracks={animated} onRecenter={onUserPan} />
+              <MapControl
+                icon={Pentagon}
+                label={drawing ? 'Cancel zone' : 'Draw a zone'}
+                onClick={() => {
+                  setDrawing((d) => !d);
+                  setPendingZone(null);
+                  setZoneError(null);
+                }}
+              />
             </div>
+            {/* Legend. The stop dots are the only thing on the map encoding
+                meaning purely in colour, so the key has to be on screen —
+                otherwise an amber dot is just an amber dot. */}
+            <div className="pointer-events-none absolute bottom-4 left-4 z-10 rounded-xl border border-edge bg-panel/85 px-3 py-2.5 backdrop-blur">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+                Stops
+              </p>
+              <ul className="space-y-1">
+                {[
+                  { c: 'bg-brand', t: 'Trip start' },
+                  { c: 'bg-traffic', t: 'Slow traffic' },
+                  { c: 'bg-warn', t: 'Stopped' },
+                  { c: 'bg-ink-dim', t: 'Brief pause' },
+                  { c: 'bg-bad', t: 'Trip end' },
+                ].map(({ c, t }) => (
+                  <li key={t} className="flex items-center gap-2 text-[11px] text-ink-mid">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${c}`} />
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {drawing && !pendingZone && (
+              <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-full border border-accent-y/40 bg-panel/95 px-4 py-2 text-xs font-medium text-ink shadow-xl backdrop-blur">
+                Click the map to place the centre of the zone
+              </div>
+            )}
+
+            {pendingZone && (
+              <div className="absolute left-1/2 top-4 z-30 w-[19rem] -translate-x-1/2 rounded-2xl border border-edge bg-panel/95 p-4 shadow-2xl backdrop-blur">
+                <p className="text-sm font-bold text-ink">New zone</p>
+                <p className="mt-0.5 text-[11px] text-ink-dim">
+                  {pendingZone.lat.toFixed(5)}, {pendingZone.lng.toFixed(5)} — click again to
+                  move it
+                </p>
+                <input
+                  autoFocus
+                  value={zoneName}
+                  onChange={(e) => setZoneName(e.target.value)}
+                  placeholder="Zone name (e.g. Ado depot)"
+                  className="mt-3 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-accent-y focus:outline-none"
+                />
+                <label className="mt-3 block">
+                  <span className="flex items-center justify-between text-[11px] text-ink-dim">
+                    Radius
+                    <span className="font-semibold tabular-nums text-ink">
+                      {Math.round(pendingZone.radius)} m
+                    </span>
+                  </span>
+                  <input
+                    type="range"
+                    min={50}
+                    max={5000}
+                    step={50}
+                    value={pendingZone.radius}
+                    onChange={(e) =>
+                      setPendingZone({ ...pendingZone, radius: Number(e.target.value) })
+                    }
+                    className="mt-1.5 w-full accent-[var(--accent-y)]"
+                  />
+                </label>
+                {zoneError && <p className="mt-2 text-xs text-bad">{zoneError}</p>}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={saveZone}
+                    disabled={savingZone || zoneName.trim() === ''}
+                    className="flex-1 rounded-lg bg-accent-y px-3 py-2 text-xs font-semibold text-accent-y-ink transition-opacity hover:opacity-90 disabled:opacity-40"
+                  >
+                    {savingZone ? 'Saving…' : 'Save zone'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingZone(null);
+                      setZoneName('');
+                      setZoneError(null);
+                    }}
+                    className="rounded-lg border border-edge px-3 py-2 text-xs font-medium text-ink-mid hover:bg-panel-hover"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             <p className="pointer-events-none absolute bottom-4 right-4 z-10 text-[10px] text-ink-dim/70">
-              Drag to pan · scroll to zoom
+              {drawing ? 'Zone mode — click to place' : 'Drag to pan · scroll to zoom'}
             </p>
           </Map>
         </APIProvider>

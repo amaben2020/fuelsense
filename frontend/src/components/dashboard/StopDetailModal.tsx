@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Clock, ExternalLink, Loader2, MapPin, X } from 'lucide-react';
+import { RotateCw } from 'lucide-react';
 import { StopPlace, TripStop, fetchStopPlace, placePhotoSrc } from '@/lib/api';
 
 const KIND_LABEL: Record<TripStop['kind'], string> = {
@@ -53,6 +54,8 @@ export function StopDetailModal({
   // Drop the whole figure, not just the <img> — hiding the image alone left
   // its caption badge floating over the text beneath it.
   const [imageFailed, setImageFailed] = useState(false);
+  /** Bumped to re-run the lookup — the error state previously had no way out. */
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (!stop) return;
@@ -72,7 +75,7 @@ export function StopDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [stop]);
+  }, [stop, attempt]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -144,9 +147,24 @@ export function StopDetailModal({
           )}
 
           {error && (
-            <p className="rounded-lg bg-bad-deep/20 p-3 text-sm text-bad">
-              Could not resolve this location: {error}
-            </p>
+            <div className="rounded-lg bg-bad-deep/20 p-3">
+              <p className="text-sm text-bad">Could not resolve this location: {error}</p>
+              {/* The coordinates below still work regardless, so this is a
+                  recoverable failure and has to offer a way out. */}
+              <button
+                type="button"
+                onClick={() => {
+                  // Reset here rather than in the effect: a synchronous
+                  // setState inside an effect body cascades an extra render.
+                  setError(null);
+                  setLoading(true);
+                  setAttempt((n) => n + 1);
+                }}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-panel-hover"
+              >
+                <RotateCw className="h-3.5 w-3.5" /> Retry
+              </button>
+            </div>
           )}
 
           {place?.formatted_address && (

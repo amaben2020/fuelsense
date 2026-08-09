@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Clock, Droplet, Gauge, MapPin, Route, X } from 'lucide-react';
+import { AlertTriangle, Clock, Droplet, Gauge, MapPin, Route, X } from 'lucide-react';
 import { IdleStretch, ServerTrip, TripStop, formatNgn } from '@/lib/api';
 import { StopDetailModal } from './StopDetailModal';
 
@@ -135,14 +135,14 @@ export function TripDetailModal({
   // Thursday?"), so trips are grouped by day. Newest first throughout — the
   // question being asked is almost always "what happened last?", and having to
   // scroll to the bottom of a day to find the most recent trip inverts that.
-  // Oldest first, so scrolling down always moves forward in time. The list was
-  // newest-first while each trip's own timeline ran forwards, which meant the
-  // page read backwards at one level and forwards at the next.
+  // Newest trip first within each day — the most recent run is what a manager
+  // opens this for. The timeline *inside* each trip still runs forwards, which
+  // is correct: the list is a feed, a single trip is a sequence.
   const dayGroups = useMemo(() => {
     const groups = new globalThis.Map<string, { label: string; trips: ServerTrip[] }>();
 
     for (const trip of [...trips].sort(
-      (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()
+      (a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()
     )) {
       const d = new Date(trip.start_at);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -344,7 +344,7 @@ export function TripDetailModal({
                               }
                               className="ml-5 flex w-[calc(100%-1.25rem)] items-center gap-2 rounded-lg border-l border-warn/30 px-2 py-1 text-left text-[11px] transition-colors hover:bg-warn/10 disabled:cursor-default disabled:opacity-70"
                             >
-                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" />
                               <span className="min-w-0 truncate text-warn">
                                 Engine idling {item.idle.minutes}m
                                 {item.idle.place_label ? ` at ${item.idle.place_label}` : ''}

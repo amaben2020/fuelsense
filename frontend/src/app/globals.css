@@ -4,16 +4,18 @@
   --background: #ffffff;
   --foreground: #171717;
 
-  /* FuelSense palette — neon enterprise, dark (default) */
-  --canvas: #0b0e13;
-  --panel: #12161e;
-  --panel-deep: #0e1219;
-  --panel-hover: #1a202b;
-  --divider: #1e2530;
-  --edge: #28303d;
-  --ink: #e8ecf4;
-  --ink-mid: #b7bfcc;
-  --ink-dim: #7d8697;
+  /* Neutral dark greys. The surfaces used to carry a blue cast, which read as
+     a second hue next to the lemon and made the whole app look tinted rather
+     than dark. */
+  --canvas: #0e0e11;
+  --panel: #17171b;
+  --panel-deep: #121215;
+  --panel-hover: #202025;
+  --divider: #242429;
+  --edge: #2f2f36;
+  --ink: #ededf1;
+  --ink-mid: #b9b9c2;
+  --ink-dim: #86868f;
   /* Lemon green is the single accent — the old neon mint (#00e599) and its
      glow are gone. Because "good" is now a yellow-green, `--warn` has been
      pushed off yellow and onto a clear orange: a lemon good-state next to an
@@ -21,7 +23,7 @@
   --brand: #cde04a;
   --good: #cde04a;
   --warn: #ff9436;
-  --traffic: #ff9436;
+  --traffic: #f5c518;  /* slow traffic — yellow, distinct from the orange warn */
   --bad: #ffb4ab;
   --bad-bright: #ff6b6b;
   --bad-ink: #690005;
@@ -35,8 +37,8 @@
   --fuel-amber: #dfa94a;
   --fuel-amber-deep: #a97a2c;
   /* Rail/instrument surfaces sit above --panel so gauges read as inset. */
-  --instrument: #1c1f26;
-  --instrument-tick: #4a5261;
+  --instrument: #1e1e22;
+  --instrument-tick: #52525b;
 }
 
 .light {
@@ -54,7 +56,7 @@
   --brand: #5c7410;
   --good: #5c7410;
   --warn: #b4530a;
-  --traffic: #b4530a;
+  --traffic: #9a7200;  /* slow traffic, light mode */
   --bad: #c22f2f;
   --bad-bright: #d32f2f;
   --bad-ink: #ffffff;

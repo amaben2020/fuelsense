@@ -1291,3 +1291,154 @@ export interface DeviceEventsSummary {
   idle_burn_liters_per_hour?: number;
   vehicles: BehaviorVehicle[];
 }
+
+// ---------------------------------------------------------------------------
+// Fleet intelligence — all derived from AVL elements the FMC150 already sends.
+// ---------------------------------------------------------------------------
+
+export interface MaintenanceItem {
+  id: string;
+  vehicle_id: string;
+  license_plate: string;
+  make: string | null;
+  model: string | null;
+  kind: string;
+  interval_km: number | null;
+  interval_days: number | null;
+  last_service_km: number | null;
+  last_service_at: string | null;
+  current_km: number | null;
+  /** False = mileage is distance-since-fitting, not the dashboard reading. */
+  odometer_anchored: boolean;
+  odometer_at: string | null;
+  due_at_km: number | null;
+  km_remaining: number | null;
+  due_at: string | null;
+  days_remaining: number | null;
+  status: 'ok' | 'due_soon' | 'overdue';
+}
+
+export interface MaintenanceResponse {
+  thresholds: { due_soon_km: number; due_soon_days: number };
+  overdue: number;
+  due_soon: number;
+  items: MaintenanceItem[];
+}
+
+export interface SecurityEvent {
+  vehicle_id: string;
+  license_plate: string;
+  driver_name: string | null;
+  at: string;
+  latitude: number | null;
+  longitude: number | null;
+  kind: 'signal_loss' | 'reporting_gap';
+  gsm_signal: number | null;
+  battery_current_ma: number | null;
+  speed_before_kph: number | null;
+  gap_seconds: number | null;
+}
+
+export interface SecurityResponse {
+  period_days: number;
+  thresholds: { weak_gsm_bars: number; reporting_gap_seconds: number };
+  events: SecurityEvent[];
+}
+
+export interface HoursVehicle {
+  vehicle_id: string;
+  license_plate: string;
+  driver_name: string | null;
+  stretches: number;
+  total_hours: number;
+  longest_hours: number;
+  long_stretches: number;
+  night_stretches: number;
+}
+
+export interface HoursResponse {
+  period_days: number;
+  thresholds: { break_minutes: number; fatigue_hours: number };
+  vehicles: HoursVehicle[];
+  flagged: {
+    license_plate: string;
+    driver_name: string | null;
+    started_at: string;
+    ended_at: string;
+    hours: number;
+    night: boolean;
+  }[];
+}
+
+export interface UtilisationVehicle {
+  vehicle_id: string;
+  license_plate: string;
+  make: string | null;
+  model: string | null;
+  driver_name: string | null;
+  distance_km: number;
+  engine_hours: number;
+  ignition_cycles: number;
+  active_days: number;
+  active_share: number;
+  km_per_active_day: number | null;
+  km_per_engine_hour: number | null;
+}
+
+export interface UtilisationResponse {
+  period_days: number;
+  vehicles: UtilisationVehicle[];
+}
+
+export interface Geofence {
+  id: string;
+  name: string;
+  shape: string;
+  center_lat: string | null;
+  center_lng: string | null;
+  radius_m: number | null;
+  purpose: string;
+  notify_on: string;
+  active: boolean;
+}
+
+export interface GeofenceEvent {
+  vehicle_id: string;
+  license_plate: string;
+  driver_name: string | null;
+  zone_id: string;
+  zone_name: string;
+  purpose: string;
+  direction: 'entered' | 'exited';
+  at: string;
+  latitude: number;
+  longitude: number;
+}
+
+export const fetchMaintenance = () => api<MaintenanceResponse>('/maintenance');
+export const fetchSecuritySignals = (days = 30) =>
+  api<SecurityResponse>(`/intelligence/security?days=${days}`);
+export const fetchDrivingHours = (days = 30) =>
+  api<HoursResponse>(`/intelligence/hours?days=${days}`);
+export const fetchUtilisation = (days = 30) =>
+  api<UtilisationResponse>(`/intelligence/utilisation?days=${days}`);
+export const fetchGeofences = () => api<Geofence[]>('/geofences');
+export const fetchGeofenceEvents = (days = 30) =>
+  api<{ period_days: number; evaluates: string; events: GeofenceEvent[] }>(
+    `/geofences/events?days=${days}`
+  );
+
+export function createGeofence(input: {
+  name: string;
+  center_lat: number;
+  center_lng: number;
+  radius_m: number;
+  purpose?: string;
+  notify_on?: string;
+}): Promise<Geofence> {
+  return api<Geofence>('/geofences', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function deleteGeofence(id: string): Promise<void> {
+  return api<void>(`/geofences/${id}`, { method: 'DELETE' });
+}

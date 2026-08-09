@@ -83,7 +83,7 @@ export function StatPills({ items, className = '' }: { items: StatPill[]; classN
           title={title}
           className="inline-flex items-center gap-2 rounded-full border border-edge bg-panel py-1.5 pl-1.5 pr-3.5 shadow-sm"
         >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-panel-deep text-ink-dim">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-y/12 text-accent-y">
             <Icon className="h-3.5 w-3.5" />
           </span>
           <span className="leading-tight">
@@ -576,7 +576,7 @@ export function IconRail<T extends string>({
                 aria-current={isActive ? 'page' : undefined}
                 className={`relative flex h-11 w-full items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent-y focus-visible:ring-offset-2 focus-visible:ring-offset-panel ${
                   isActive
-                    ? 'bg-ink text-canvas'
+                    ? 'bg-accent-y text-accent-y-ink'
                     : 'bg-panel-deep text-ink-dim hover:bg-panel-hover hover:text-ink'
                 }`}
               >

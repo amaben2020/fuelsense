@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useEffect, useMemo } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { Marker, Polyline, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 import {
   ROUTE_DIM,
@@ -12,6 +12,56 @@ import {
 // SVG arc path for a unit circle — used as the dotted trail symbol.
 // Numeric SymbolPath.CIRCLE (0) is avoided to keep the import side-effect-free.
 const CIRCLE_PATH = 'M 0 -1 A 1 1 0 1 0 0 1 A 1 1 0 1 0 0 -1 Z';
+
+// Chevron pointing along the direction of travel. Google rotates line symbols
+// to the segment angle, so this reads as a forward arrow anywhere on the path.
+const CHEVRON_PATH = 'M -1.1 -1.1 L 0.4 0 L -1.1 1.1';
+
+// How many pieces the emphasized trail is cut into to fade from tail to head.
+// Enough to look continuous at screen width, few enough to stay cheap.
+const FADE_SLICES = 14;
+
+/**
+ * Cuts a path into contiguous slices for the tail fade. Each slice repeats its
+ * predecessor's final point so consecutive polylines butt together without a
+ * visible seam. Paths shorter than `count` segments degrade to one slice per
+ * segment rather than producing empty polylines.
+ */
+function fadeSlices(
+  path: google.maps.LatLngLiteral[],
+  count: number,
+): google.maps.LatLngLiteral[][] {
+  const segments = path.length - 1;
+  if (segments <= count) {
+    return path.slice(0, -1).map((p, i) => [p, path[i + 1]]);
+  }
+  const out: google.maps.LatLngLiteral[][] = [];
+  for (let i = 0; i < count; i++) {
+    const start = Math.floor((segments * i) / count);
+    const end = Math.floor((segments * (i + 1)) / count);
+    out.push(path.slice(start, end + 1));
+  }
+  return out;
+}
+
+/**
+ * Drives the marching-chevron offset for live trips. ~12fps rather than rAF:
+ * this is ambient motion on a dashboard that may already be running the 3D
+ * vehicle, and nobody can read the difference on a crawling arrow.
+ */
+function useMarchingOffset(active: boolean): number {
+  const [offset, setOffset] = useState(0);
+
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => {
+      if (!document.hidden) setOffset((o) => (o + 3) % 100);
+    }, 80);
+    return () => clearInterval(id);
+  }, [active]);
+
+  return active ? offset : 0;
+}
 
 export function MapResizeFix() {
   const map = useMap();
@@ -39,48 +89,120 @@ export const EmphasizedRoute = memo(function EmphasizedRoute({
   path,
   color = ROUTE_PRIMARY,
   emphasized = true,
+  flowing = false,
 }: {
   path: google.maps.LatLngLiteral[];
   traveledPath?: google.maps.LatLngLiteral[]; // kept for API compat, unused
   color?: string;
   activeColor?: string;
   emphasized?: boolean;
+  /** Trip is still in progress — chevrons march toward the vehicle. */
+  flowing?: boolean;
 }) {
+  const marchOffset = useMarchingOffset(flowing && emphasized && path.length > 1);
+
   if (path.length < 2) return null;
 
-  const dotScale = emphasized ? 2.8 : 1.8;
-  const dotOpacity = emphasized ? 0.9 : 0.45;
-  const dotRepeat = emphasized ? '10px' : '14px';
+  // Background trips are context, not the subject. A single dim line reads as
+  // "another journey" without competing with the selected trail, and keeps the
+  // polyline count flat when a whole fleet is on screen.
+  if (!emphasized) {
+    return (
+      <>
+        <Polyline
+          path={path}
+          strokeColor={ROUTE_DIM}
+          strokeOpacity={0.4}
+          strokeWeight={3}
+          geodesic
+          zIndex={1}
+        />
+        <Polyline
+          path={path}
+          strokeColor={color}
+          strokeOpacity={0.3}
+          strokeWeight={1.6}
+          geodesic
+          zIndex={2}
+          icons={[
+            {
+              icon: {
+                path: CIRCLE_PATH,
+                scale: 1.5,
+                fillColor: color,
+                fillOpacity: 0.5,
+                strokeWeight: 0,
+              } as google.maps.Symbol,
+              offset: '0%',
+              repeat: '26px',
+            },
+          ]}
+        />
+      </>
+    );
+  }
+
+  const slices = fadeSlices(path, FADE_SLICES);
 
   return (
     <>
-      {/* Thin dark rail so the dots have contrast against the basemap */}
+      {/* Bloom. A wide, near-transparent stroke gives the active trail the same
+          halo the vehicle puck has, so the two read as one object. */}
+      <Polyline
+        path={path}
+        strokeColor={color}
+        strokeOpacity={0.09}
+        strokeWeight={16}
+        geodesic
+        zIndex={0}
+      />
+      {/* Dark rail underneath — the lemon needs a shadow to stay legible where
+          the trail crosses a lit road fill rather than the map background. */}
       <Polyline
         path={path}
         strokeColor={ROUTE_DIM}
-        strokeOpacity={emphasized ? 0.7 : 0.4}
-        strokeWeight={emphasized ? 4 : 2}
+        strokeOpacity={0.8}
+        strokeWeight={7}
         geodesic
         zIndex={1}
       />
-      {/* Dotted trail — the dots ARE the trail */}
+      {/* Core, sliced so the trail fades and thins toward the oldest fix. The
+          bright, thick end is where the vehicle is now, which makes direction
+          of travel readable at a glance — before you resolve any arrows. */}
+      {slices.map((slice, i) => {
+        const t = (i + 1) / slices.length;
+        return (
+          <Polyline
+            key={`fade-${i}`}
+            path={slice}
+            strokeColor={color}
+            strokeOpacity={0.14 + t * 0.81}
+            strokeWeight={2.4 + t * 2.1}
+            geodesic
+            zIndex={2}
+          />
+        );
+      })}
+      {/* Chevrons notched out of the core. Dark-on-lemon rather than a second
+          bright colour, so direction is legible without adding a hue. */}
       <Polyline
         path={path}
         strokeOpacity={0}
         strokeWeight={1}
         geodesic
-        zIndex={2}
+        zIndex={3}
         icons={[
           {
             icon: {
-              path: CIRCLE_PATH,
-              scale: dotScale,
-              fillColor: color,
-              fillOpacity: dotOpacity,
-              strokeWeight: 0,
+              path: CHEVRON_PATH,
+              scale: 2.2,
+              strokeColor: '#0b0e13',
+              strokeOpacity: 0.85,
+              strokeWeight: 2,
+              fillOpacity: 0,
             } as google.maps.Symbol,
-            offset: '0%',
-            repeat: dotRepeat,
+            offset: `${marchOffset}%`,
+            repeat: '52px',
           },
         ]}
       />
