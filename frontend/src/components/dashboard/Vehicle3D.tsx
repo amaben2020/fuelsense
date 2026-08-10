@@ -154,8 +154,34 @@ function makeShadowTexture(): THREE.CanvasTexture {
   return new THREE.CanvasTexture(canvas);
 }
 
-export function Vehicle3D({ plate, model }: { plate: string; model: string | null }) {
+export type HotspotId = 'engine' | 'tracker' | 'tank';
+
+/** Where each part sits on the model, and what the marker should say. */
+const HOTSPOTS: { id: HotspotId; label: string; pos: [number, number, number] }[] = [
+  { id: 'engine', label: 'Engine bay', pos: [1.75, 1.55, 0] },
+  // Under the dash on the driver side — where an FMC150 is actually fitted.
+  { id: 'tracker', label: 'Tracker', pos: [0.75, 1.62, 0.55] },
+  { id: 'tank', label: 'Fuel tank', pos: [-1.5, 0.75, 0] },
+];
+
+export function Vehicle3D({
+  plate,
+  model,
+  onSelectHotspot,
+}: {
+  plate: string;
+  model: string | null;
+  /** Called when a pulsing marker on the vehicle is clicked. */
+  onSelectHotspot?: (id: HotspotId) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Held in a ref so changing the handler never tears down and rebuilds the
+  // scene. Synced in an effect rather than during render — the scene reads it
+  // only from pointer events, which always run after commit.
+  const hotspotHandler = useRef(onSelectHotspot);
+  useEffect(() => {
+    hotspotHandler.current = onSelectHotspot;
+  }, [onSelectHotspot]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -182,6 +208,30 @@ export function Vehicle3D({ plate, model }: { plate: string; model: string | nul
     scene.add(stage);
 
     stage.add(buildSuv(plate, model));
+
+    // Pulsing markers. A halo ring plus a core sphere so they read as
+    // "interactive" against a static model rather than as body detail.
+    const hotspotMeshes: THREE.Mesh[] = [];
+    for (const spot of HOTSPOTS) {
+      const group = new THREE.Group();
+      const core = new THREE.Mesh(
+        new THREE.SphereGeometry(0.14, 20, 20),
+        new THREE.MeshBasicMaterial({ color: GREEN })
+      );
+      const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(0.26, 20, 20),
+        new THREE.MeshBasicMaterial({ color: GREEN, transparent: true, opacity: 0.25 })
+      );
+      group.add(core, halo);
+      group.position.set(...spot.pos);
+      // Only the core is raycast against; the halo is decoration and a larger
+      // hit target would make neighbouring markers ambiguous.
+      core.userData.hotspot = spot.id;
+      halo.userData.halo = true;
+      stage.add(group);
+      hotspotMeshes.push(core);
+      hotspotMeshes.push(halo);
+    }
 
     const shadow = new THREE.Mesh(
       new THREE.PlaneGeometry(9, 9),
@@ -212,13 +262,58 @@ export function Vehicle3D({ plate, model }: { plate: string; model: string | nul
 
     // ~15fps auto-rotate instead of a 60fps loop — a dashboard tab
     // shouldn't peg the GPU for a slow turntable.
+    let pulse = 0;
     const spin = setInterval(() => {
       if (!document.hidden) {
+        pulse += 0.066;
+        // Breathing halo — the "blinking" that marks a part as clickable.
+        const scale = 1 + Math.sin(pulse * 3) * 0.28;
+        for (const mesh of hotspotMeshes) {
+          if (mesh.userData.halo) mesh.scale.setScalar(scale);
+        }
         controls.update();
         render();
       }
     }, 66);
     controls.addEventListener('change', render);
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    const pickHotspot = (event: PointerEvent): HotspotId | null => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(hotspotMeshes, false);
+      for (const hit of hits) {
+        const id = hit.object.userData.hotspot as HotspotId | undefined;
+        if (id) return id;
+      }
+      return null;
+    };
+
+    // OrbitControls owns pointerdown for dragging, so selection is decided on
+    // pointerup and only when the pointer barely moved — otherwise every orbit
+    // that happened to start on a marker would open a modal.
+    let downAt: { x: number; y: number } | null = null;
+    const onPointerDown = (e: PointerEvent) => {
+      downAt = { x: e.clientX, y: e.clientY };
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!downAt) return;
+      const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
+      downAt = null;
+      if (moved > 4) return;
+      const id = pickHotspot(e);
+      if (id) hotspotHandler.current?.(id);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      renderer.domElement.style.cursor = pickHotspot(e) ? 'pointer' : '';
+    };
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
 
     const resize = () => {
       const r = container.getBoundingClientRect();
@@ -234,6 +329,9 @@ export function Vehicle3D({ plate, model }: { plate: string; model: string | nul
 
     return () => {
       clearInterval(spin);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
       observer.disconnect();
       controls.removeEventListener('change', render);
       controls.dispose();

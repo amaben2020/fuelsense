@@ -128,6 +128,10 @@ export function FleetOperationsOverview({
   const periodDays = efficiencySummary?.period_days ?? periodDaysProp;
   const preventableLoss = efficiencySummary?.total_loss_ngn ?? summary?.estimated_theft_loss_ngn ?? 0;
 
+  // Only receipts are money that actually left someone's hands. The telemetry
+  // figure is fuel *burned*, and falling back to it under a "paid at the pump"
+  // caption reported ₦52 of idling as a pump purchase on a day with no receipts.
+  const pumpSpend = efficiencySummary?.total_actual_cost_ngn ?? 0;
   const fuelSpend =
     efficiencySummary?.total_actual_cost_ngn ??
     efficiencySummary?.total_telemetry_cost_ngn ??
@@ -565,14 +569,16 @@ export function FleetOperationsOverview({
                 ? `${fuelContext.liters.toFixed(1)} L over ${Math.round(
                     fuelContext.distanceKm
                   )} km at ${formatNgn(fuelContext.pricePerLiter)}/L`
-                : 'Measured by the tracker'}
+                : 'Measured by the tracker — no distance in this window, so this is idling'}
             </p>
             {/* Bought and burned are different questions. Keeping the receipt
                 total visible but subordinate stops the two being read as one. */}
-            {fuelSpend > 0 && (
+            {pumpSpend > 0 ? (
               <p className="mt-1 text-xs text-ink-dim">
-                {formatNgn(fuelSpend)} paid at the pump this period — the rest is still in the tank
+                {formatNgn(pumpSpend)} paid at the pump this period — the rest is still in the tank
               </p>
+            ) : (
+              <p className="mt-1 text-xs text-ink-dim">No fuel bought in this period</p>
             )}
 
             {fuelContext && (

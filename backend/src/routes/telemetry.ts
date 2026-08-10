@@ -132,7 +132,7 @@ router.get('/tracks', async (req: Request, res: Response) => {
 
   try {
     const key = cacheKey(customerId, 'tracks', String(minutes));
-    const cached = await withCache(key, 4, async () => {
+    const cached = await withCache(key, 15, async () => {
       // Tier 1 — live window (user-selected trail duration).
       // Sampled every Nth point per vehicle so a week-long trail keeps its
       // full shape end-to-end. A plain LIMIT would have returned only the
@@ -221,8 +221,10 @@ router.get('/trips', async (req: Request, res: Response) => {
   // Money shown against a trip is only as real as the price behind it, so the
   // rate comes from this fleet's most recent logged receipt. No receipt means
   // no price, and the response carries null rather than an assumed rate.
-  const price = await latestReceiptPrice(customerId);
-  const pricePerLiter = price?.ngnPerLiter ?? null;
+  // Deliberately NOT awaited here: this ran on every request, ahead of the
+  // cache, so a cache hit still cost a database round trip. Resolved inside the
+  // cached block instead, where it is shared by every caller in the TTL window.
+  let pricePerLiter: number | null = null;
 
   // Explicit calendar range wins over the rolling `minutes` window when both
   // ends parse. Used by the date-range picker; `minutes` stays the default so
@@ -249,7 +251,9 @@ router.get('/trips', async (req: Request, res: Response) => {
         ? `${fromDate!.toISOString()}..${toDate!.toISOString()}:${allowFallback ? 'fb' : 'strict'}`
         : `${minutes}:${allowFallback ? 'fb' : 'strict'}`
     );
-    const cached = await withCache(key, 15, async () => {
+    const cached = await withCache(key, 60, async () => {
+      const price = await latestReceiptPrice(customerId);
+      pricePerLiter = price?.ngnPerLiter ?? null;
       const tripColumns = sql`
         t.vehicle_id,
         v.license_plate,
@@ -1400,7 +1404,7 @@ router.get('/vehicle-signals', async (req: Request, res: Response) => {
 
   try {
     const key = cacheKey(customerId, 'vehicle-signals', `${vehicleId}:${days}`);
-    const cached = await withCache(key, 10, async () => {
+    const cached = await withCache(key, 30, async () => {
       const [frame] = (
         await db.execute(sql`
           SELECT f.imei, f.received_at, f.io_raw, f.gps_satellites, f.gps_valid, f.event_id

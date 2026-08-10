@@ -322,7 +322,7 @@ export const VehicleCarMarker = memo(function VehicleCarMarker({
 
   const icon = useMemo(() => {
     if (!maps) return undefined;
-    const size = selected ? 78 : 64;
+    const size = selected ? 56 : 46;
     // Real 3D render, falling back to the flat SVG wherever WebGL is
     // unavailable — a missing marker is far worse than a plain one.
     const sprite = vehicleSprite(heading, accent);
@@ -338,7 +338,7 @@ export const VehicleCarMarker = memo(function VehicleCarMarker({
   // pulses on the selected vehicle without re-rendering the model.
   const glow = useMemo(() => {
     if (!maps) return undefined;
-    const size = selected ? 101 : 78;
+    const size = selected ? 76 : 60;
     return {
       url: glowPuckDataUrl(ROUTE_PRIMARY, selected),
       scaledSize: new maps.Size(size, size),

@@ -29,7 +29,11 @@ export function SavingsDashboard({
               {formatNgn(summary.total_loss_ngn)}
             </p>
             <p className="mt-1 text-xs text-ink-dim">
-              OBD spend {formatNgn(summary.total_telemetry_cost_ngn ?? summary.total_actual_cost_ngn)}{' '}
+              {/* "OBD" was wrong on GPS-only vehicles, and falling back to the
+                  receipt total presented money paid as fuel measured. */}
+              {summary.total_telemetry_cost_ngn != null
+                ? `Tracker-measured burn ${formatNgn(summary.total_telemetry_cost_ngn)}`
+                : 'Burn not measured this period'}{' '}
               vs expected {formatNgn(summary.total_expected_cost_ngn)} at{' '}
               {formatFuelPricePerLiter(summary.price_per_liter_ngn)}
             </p>

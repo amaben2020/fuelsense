@@ -31,10 +31,17 @@ export function Battery3D({
   charge,
   tone = 'good',
   charging = false,
+  variant = 'cell',
 }: {
   charge: number | null;
   tone?: ChargeTone;
   charging?: boolean;
+  /**
+   * 'vehicle' is the car's 12 V lead-acid block; 'cell' is the tracker's
+   * internal Li-ion backup. They are physically different objects and showing
+   * one model for both invited exactly the confusion it caused.
+   */
+  variant?: 'vehicle' | 'cell';
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -63,21 +70,64 @@ export function Battery3D({
     scene.add(stage);
 
     const accent = TONE_HEX[tone];
-    const BODY_H = 2.1;
+    const isVehicle = variant === 'vehicle';
+    const BODY_H = isVehicle ? 1.7 : 2.1;
     const R = 0.78;
+    const W = 1.9;
+    const D = 1.2;
 
-    // Outer shell, left open-topped so the fill inside stays visible.
-    const shell = new THREE.Mesh(
-      new THREE.CylinderGeometry(R, R, BODY_H, 44, 1, true),
-      new THREE.MeshStandardMaterial({
+    if (isVehicle) {
+      // Lead-acid block: wide case, two posts, vent caps along the top.
+      const caseMat = new THREE.MeshStandardMaterial({
         color: SHELL,
-        metalness: 0.55,
-        roughness: 0.42,
-        side: THREE.DoubleSide,
-      })
-    );
-    stage.add(shell);
+        metalness: 0.35,
+        roughness: 0.55,
+      });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(W, BODY_H, D), caseMat);
+      stage.add(body);
 
+      const lid = new THREE.Mesh(
+        new THREE.BoxGeometry(W * 1.02, 0.14, D * 1.02),
+        new THREE.MeshStandardMaterial({ color: SHELL_RIM, metalness: 0.5, roughness: 0.4 })
+      );
+      lid.position.y = BODY_H / 2;
+      stage.add(lid);
+
+      // Posts: red positive, dark negative — the pair people recognise.
+      const post = (x: number, color: number) => {
+        const m = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.15, 0.18, 0.26, 20),
+          new THREE.MeshStandardMaterial({ color, metalness: 0.8, roughness: 0.25 })
+        );
+        m.position.set(x, BODY_H / 2 + 0.2, -D / 2 + 0.3);
+        stage.add(m);
+      };
+      post(-W / 2 + 0.34, 0xd05555);
+      post(W / 2 - 0.34, TERMINAL);
+
+      for (let i = -1; i <= 1; i++) {
+        const cap = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.13, 0.13, 0.06, 16),
+          new THREE.MeshStandardMaterial({ color: SHELL_RIM, roughness: 0.6 })
+        );
+        cap.position.set(i * 0.55, BODY_H / 2 + 0.1, D / 2 - 0.32);
+        stage.add(cap);
+      }
+    } else {
+      // Outer shell, left open-topped so the fill inside stays visible.
+      const shell = new THREE.Mesh(
+        new THREE.CylinderGeometry(R, R, BODY_H, 44, 1, true),
+        new THREE.MeshStandardMaterial({
+          color: SHELL,
+          metalness: 0.55,
+          roughness: 0.42,
+          side: THREE.DoubleSide,
+        })
+      );
+      stage.add(shell);
+    }
+
+    if (!isVehicle) {
     const base = new THREE.Mesh(
       new THREE.CylinderGeometry(R, R * 0.94, 0.12, 44),
       new THREE.MeshStandardMaterial({ color: SHELL_RIM, metalness: 0.6, roughness: 0.35 })
@@ -103,12 +153,16 @@ export function Battery3D({
     terminal.position.y = BODY_H / 2 + 0.11;
     stage.add(terminal);
 
+    }
+
     // Dark inner void so an empty cell reads as empty rather than hollow.
-    const void_ = new THREE.Mesh(
-      new THREE.CylinderGeometry(R * 0.9, R * 0.9, BODY_H - 0.16, 40),
-      new THREE.MeshStandardMaterial({ color: GLASS, metalness: 0.3, roughness: 0.8 })
-    );
-    stage.add(void_);
+    if (!isVehicle) {
+      const void_ = new THREE.Mesh(
+        new THREE.CylinderGeometry(R * 0.9, R * 0.9, BODY_H - 0.16, 40),
+        new THREE.MeshStandardMaterial({ color: GLASS, metalness: 0.3, roughness: 0.8 })
+      );
+      stage.add(void_);
+    }
 
     let fill: THREE.Mesh | null = null;
     let fillGlow: THREE.Mesh | null = null;
@@ -119,7 +173,9 @@ export function Battery3D({
       const h = Math.max(inner * ratio, 0.04);
 
       fill = new THREE.Mesh(
-        new THREE.CylinderGeometry(R * 0.88, R * 0.88, h, 40),
+        isVehicle
+          ? new THREE.BoxGeometry(W * 0.86, h, D * 0.86)
+          : new THREE.CylinderGeometry(R * 0.88, R * 0.88, h, 40),
         new THREE.MeshStandardMaterial({
           color: accent,
           emissive: accent,
@@ -133,7 +189,9 @@ export function Battery3D({
       stage.add(fill);
 
       fillGlow = new THREE.Mesh(
-        new THREE.CylinderGeometry(R * 0.95, R * 0.95, h, 40),
+        isVehicle
+          ? new THREE.BoxGeometry(W * 0.94, h, D * 0.94)
+          : new THREE.CylinderGeometry(R * 0.95, R * 0.95, h, 40),
         new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.12 })
       );
       fillGlow.position.y = fill.position.y;
@@ -141,7 +199,7 @@ export function Battery3D({
     }
 
     // Charge-level tick marks up the side of the cell
-    for (let i = 1; i < 4; i++) {
+    for (let i = 1; i < (isVehicle ? 0 : 4); i++) {
       const tick = new THREE.Mesh(
         new THREE.BoxGeometry(0.05, 0.02, 0.1),
         new THREE.MeshBasicMaterial({ color: SHELL_RIM })
@@ -190,7 +248,7 @@ export function Battery3D({
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [charge, tone, charging]);
+  }, [charge, tone, charging, variant]);
 
   return <div ref={containerRef} className="h-full w-full" />;
 }

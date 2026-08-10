@@ -19,6 +19,7 @@ import {
   Search,
   Pentagon,
   Settings,
+  SlidersHorizontal,
   ShieldAlert,
   Siren,
   Truck,
@@ -77,6 +78,7 @@ import { isPro } from '@/lib/plan';
 import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
 import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPanel';
 import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
+import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePanel';
 import { FleetIntelligencePanel } from '@/components/dashboard/FleetIntelligencePanel';
 import {
   IconRail,
@@ -91,8 +93,15 @@ import { FleetCommandLoader } from '@/components/dashboard/FleetCommandLoader';
 
 // Full dashboard reload cadence. Keep this modest — each cycle fires ~10 API
 // calls, and aggressive polling trips the backend rate limiter (self-DoS).
-const REFRESH_MS = 15000;
-const LIVE_REFRESH_MS = 3000;
+// Cadence is set by how often the tracker actually reports, not by how live we
+// want the page to feel. The FMC150 sends roughly every 2 minutes, so polling
+// live data every 3 s meant ~39 of every 40 requests returned unchanged rows —
+// which is what exhausted the database's monthly transfer allowance on
+// 2026-08-09. Both intervals already skip hidden tabs; these values cut what a
+// *visible* tab costs by an order of magnitude, and the visibility listener
+// below refreshes immediately on focus so the slower cadence is not felt.
+const REFRESH_MS = 30000;
+const LIVE_REFRESH_MS = 20000;
 
 type DashboardView =
   | 'overview'
@@ -108,6 +117,7 @@ type DashboardView =
   | 'receipts'
   | 'anomalies'
   | 'alerts'
+  | 'calibration'
   | 'settings';
 
 /** Sidebar entry -> feature flag key. A view with no mapping is always shown. */
@@ -125,6 +135,7 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
   receipts: 'receipts',
   anomalies: 'replay_events',
   alerts: 'alerts',
+  calibration: 'calibration',
   settings: 'settings',
 };
 
@@ -154,6 +165,7 @@ const VIEW_META: Record<
   receipts: { icon: ReceiptText, nav: 'Receipts', title: 'Receipts' },
   anomalies: { icon: History, nav: 'Replay events', title: 'Replay events' },
   alerts: { icon: Siren, nav: 'Alerts', title: 'Alerts' },
+  calibration: { icon: SlidersHorizontal, nav: 'Calibration', title: 'Calibration' },
   settings: { icon: Settings, nav: 'Settings', title: 'Settings' },
 };
 
@@ -171,6 +183,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
   { id: 'anomalies', label: 'Replay events', hash: 'anomalies' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
+  { id: 'calibration', label: 'Calibration', hash: 'calibration' },
   { id: 'settings', label: 'Settings', hash: 'settings' },
 ];
 
@@ -432,6 +445,18 @@ export default function DashboardPage() {
     }, REFRESH_MS);
     return () => clearInterval(interval);
   }, [router]);
+
+  // Returning to the tab refreshes once, rather than waiting out the interval.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.hidden || !getToken()) return;
+      loadDashboard();
+      if (activeViewRef.current === 'live') loadLiveTracks();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadLiveTracks]);
 
   useEffect(() => {
     if (activeView !== 'live' || !getToken()) return;
@@ -1060,6 +1085,8 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'intel' && <FleetIntelligencePanel />}
+
+          {activeView === 'calibration' && <CalibrationGuidePanel />}
 
           {activeView === 'geofences' && (
             <GeofencesPanel onDrawZone={() => switchView('live')} />

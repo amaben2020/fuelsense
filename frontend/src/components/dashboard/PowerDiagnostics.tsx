@@ -86,6 +86,22 @@ export function PowerDiagnostics({
           : null;
 
     const verdict = external != null ? externalVerdict(external) : null;
+
+    // 12 V lead-acid state of charge: ~11.8 V flat, ~12.7 V rested full. Above
+    // 13.2 V the alternator is driving the rail, so it is pinned full rather
+    // than reported as >100%.
+    const externalCharge =
+      external == null
+        ? null
+        : Math.max(0, Math.min(1, (external - 11.8) / (12.7 - 11.8)));
+    const externalTone: ChargeTone =
+      external == null
+        ? 'unknown'
+        : external >= 12.4
+          ? 'good'
+          : external >= 11.8
+            ? 'warn'
+            : 'bad';
     const tone: ChargeTone =
       charge == null ? 'unknown' : charge >= 0.55 ? 'good' : charge >= 0.25 ? 'warn' : 'bad';
 
@@ -97,6 +113,8 @@ export function PowerDiagnostics({
       charge,
       verdict,
       tone,
+      externalCharge,
+      externalTone,
       // Current into the cell means it is topping up off vehicle power.
       charging: currentMa != null && currentMa > 0,
       reported: external != null || backupV != null,
@@ -116,54 +134,68 @@ export function PowerDiagnostics({
       }
       className="bg-panel-deep"
     >
-      <div className="grid grid-cols-[130px_1fr] items-center gap-4">
-        <div className="h-[150px]">
-          <Battery3D charge={power.charge} tone={power.tone} charging={power.charging} />
+      <p className="-mt-1 mb-3 text-xs text-ink-dim">
+        Two separate batteries. The vehicle&rsquo;s starts the engine; the tracker&rsquo;s keeps
+        reporting if that one is disconnected.
+      </p>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Vehicle 12 V block */}
+        <div className="rounded-xl border border-edge bg-panel-deep p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+            Vehicle battery
+          </p>
+          <p className="mt-0.5 text-[10px] text-ink-dim">12 V lead-acid · starts the engine</p>
+          <div className="mt-1 h-[120px]">
+            <Battery3D
+              variant="vehicle"
+              charge={power.externalCharge}
+              tone={power.externalTone}
+              charging={power.external != null && power.external >= 13.2}
+            />
+          </div>
+          <p className="text-2xl font-bold tabular-nums text-ink">
+            {power.external != null ? `${power.external.toFixed(2)} V` : '—'}
+          </p>
+          {power.verdict && (
+            <p className="mt-0.5 text-[11px] text-ink-mid">{power.verdict.label}</p>
+          )}
         </div>
 
-        <div className="space-y-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
-              Vehicle battery
-            </p>
-            <p className="text-2xl font-bold tabular-nums text-ink">
-              {power.external != null ? `${power.external.toFixed(2)} V` : '—'}
-            </p>
+        {/* Tracker backup cell */}
+        <div className="rounded-xl border border-edge bg-panel-deep p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+            Tracker backup cell
+          </p>
+          <p className="mt-0.5 text-[10px] text-ink-dim">
+            Li-ion inside the FMC150 · survives power cuts
+          </p>
+          <div className="mt-1 h-[120px]">
+            <Battery3D
+              variant="cell"
+              charge={power.charge}
+              tone={power.tone}
+              charging={power.charging}
+            />
           </div>
-
-          <div className="border-t border-edge pt-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
-              Tracker backup cell
-            </p>
-            <p className="flex items-baseline gap-2">
-              <span className="text-lg font-semibold tabular-nums text-ink">
-                {power.backupV != null ? `${power.backupV.toFixed(2)} V` : '—'}
+          <p className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold tabular-nums text-ink">
+              {power.backupV != null ? `${power.backupV.toFixed(2)} V` : '—'}
+            </span>
+            {power.charge != null && (
+              <span className="text-xs tabular-nums text-ink-mid">
+                {Math.round(power.charge * 100)}%
               </span>
-              {power.charge != null && (
-                <span className="text-xs text-ink-mid tabular-nums">
-                  {Math.round(power.charge * 100)}%
-                </span>
-              )}
-              {power.charging && (
-                <span className="inline-flex items-center gap-1 text-xs text-brand">
-                  <BatteryCharging className="h-3.5 w-3.5" />
-                  charging
-                </span>
-              )}
-            </p>
-            {/* "Fully charged" needs the cell voltage to back it up — 0 mA on
-                its own only says no current is flowing. */}
-            {power.currentMa != null && (
-              <p className="mt-0.5 text-xs text-ink-dim tabular-nums">
-                {power.currentMa} mA
-                {power.currentMa === 0
-                  ? power.charge != null && power.charge > 0.9
-                    ? ' · idle, fully charged'
-                    : ' · no current flowing'
-                  : ''}
-              </p>
             )}
-          </div>
+          </p>
+          <p className="mt-0.5 flex items-center gap-1 text-[11px] text-ink-mid">
+            {power.charging && <BatteryCharging className="h-3.5 w-3.5 text-brand" />}
+            {power.currentMa != null
+              ? power.charging
+                ? `Charging · ${power.currentMa} mA`
+                : `${power.currentMa} mA · no current flowing`
+              : '—'}
+          </p>
         </div>
       </div>
 

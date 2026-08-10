@@ -62,13 +62,18 @@ export function SavingsExplanationModal({
             </code>
           </Step>
 
-          <Step n={3} title="OBD consumption cost">
+          <Step n={3} title="Tracker-measured consumption cost">
             <p className="text-sm text-ink-mid">
-              FMC150 fuel used in the period × diesel price — the ground truth for efficiency
+              Fuel the tracker counted in the period × pump price. On vehicles with
+              no CAN/OBD link this comes from the device&apos;s GPS fuel counter, not from
+              the engine ECU.
             </p>
             <code className="mt-2 block rounded bg-canvas p-3 font-mono text-xs">
-              OBD cost = {summary.total_fuel_used_liters.toFixed(1)} L × {formatNgn(price)} ={' '}
-              {formatNgn(summary.total_telemetry_cost_ngn ?? summary.total_actual_cost_ngn)}
+              Measured cost = {summary.total_fuel_used_liters.toFixed(1)} L ×{' '}
+              {formatNgn(price)} ={' '}
+              {summary.total_telemetry_cost_ngn != null
+                ? formatNgn(summary.total_telemetry_cost_ngn)
+                : 'not measured'}
             </code>
           </Step>
 

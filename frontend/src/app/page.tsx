@@ -11,6 +11,7 @@ import { ReconcileFlow } from '@/components/marketing/ReconcileFlow';
 import { FuelMath } from '@/components/marketing/FuelMath';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
 import { ScrollTimeline } from '@/components/marketing/ScrollTimeline';
+import { HaulixShowcase } from '@/components/marketing/HaulixShowcase';
 import { countUp, revealOnScroll, useGsapScope } from '@/components/marketing/useScrollReveal';
 import './marketing.css';
 
@@ -350,6 +351,11 @@ export default function LandingPage() {
         </p>
 
         <LiveMapDemo />
+      </section>
+
+      <HaulixShowcase />
+
+      <section className="fs-shell">
 
         <div className="fs-featgrid" style={{ marginTop: '3rem' }}>
           {[

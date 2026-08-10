@@ -109,7 +109,7 @@ function renderSprites(accent: number): SpriteSet {
   const scene = new THREE.Scene();
   // Orthographic: a perspective camera would make the vehicle's apparent size
   // depend on where in the frame it sits, so sprites would not match each other.
-  const camera = new THREE.OrthographicCamera(-2.5, 2.5, 2.5, -2.5, 0.1, 100);
+  const camera = new THREE.OrthographicCamera(-3.6, 3.6, 3.6, -3.6, 0.1, 100);
   // High three-quarter view, matching how the map reads at street zoom.
   camera.position.set(0, 5.4, 6.2);
   camera.lookAt(0, 0.6, 0);

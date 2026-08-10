@@ -3,9 +3,53 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
 import * as schema from './schema';
 
+/**
+ * Whether this connection needs TLS.
+ *
+ * Decided from the host in DATABASE_URL, not from NODE_ENV: the EC2 box runs
+ * NODE_ENV=production while talking to a Postgres on its own loopback, so
+ * keying off the environment would demand TLS from a server that does not
+ * offer it. A local server refuses the handshake outright, so getting this
+ * wrong is a hard startup failure rather than a degraded connection.
+ *
+ * DATABASE_SSL=disable|require overrides, for the remote-server-without-TLS
+ * and tunnelled cases that the host alone cannot distinguish.
+ */
+function needsSsl(url: string | undefined): boolean {
+  const override = process.env.DATABASE_SSL;
+  if (override === 'disable') return false;
+  if (override === 'require') return true;
+  if (!url) return false;
+
+  try {
+    const host = new URL(url).hostname;
+    return !['localhost', '127.0.0.1', '::1', ''].includes(host);
+  } catch {
+    // Unparseable URL (unescaped password is the usual cause) — assume remote,
+    // since a needless TLS attempt fails more loudly than a silently plaintext
+    // connection to something that expected encryption.
+    return true;
+  }
+}
+
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: needsSsl(process.env.DATABASE_URL) ? { rejectUnauthorized: false } : false,
+  // Neon closes idle connections aggressively and cold-starts after a pause.
+  // Recycling before it does is cheaper than discovering it mid-query.
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 15_000,
+  max: 10,
+});
+
+// Without this, pg emits 'error' on the pool when an *idle* connection drops
+// and Node treats an unhandled 'error' event as fatal — the process exits.
+// On 2026-08-09 a single Neon connection drop crash-looped the service 61
+// times, and each restart opened another pool until Neon refused new
+// connections entirely (SQLSTATE 53000). A dropped idle connection is routine;
+// the pool replaces it on the next checkout.
+pool.on('error', (err) => {
+  console.error('[db] idle client error (pool will recover):', err.message);
 });
 
 export const db = drizzle(pool, { schema });

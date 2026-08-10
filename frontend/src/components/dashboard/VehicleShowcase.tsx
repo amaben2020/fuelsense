@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { AlertTriangle, Fuel, Gauge as GaugeIcon, MapPin, Radio, User } from 'lucide-react';
 import { FleetVehicle, formatNgn, formatOdometerMiles } from '@/lib/api';
@@ -11,6 +11,9 @@ import { VirtualFuelGauge } from './VirtualFuelGauge';
 import { FuelLevelChart } from './FuelLevelChart';
 import { VehicleSignalsTable } from './VehicleSignalsTable';
 import { PowerDiagnostics } from './PowerDiagnostics';
+import { VehiclePartModal } from './VehiclePartModal';
+import type { HotspotId } from './Vehicle3D';
+import { getVehicleSignals } from '@/lib/api';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { HatchBar, Panel, StatusChip } from '@/components/ui/chrome';
 
@@ -126,6 +129,30 @@ export function VehicleShowcase({
     [fleet, selectedVehicleId]
   );
   const { data: estimate } = useEstimatedConsumption(7);
+  const [openPart, setOpenPart] = useState<HotspotId | null>(null);
+  // Voltages live on /vehicle-signals, not the fleet list, so the part modal
+  // fetches them alongside the panel rather than inventing placeholders.
+  const [volts, setVolts] = useState<{
+    external: number | null;
+    backup: number | null;
+    percent: number | null;
+  }>({ external: null, backup: null, percent: null });
+
+  const vehicleId = vehicle?.id ?? null;
+  useEffect(() => {
+    if (!vehicleId) return;
+    let cancelled = false;
+    getVehicleSignals(vehicleId, 1)
+      .then((res) => {
+        if (cancelled) return;
+        const pick = (id: number) => res.signals.find((x) => x.avl_id === id)?.value ?? null;
+        setVolts({ external: pick(66), backup: pick(67), percent: pick(113) });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [vehicleId]);
 
   if (!vehicle) {
     return (
@@ -180,11 +207,19 @@ export function VehicleShowcase({
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="font-mono text-xl font-bold text-ink">{vehicle.license_plate}</h2>
+                  {/* A dot, not a sentence. The old amber banner repeated
+                      what this already says and cost a whole row. */}
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      online ? 'bg-good/10 text-good' : 'bg-panel-hover text-ink-dim'
-                    }`}
+                    title={
+                      vehicle.last_telemetry_at
+                        ? `Last reading ${new Date(vehicle.last_telemetry_at).toLocaleString()}`
+                        : 'No telemetry yet'
+                    }
+                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ink-dim"
                   >
+                    <span
+                      className={`h-2 w-2 rounded-full ${online ? 'bg-good' : 'bg-bad'}`}
+                    />
                     {statusLabel}
                   </span>
                 </div>
@@ -203,32 +238,11 @@ export function VehicleShowcase({
               </button>
             </div>
 
-            <div className="mt-4 rounded-lg bg-panel-deep p-4">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-ink-mid">Distance today</span>
-                <span className="font-mono font-bold text-ink">
-                  {todayRow ? `${todayRow.distance_km.toLocaleString()} km` : '0 km'}
-                </span>
-              </div>
-              {/* Today against the 7-day total, so the bar reads as "share of
-                  the week's driving done today" rather than a raw distance.
-                  The percentage is meaningless without saying what it is a
-                  percentage OF, so the caption is not optional. */}
-              <p className="mt-3 text-[11px] text-ink-dim">Share of this week&rsquo;s driving</p>
-              <HatchBar
-                className="mt-1.5"
-                tone="good"
-                value={todayRow?.distance_km ?? 0}
-                max={Math.max(estimateRow?.distance_km ?? 1, 1)}
-              />
-              <div className="mt-3 flex items-center justify-between text-xs text-ink-dim">
-                <span>7-day total: {estimateRow ? `${estimateRow.distance_km.toLocaleString()} km` : '—'}</span>
-                <span>
-                  est. {estimateRow ? `${estimateRow.estimated_fuel_liters.toFixed(1)} L` : '—'} ·{' '}
-                  {estimateRow ? formatNgn(estimateRow.estimated_cost_ngn) : '—'}
-                </span>
-              </div>
-            </div>
+            {/* Distance and week's-fuel removed: both were derived from the
+                estimate endpoint's daily rows, which reported 35 km on a day
+                with 0 km of telemetry and 58.2 km for a week the driver did not
+                drive. Restore once those rows are verified against odometer
+                deltas — a wrong number here is worse than no number. */}
           </div>
 
           <PowerDiagnostics
@@ -252,15 +266,6 @@ export function VehicleShowcase({
             )}
           </div>
 
-          {!online && vehicle.connection_status !== 'no_device' && (
-            <div className="flex items-center gap-3 rounded-lg border border-warn/40 bg-warn-deep/20 px-4 py-3 text-sm text-warn">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Tracker offline — showing last known values
-              {vehicle.last_telemetry_at
-                ? ` (${new Date(vehicle.last_telemetry_at).toLocaleString()})`
-                : ''}
-            </div>
-          )}
         </div>
 
         {/* 3D stage */}
@@ -270,9 +275,13 @@ export function VehicleShowcase({
             className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_38%,color-mix(in_srgb,var(--good)_7%,transparent),transparent_70%)]"
           />
           <div className="relative h-[420px] cursor-grab active:cursor-grabbing">
-            <Vehicle3D plate={vehicle.license_plate} model={vehicle.model} />
+            <Vehicle3D
+              plate={vehicle.license_plate}
+              model={vehicle.model}
+              onSelectHotspot={setOpenPart}
+            />
             <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-wider text-ink-dim">
-              Drag to rotate · scroll to zoom
+              Drag to rotate · scroll to zoom · tap a marker for detail
             </p>
           </div>
 
@@ -349,6 +358,15 @@ export function VehicleShowcase({
         key={vehicle.id}
         vehicleId={vehicle.id}
         refreshKey={vehicle.last_telemetry_at ?? 0}
+      />
+
+      <VehiclePartModal
+        part={openPart}
+        vehicle={vehicle}
+        externalVoltage={volts.external}
+        backupVoltage={volts.backup}
+        backupPercent={volts.percent}
+        onClose={() => setOpenPart(null)}
       />
     </div>
   );

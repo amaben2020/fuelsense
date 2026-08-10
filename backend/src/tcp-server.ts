@@ -11,6 +11,7 @@ import { decodeScenarioEvent, recordDeviceEvent, resolveClosedAlert } from './li
 import { handleIgnitionForTripStart, closeTripStartAlert } from './lib/trip-notifier';
 import { handleIdleForRecord } from './lib/idle-detector';
 import { handleGeofenceForRecord } from './lib/geofence-monitor';
+import { patchCodec8eIoParsing, patchCodec8eReassembly } from './lib/codec8e-io-patch';
 import { handleFuelStopForRecord } from './lib/fuel-stop-detector';
 import {
   FUEL_USED_GPS_AVL_ID,
@@ -431,11 +432,53 @@ tcpServer.on('timeout', (device: TeltonikaDevice) => {
   console.log(`Device ${device.imei} timed out`);
 });
 
+// A parse failure discards every record in the packet. That looked identical
+// to "the vehicle did not move" for two hours on 2026-08-09, so it is counted
+// and surfaced loudly rather than logged once and forgotten.
+const parseFailures = new Map<string, { count: number; firstAt: Date; lastError: string }>();
+
+export function getParseFailures(): Record<
+  string,
+  { count: number; firstAt: string; lastError: string }
+> {
+  return Object.fromEntries(
+    [...parseFailures.entries()].map(([imei, v]) => [
+      imei,
+      { count: v.count, firstAt: v.firstAt.toISOString(), lastError: v.lastError },
+    ])
+  );
+}
+
 tcpServer.on('error', (device: TeltonikaDevice | null, error: Error) => {
-  console.error(`Error from device ${device?.imei || 'unknown'}:`, error);
+  const imei = device?.imei || 'unknown';
+  console.error(`Error from device ${imei}:`, error);
+
+  const isParseError =
+    error instanceof RangeError || /offset|out of range|Codec8E/i.test(error.message);
+  if (!isParseError) return;
+
+  const entry = parseFailures.get(imei) ?? {
+    count: 0,
+    firstAt: new Date(),
+    lastError: error.message,
+  };
+  entry.count += 1;
+  entry.lastError = error.message;
+  parseFailures.set(imei, entry);
+
+  // Every packet from this device is being thrown away — say so in terms that
+  // do not require reading a stack trace to understand.
+  console.error(
+    `[DATA LOSS] ${imei}: ${entry.count} packet(s) discarded since ` +
+      `${entry.firstAt.toISOString()} — telemetry is NOT being recorded for this device. ` +
+      `Cause: ${error.message}`
+  );
 });
 
 export const startTcpServer = async (): Promise<void> => {
+  // Must run before any packet is parsed.
+  patchCodec8eIoParsing();
+  patchCodec8eReassembly();
   const port = Number(process.env.TCP_PORT || 5027);
   await tcpServer.listen(port, '0.0.0.0');
   console.log(`Teltonika TCP Server listening on port ${port}`);
