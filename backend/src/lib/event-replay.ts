@@ -1,8 +1,50 @@
 import { db, sql } from './db-helpers';
-import { DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics';
+import { effectivePriceAt } from './fuel-price';
 
 const REPLAY_WINDOW_MINUTES = 30;
 const MAX_READINGS = 200;
+
+/**
+ * What the missing fuel was worth, at the price that applied when it went
+ * missing.
+ *
+ * Every loss here used to be multiplied by a flat ₦1,300 constant, so a drop in
+ * March and an identical drop in August produced the same naira figure and
+ * neither matched the fleet's books. Nigerian pump prices move faster than that:
+ * the fleet's own effective-dated benchmark, or failing that its newest receipt,
+ * is the only rate we can defend to a manager.
+ *
+ * When the fleet has never recorded a price there is no honest figure, so the
+ * amount is null and the UI shows litres alone rather than inventing money.
+ */
+async function valueLiters(
+  customerId: string,
+  at: Date | string,
+  liters: number,
+): Promise<{
+  estimated_loss_ngn: number | null;
+  price_ngn_per_liter: number | null;
+  price_source: 'benchmark' | 'receipt' | null;
+}> {
+  const when = at instanceof Date ? at : new Date(parseInstant(at));
+  const price = Number.isFinite(when.getTime())
+    ? await effectivePriceAt(customerId, when)
+    : null;
+
+  if (!price) {
+    return {
+      estimated_loss_ngn: null,
+      price_ngn_per_liter: null,
+      price_source: null,
+    };
+  }
+
+  return {
+    estimated_loss_ngn: Math.round(Math.max(0, liters) * price.ngnPerLiter),
+    price_ngn_per_liter: price.ngnPerLiter,
+    price_source: price.source,
+  };
+}
 
 interface TelemetryWindowParams {
   vehicleId: string;
@@ -237,6 +279,73 @@ function buildMoments(
   );
 }
 
+/** The manoeuvre types that get their own colour on the replay track. */
+const TRACK_MANOEUVRES = [
+  'harsh_braking',
+  'harsh_acceleration',
+  'harsh_cornering',
+] as const;
+
+interface TrackManoeuvre {
+  type: string;
+  occurred_at: unknown;
+  severity: string;
+  magnitude_ms2: number | null;
+  speed_kph: number | null;
+  /** Nearest reading in the replay, so the map can colour the right segment. */
+  index: number;
+}
+
+/**
+ * The harsh manoeuvres inside a replay window, positioned against its readings.
+ *
+ * These are the rows `driving-events-sweep.ts` already wrote from the GPS speed
+ * and heading series — the same events the driving-behaviour page scores — so
+ * the track and the feed can never disagree about what happened.
+ *
+ * Overspeeding is deliberately not fetched. It can only arrive from the
+ * device's own overspeed scenario, which is disabled on this fleet's trackers,
+ * and no speed limit is configured anywhere in the app to derive it from. A
+ * red "speeding" stretch would be an invention, so the track shows measured
+ * speed and lets the manager judge.
+ */
+async function loadTrackManoeuvres({
+  customerId,
+  vehicleId,
+  rows,
+}: {
+  customerId: string;
+  vehicleId: string;
+  rows: SerializedReading[];
+}): Promise<TrackManoeuvre[]> {
+  if (rows.length < 2) return [];
+
+  const start = rows[0].recorded_at as string;
+  const end = rows[rows.length - 1].recorded_at as string;
+
+  const result = await db.execute(sql`
+    SELECT event_type, occurred_at, severity, value, unit, speed_kph
+    FROM device_events
+    WHERE vehicle_id = ${vehicleId}
+      AND customer_id = ${customerId}
+      AND event_type = ANY(${TRACK_MANOEUVRES as unknown as string[]})
+      AND occurred_at BETWEEN ${start}::timestamp AND ${end}::timestamp
+    ORDER BY occurred_at ASC
+  `);
+
+  return (result.rows ?? []).map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      type: String(r.event_type),
+      occurred_at: r.occurred_at,
+      severity: String(r.severity ?? 'warning'),
+      magnitude_ms2: r.value != null ? Number(r.value) : null,
+      speed_kph: r.speed_kph != null ? Number(r.speed_kph) : null,
+      index: findClosestIndex(rows, r.occurred_at),
+    };
+  });
+}
+
 function attachMoments(
   payload: Record<string, unknown>,
   readings: SerializedReading[],
@@ -252,41 +361,6 @@ function attachMoments(
     ) ??
     null;
   return { ...payload, moments, anomaly_moment: anomalyMoment };
-}
-
-interface FallbackParams {
-  center: Date;
-  beforeLiters: number;
-  afterLiters: number;
-  lat: number | null;
-  lng: number | null;
-}
-
-function buildFallbackReadings({
-  center,
-  beforeLiters,
-  afterLiters,
-  lat,
-  lng,
-}: FallbackParams): SerializedReading[] {
-  const centerMs = center.getTime();
-  const points = [
-    { offsetMin: -20, fuel: beforeLiters, speed: 0, ignition: false },
-    { offsetMin: -10, fuel: beforeLiters, speed: 0, ignition: false },
-    { offsetMin: -2, fuel: beforeLiters, speed: 0, ignition: false },
-    { offsetMin: 0, fuel: afterLiters, speed: 0, ignition: false },
-    { offsetMin: 10, fuel: afterLiters, speed: 0, ignition: false },
-    { offsetMin: 20, fuel: afterLiters, speed: 15, ignition: true },
-  ];
-  return points.map((point) => ({
-    recorded_at: new Date(centerMs + point.offsetMin * 60 * 1000).toISOString(),
-    fuel_level_liters: point.fuel,
-    speed_kph: point.speed,
-    ignition_on: point.ignition,
-    latitude: lat,
-    longitude: lng,
-    odometer_km: null,
-  }));
 }
 
 function findMaxDropLiters(rows: SerializedReading[]): number {
@@ -342,40 +416,9 @@ function dropWindowMeta(
   return { drop, seconds, startIndex };
 }
 
-function buildCertaintyTimeline(
-  rows: SerializedReading[],
-  anomalyIndex: number,
-  finalPercent: number,
-): unknown[] {
-  const { startIndex } = dropWindowMeta(rows, anomalyIndex);
-  const start = rows[startIndex];
-  const peak = rows[anomalyIndex];
-  if (!start || !peak) {
-    return [
-      {
-        time: peak?.recorded_at ?? new Date().toISOString(),
-        percent: finalPercent,
-      },
-    ];
-  }
-  const midTime = new Date(
-    (new Date(start.recorded_at as string).getTime() +
-      new Date(peak.recorded_at as string).getTime()) /
-      2,
-  ).toISOString();
-  const low = Math.max(38, Math.round(finalPercent * 0.45));
-  const mid = Math.max(low + 8, Math.round(finalPercent * 0.75));
-  return [
-    { time: start.recorded_at, percent: low },
-    { time: midTime, percent: mid },
-    { time: peak.recorded_at, percent: finalPercent },
-  ];
-}
-
 interface EnrichAnomalyParams {
   rows: SerializedReading[];
   anomalyIndex: number;
-  confidence: number;
   reasons: string[];
   drop: number;
   dropSeconds: number;
@@ -383,10 +426,22 @@ interface EnrichAnomalyParams {
   eventType: string;
 }
 
+/**
+ * The supporting detail under a flag.
+ *
+ * Everything here is now read off the rows in the replay window. The previous
+ * version asserted "Stable OBD fuel readings in replay window" on every flag,
+ * which was false twice over: this fleet's FMC150 sends no OBD or CAN element
+ * at all, and the tank level shown is modelled from distance and idle time
+ * rather than sensed. It also drew a rising certainty curve — 45%, 75%, final —
+ * out of arithmetic on the final score, so a manager watched confidence
+ * "accumulate" through numbers that were never computed from evidence.
+ *
+ * A factor that cannot be checked against a reading is not listed.
+ */
 function enrichAnomalyFields({
   rows,
   anomalyIndex,
-  confidence,
   reasons,
   drop,
   dropSeconds,
@@ -398,34 +453,42 @@ function enrichAnomalyFields({
       ? `${Math.round(dropSeconds / 60)} min`
       : `${dropSeconds} second${dropSeconds === 1 ? '' : 's'}`;
 
-  let primary_explanation = `Fuel dropped ${drop.toFixed(1)}L within ${durLabel} while ignition ${ignitionOff ? 'OFF' : 'ON'}`;
-  const confidence_factors = [
-    'Stable OBD fuel readings in replay window',
-    ignitionOff
-      ? 'Ignition OFF correlated with fuel drop'
-      : 'Ignition state logged during drop',
-    'No verified refuel in same window',
-    'Vehicle stationary during drop',
+  const { startIndex } = dropWindowMeta(rows, anomalyIndex);
+  const window = rows.slice(startIndex, anomalyIndex + 1);
+  const stationary = window.length > 0 && window.every((r) => (r.speed_kph ?? 0) === 0);
+  const refuelInWindow = rows.some((row, i) => {
+    if (i === 0) return false;
+    const prev = rows[i - 1].fuel_level_liters;
+    const curr = row.fuel_level_liters;
+    return prev != null && curr != null && curr - prev >= 5;
+  });
+
+  let primary_explanation = `Modelled tank level fell ${drop.toFixed(1)}L within ${durLabel} while ignition ${ignitionOff ? 'OFF' : 'ON'}`;
+
+  const confidence_factors: string[] = [
+    `${window.length} GPS fix${window.length === 1 ? '' : 'es'} across the drop window`,
   ];
+  if (ignitionOff) confidence_factors.push('Ignition logged OFF for the whole drop');
+  if (stationary) confidence_factors.push('Vehicle stationary throughout (0 km/h)');
+  if (!refuelInWindow) confidence_factors.push('No refuel of 5L or more in this window');
+
   const recommended_actions = [
-    'Walk through synchronized replay before deciding',
+    'Walk through the replay before deciding',
     'Verify fuel receipts for this vehicle on the same day',
     'Contact assigned driver for operational context',
-    'Review depot CCTV if available',
   ];
 
   if (eventType === 'receipt_fraud') {
     primary_explanation = reasons[0] ?? primary_explanation;
     confidence_factors.length = 0;
     confidence_factors.push(
-      'Receipt timestamp matched to telemetry window',
-      'OBD refuel delta below declared volume',
-      'Gap exceeds review threshold',
+      'Receipt timestamp falls inside the telemetry window',
+      'Modelled tank rise is smaller than the declared volume',
     );
     recommended_actions.length = 0;
     recommended_actions.push(
       'Verify fuel receipt and station timestamp',
-      'Compare declared liters to OBD refuel curve',
+      'Compare declared litres against the tank curve',
       'Contact assigned driver for context',
     );
   }
@@ -439,38 +502,22 @@ function enrichAnomalyFields({
     ],
     confidence_factors,
     recommended_actions,
-    certainty_timeline: buildCertaintyTimeline(rows, anomalyIndex, confidence),
-    baseline_comparison: {
-      normal_label: 'Normal fuel drift while parked',
-      normal_range: '0.1–0.3 L/hr',
-      observed_label: 'Observed during event',
-      observed_value:
-        dropSeconds < 90
-          ? `${drop.toFixed(1)}L in ${dropSeconds}s`
-          : `${drop.toFixed(1)}L in ~${Math.max(1, Math.round(dropSeconds / 60))} min`,
-    },
   };
 }
 
-function buildSiphonReplay(
+async function buildSiphonReplay(
+  customerId: string,
   event: Record<string, unknown>,
   rawRows: RawRow[],
-): unknown {
+): Promise<unknown> {
   const before = Number(event.fuel_level_before) || 0;
   const after = Number(event.fuel_level_after) || 0;
-  const lat = event.latitude != null ? Number(event.latitude) : null;
-  const lng = event.longitude != null ? Number(event.longitude) : null;
 
-  let rows = downsampleReadings(rawRows.map(serializeReading));
-  if (rows.length < 3 && before > 0) {
-    rows = buildFallbackReadings({
-      center: new Date(event.occurred_at as string),
-      beforeLiters: before,
-      afterLiters: after,
-      lat,
-      lng,
-    });
-  }
+  // No synthetic rows. This used to manufacture six evenly spaced readings when
+  // the window was thin, then draw them on a map captioned "GPS TRACE" — a
+  // trace of positions the vehicle was never recorded at. A sparse window is a
+  // fact about the evidence and the panel says so instead.
+  const rows = downsampleReadings(rawRows.map(serializeReading));
 
   const reasons: string[] = [];
   let confidence = 68;
@@ -513,13 +560,19 @@ function buildSiphonReplay(
   const enriched = enrichAnomalyFields({
     rows,
     anomalyIndex,
-    confidence: confidencePercent,
     reasons,
     drop,
     dropSeconds,
     ignitionOff: Boolean(ignitionOff),
     eventType: 'siphon',
   });
+
+  // A loss already priced when the event was recorded keeps that valuation;
+  // otherwise it is valued at the rate in force the moment it happened.
+  const recorded = Number(event.estimated_loss_ngn);
+  const valuation = recorded
+    ? { estimated_loss_ngn: recorded, price_ngn_per_liter: null, price_source: null }
+    : await valueLiters(customerId, event.occurred_at as string, drop);
 
   return attachMoments(
     {
@@ -533,14 +586,17 @@ function buildSiphonReplay(
       anomaly_index: anomalyIndex,
       location_name: event.location_name,
       readings: rows,
+      manoeuvres: await loadTrackManoeuvres({
+        customerId,
+        vehicleId: event.vehicle_id as string,
+        rows,
+      }),
       anomaly: {
         type: 'Possible fuel anomaly',
         liters_lost: drop,
-        estimated_loss_ngn:
-          Number(event.estimated_loss_ngn) ||
-          Math.round(drop * DEFAULT_FUEL_PRICE_NGN_LITER),
         confidence_percent: confidencePercent,
         reasons,
+        ...valuation,
         ...enriched,
       },
     },
@@ -549,10 +605,11 @@ function buildSiphonReplay(
   );
 }
 
-function buildReceiptReplay(
+async function buildReceiptReplay(
+  customerId: string,
   receipt: Record<string, unknown>,
   rawRows: RawRow[],
-): unknown {
+): Promise<unknown> {
   const declared = Number(receipt.declared_liters) || 0;
   const actual =
     receipt.obd_liters_actual != null
@@ -562,56 +619,53 @@ function buildReceiptReplay(
     receipt.difference_liters != null
       ? Number(receipt.difference_liters)
       : declared - (actual ?? 0);
-  const price = Number(receipt.price_per_liter) || DEFAULT_FUEL_PRICE_NGN_LITER;
+  const rows = downsampleReadings(rawRows.map(serializeReading));
 
-  let rows = downsampleReadings(rawRows.map(serializeReading));
-  if (rows.length < 3 && declared > 0) {
-    const center = new Date(receipt.transaction_date as string);
-    const baseline =
-      actual != null ? Math.max(actual, declared * 0.3) : declared * 0.5;
-    rows = buildFallbackReadings({
-      center,
-      beforeLiters: baseline,
-      afterLiters: baseline + (actual ?? declared * 0.15),
-      lat:
-        receipt.receipt_latitude != null
-          ? Number(receipt.receipt_latitude)
-          : null,
-      lng:
-        receipt.receipt_longitude != null
-          ? Number(receipt.receipt_longitude)
-          : null,
-    });
-  }
-
+  // "OBD sensor recorded only 30L" was never true — this fleet's FMC150 sends
+  // no OBD or CAN element, and the comparison is against a tank level modelled
+  // from distance and idle time. Naming the real source lets a manager judge
+  // how much weight the mismatch deserves.
   const reasons = [
     `Receipt claimed ${declared.toFixed(1)}L at ${receipt.merchant_name || 'station'}`,
   ];
   if (actual != null) {
-    reasons.push(`OBD sensor recorded only ${actual.toFixed(1)}L refuel`);
+    reasons.push(`Modelled tank rose by only ${actual.toFixed(1)}L over the same window`);
     reasons.push(`Discrepancy of ${diff.toFixed(1)}L exceeds review threshold`);
   } else {
-    reasons.push('OBD refuel delta could not be matched to receipt');
+    reasons.push('No tank rise could be matched to this receipt');
   }
-  reasons.push('Declared volume not supported by OBD refuel curve');
 
   const anomalyIndex = findClosestIndex(rows, receipt.transaction_date);
   const confidencePercent =
     actual != null ? Math.min(88 + Math.min(diff / 2, 8), 97) : 72;
   const primary =
     actual != null
-      ? `Receipt claimed ${declared.toFixed(1)}L but OBD recorded ${actual.toFixed(1)}L in the refuel window`
-      : `Receipt could not be matched to OBD refuel signal`;
+      ? `Receipt claimed ${declared.toFixed(1)}L but the tank rose ${actual.toFixed(1)}L in the refuel window`
+      : `Receipt could not be matched to any tank rise`;
   const enriched = enrichAnomalyFields({
     rows,
     anomalyIndex,
-    confidence: confidencePercent,
     reasons: [primary, ...reasons.slice(1)],
     drop: Math.max(0, diff),
     dropSeconds: 60,
     ignitionOff: false,
     eventType: 'receipt_fraud',
   });
+
+  // The receipt's own price is what the driver actually paid at that pump on
+  // that day — better evidence than any fleet-wide rate, so it wins. Only when
+  // the receipt carries no price does the fleet's effective-dated benchmark
+  // stand in, and the shortfall is valued at the rate that applied then rather
+  // than at a flat constant.
+  const receiptPrice = Number(receipt.price_per_liter);
+  const shortfall = Math.max(0, diff);
+  const valuation = receiptPrice
+    ? {
+        estimated_loss_ngn: Math.round(shortfall * receiptPrice),
+        price_ngn_per_liter: receiptPrice,
+        price_source: 'receipt' as const,
+      }
+    : await valueLiters(customerId, receipt.transaction_date as string, shortfall);
 
   return attachMoments(
     {
@@ -626,15 +680,13 @@ function buildReceiptReplay(
       location_name: receipt.merchant_name,
       readings: rows,
       anomaly: {
-        type: 'Receipt vs OBD mismatch',
+        type: 'Receipt vs tank mismatch',
         liters_lost: Math.max(0, diff),
-        estimated_loss_ngn:
-          Number(receipt.estimated_loss_ngn) ||
-          Math.round(Math.max(0, diff) * price),
         confidence_percent: confidencePercent,
         reasons,
         declared_liters: declared,
         obd_liters_actual: actual,
+        ...valuation,
         ...enriched,
       },
     },
@@ -698,19 +750,21 @@ async function loadTelemetryDay({
   return result.rows ?? [];
 }
 
-function buildDailyReplay({
+async function buildDailyReplay({
+  customerId,
   vehicle,
   rawRows,
   flagType,
   focused = false,
 }: {
+  customerId: string;
   vehicle: Record<string, unknown>;
   rawRows: RawRow[];
   flagType: string;
   /** True when the window is already centred on a specific manoeuvre. */
   focused?: boolean;
-}): unknown | null {
-  let rows = downsampleReadings(rawRows.map(serializeReading));
+}): Promise<unknown | null> {
+  const rows = downsampleReadings(rawRows.map(serializeReading));
   if (!rows.length) return null;
 
   const anomalyIndex = findSteepestDropIndex(rows);
@@ -730,11 +784,30 @@ function buildDailyReplay({
           ? flagType
           : 'daily_flag';
 
+  const manoeuvres = await loadTrackManoeuvres({
+    customerId,
+    vehicleId: vehicle.vehicle_id as string,
+    rows,
+  });
+
   const reasons: string[] = [];
-  // A focused replay is about the manoeuvre itself, so it says what the tracker
-  // reported rather than talking about the day around it.
+  // A focused replay is about the manoeuvre itself, so it says how the
+  // manoeuvre was found rather than talking about the day around it.
   if (MANOEUVRE_REASON[flagType]) {
     reasons.push(MANOEUVRE_REASON[flagType]);
+
+    // The measured force, when this window contains the manoeuvre it was
+    // opened for. "Harsh braking" alone gives a manager nothing to weigh — a
+    // 3.1 m/s² stop in traffic and a 6 m/s² emergency stop are not the same
+    // conversation with a driver.
+    const match = manoeuvres.find((m) => m.type === flagType && m.magnitude_ms2 != null);
+    if (match) {
+      reasons.push(
+        `Peak ${match.magnitude_ms2!.toFixed(1)} m/s² (${(match.magnitude_ms2! / 9.81).toFixed(2)} g)` +
+          (match.speed_kph != null ? ` at ${match.speed_kph} km/h` : '')
+      );
+    }
+
     reasons.push(
       `Speed and position either side of the event, ±${FOCUS_WINDOW_MINUTES} minutes`
     );
@@ -764,6 +837,7 @@ function buildDailyReplay({
       anomaly_index: anomalyIndex,
       location_name: null,
       readings: rows,
+      manoeuvres,
       anomaly: {
         type:
           eventType === 'data_anomaly'
@@ -772,7 +846,11 @@ function buildDailyReplay({
               ? 'Low efficiency day'
               : 'Daily flag review',
         liters_lost: drop,
-        estimated_loss_ngn: Math.round(drop * DEFAULT_FUEL_PRICE_NGN_LITER),
+        ...(await valueLiters(
+          customerId,
+          (anomalyReading?.recorded_at ?? rows[0].recorded_at) as string,
+          drop,
+        )),
         confidence_percent: drop >= 5 ? 82 : 68,
         reasons,
       },
@@ -850,7 +928,13 @@ export async function buildDailyActivityReplay({
     }
   }
 
-  return buildDailyReplay({ vehicle, rawRows: focused, flagType, focused: !!focusAt });
+  return buildDailyReplay({
+    customerId,
+    vehicle,
+    rawRows: focused,
+    flagType,
+    focused: !!focusAt,
+  });
 }
 
 /** Minutes either side of a focused event that the replay covers. */
@@ -871,12 +955,26 @@ function parseInstant(value: string | Date): number {
   return new Date(normalized).getTime();
 }
 
-/** What the tracker reported, stated plainly — the replay is the evidence. */
+/**
+ * Where a manoeuvre flag actually came from.
+ *
+ * These previously all read "Tracker reported harsh cornering at this point",
+ * which credited the device with a judgement it never made: this fleet's
+ * FMC150 has its Eco/Green Driving scenario switched off and has never emitted
+ * event 253, 255 or any other scenario ID. The three harsh types are computed
+ * here from the GPS speed and heading series (see `harsh-driving.ts`) — a real
+ * derivation, but a derivation, and a manager weighing an accusation against a
+ * driver deserves to know which.
+ *
+ * Crash and overspeeding are left attributed to the device because that is the
+ * only way they can arrive; until those scenarios are enabled in the Teltonika
+ * Configurator they simply never appear.
+ */
 const MANOEUVRE_REASON: Record<string, string> = {
-  harsh_braking: 'Tracker reported harsh braking at this point',
-  harsh_acceleration: 'Tracker reported harsh acceleration at this point',
-  harsh_cornering: 'Tracker reported harsh cornering at this point',
-  overspeeding: 'Tracker reported speed above the configured limit',
+  harsh_braking: 'Harsh braking, derived from the GPS speed trace at this point',
+  harsh_acceleration: 'Harsh acceleration, derived from the GPS speed trace at this point',
+  harsh_cornering: 'Harsh cornering, derived from GPS speed and heading change at this point',
+  overspeeding: 'Tracker reported speed above the limit configured on the device',
   crash: 'Tracker reported a crash-level impact',
 };
 
@@ -920,7 +1018,7 @@ export async function buildSiphonEventReplay({
     centerTime: event.occurred_at as string,
   });
 
-  return buildSiphonReplay(event, rows as RawRow[]);
+  return buildSiphonReplay(customerId, event, rows as RawRow[]);
 }
 
 export async function buildReceiptEventReplay({
@@ -943,8 +1041,7 @@ export async function buildReceiptEventReplay({
       r.receipt_latitude,
       r.receipt_longitude,
       v.license_plate AS vehicle_plate,
-      dr.full_name AS driver_name,
-      GREATEST(0, (r.difference_liters::numeric * COALESCE(r.price_per_liter, 1300)))::int AS estimated_loss_ngn
+      dr.full_name AS driver_name
     FROM fuel_receipts r
     JOIN vehicles v ON v.id = r.vehicle_id
     JOIN drivers dr ON dr.id = r.driver_id
@@ -961,5 +1058,5 @@ export async function buildReceiptEventReplay({
     centerTime: receipt.transaction_date as string,
   });
 
-  return buildReceiptReplay(receipt, rows as RawRow[]);
+  return buildReceiptReplay(customerId, receipt, rows as RawRow[]);
 }

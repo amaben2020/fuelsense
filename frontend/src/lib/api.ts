@@ -665,6 +665,17 @@ export interface FuelEventsResponse {
   receipt_flags: ReceiptFlagRow[];
 }
 
+export interface EventReplayManoeuvre {
+  type: 'harsh_braking' | 'harsh_acceleration' | 'harsh_cornering' | string;
+  occurred_at: string;
+  severity: string;
+  /** Peak magnitude of the manoeuvre in m/s², as computed from the GPS trace. */
+  magnitude_ms2: number | null;
+  speed_kph: number | null;
+  /** Nearest entry in `readings`, so the map can colour the right segment. */
+  index: number;
+}
+
 export interface EventReplayMoment {
   index: number;
   type: 'fuel_drop' | 'fuel_rise' | 'anomaly' | 'idle_start' | 'trip_start';
@@ -703,25 +714,33 @@ export interface EventReplayResponse {
   readings: EventReplayReading[];
   moments: EventReplayMoment[];
   anomaly_moment: EventReplayMoment | null;
+  /**
+   * Harsh manoeuvres inside the window, positioned against `readings`. Derived
+   * from the GPS speed and heading series — the tracker's own Green Driving
+   * scenario is disabled on this fleet, so it reports none itself.
+   */
+  manoeuvres?: EventReplayManoeuvre[];
   anomaly: {
     type: string;
     liters_lost: number;
-    estimated_loss_ngn: number;
+    /**
+     * Null when the fleet has never recorded a price. Losses are valued at the
+     * benchmark or receipt rate in force when they happened, not at a flat
+     * constant, so this can legitimately be absent — show litres alone rather
+     * than a made-up naira figure.
+     */
+    estimated_loss_ngn: number | null;
+    price_ngn_per_liter?: number | null;
+    price_source?: 'benchmark' | 'receipt' | null;
     confidence_percent: number;
     reasons: string[];
     declared_liters?: number;
+    /** Litres the modelled tank actually rose by. Named for history, not OBD. */
     obd_liters_actual?: number | null;
     primary_explanation?: string;
     why_flagged?: string[];
     confidence_factors?: string[];
     recommended_actions?: string[];
-    baseline_comparison?: {
-      normal_label: string;
-      normal_range: string;
-      observed_label: string;
-      observed_value: string;
-    };
-    certainty_timeline?: { time: string; percent: number }[];
   };
 }
 

@@ -55,11 +55,11 @@ export function buildPrimaryExplanation(
 
   if (data.event_type === 'receipt_fraud') {
     const declared = data.anomaly.declared_liters;
-    const obd = data.anomaly.obd_liters_actual;
-    if (declared != null && obd != null) {
-      return `Receipt claimed ${declared.toFixed(1)}L but OBD recorded ${obd.toFixed(1)}L within the refuel window — ${TRUST_COPY.requiresReview.toLowerCase()}.`;
+    const observed = data.anomaly.obd_liters_actual;
+    if (declared != null && observed != null) {
+      return `Receipt claimed ${declared.toFixed(1)}L but the tank rose ${observed.toFixed(1)}L within the refuel window — ${TRUST_COPY.requiresReview.toLowerCase()}.`;
     }
-    return `Receipt volume could not be matched to OBD refuel signal — ${TRUST_COPY.requiresReview.toLowerCase()}.`;
+    return `Receipt volume could not be matched to any tank rise — ${TRUST_COPY.requiresReview.toLowerCase()}.`;
   }
 
   if (drop >= 0.5) {
@@ -67,7 +67,7 @@ export function buildPrimaryExplanation(
       seconds >= 60
         ? `${Math.round(seconds / 60)} min`
         : `${seconds} second${seconds === 1 ? '' : 's'}`;
-    return `Fuel dropped ${drop.toFixed(1)}L within ${dur} while ignition ${ignition} and speed ${speed} km/h.`;
+    return `Modelled tank level fell ${drop.toFixed(1)}L within ${dur} while ignition ${ignition} and speed ${speed} km/h.`;
   }
 
   return data.anomaly.reasons[0] ?? TRUST_COPY.siphonTitle;
@@ -146,49 +146,40 @@ export function buildCausalTimeline(
   );
 }
 
-export function buildConfidenceFactors(data: EventReplayResponse): string[] {
+/**
+ * Client-side fallback for when the API predates the honest payload.
+ *
+ * Only facts that can be read off the readings in hand appear here. The earlier
+ * version opened every list with "Stable OBD fuel readings in replay window",
+ * which was untrue on two counts: these trackers send no OBD or CAN element,
+ * and the level plotted is a tank modelled from distance and idle time.
+ */
+export function buildConfidenceFactors(
+  data: EventReplayResponse,
+  readings: EventReplayReading[] = [],
+  anomalyIndex = 0
+): string[] {
   if (data.anomaly.confidence_factors?.length) return data.anomaly.confidence_factors;
 
-  const factors: string[] = ['Stable OBD fuel readings in replay window'];
-  if (data.event_type === 'siphon' || data.event_type === 'daily_flag') {
-    factors.push('Ignition OFF correlated with fuel drop');
-    factors.push('No verified refuel in same window');
-    factors.push('Vehicle stationary during drop');
-  }
-  if (data.event_type === 'receipt_fraud') {
-    factors.push('Receipt timestamp matched to telemetry window');
-    factors.push('OBD refuel delta below declared volume');
-    factors.push('Gap exceeds review threshold');
-  }
-  return factors;
-}
-
-export type CertaintyPoint = { time: string; percent: number };
-
-export function buildCertaintyTimeline(
-  readings: EventReplayReading[],
-  anomalyIndex: number,
-  finalPercent: number
-): CertaintyPoint[] {
   const { startIndex } = dropWindow(readings, anomalyIndex);
-  const start = readings[startIndex];
-  const peak = readings[anomalyIndex];
-  if (!start || !peak) {
-    return [{ time: peak?.recorded_at ?? new Date().toISOString(), percent: finalPercent }];
+  const window = readings.slice(startIndex, anomalyIndex + 1);
+  const factors: string[] = [];
+
+  if (window.length) {
+    factors.push(`${window.length} GPS fix${window.length === 1 ? '' : 'es'} across the drop window`);
+    if (window.every((r) => !r.ignition_on)) factors.push('Ignition logged OFF for the whole drop');
+    if (window.every((r) => (r.speed_kph ?? 0) === 0))
+      factors.push('Vehicle stationary throughout (0 km/h)');
   }
 
-  const midTime = new Date(
-    (new Date(start.recorded_at).getTime() + new Date(peak.recorded_at).getTime()) / 2
-  ).toISOString();
+  const refuel = readings.some((r, i) => {
+    if (i === 0) return false;
+    const prev = readings[i - 1].fuel_level_liters;
+    return prev != null && r.fuel_level_liters != null && r.fuel_level_liters - prev >= 5;
+  });
+  if (!refuel && readings.length) factors.push('No refuel of 5L or more in this window');
 
-  const low = Math.max(38, Math.round(finalPercent * 0.45));
-  const mid = Math.max(low + 8, Math.round(finalPercent * 0.75));
-
-  return [
-    { time: start.recorded_at, percent: low },
-    { time: midTime, percent: mid },
-    { time: peak.recorded_at, percent: finalPercent },
-  ];
+  return factors;
 }
 
 export function buildBaselineComparison(
@@ -196,11 +187,10 @@ export function buildBaselineComparison(
   anomalyIndex: number
 ) {
   const { drop, seconds } = dropWindow(readings, anomalyIndex);
-  const hours = Math.max(seconds / 3600, seconds / 3600 || 1 / 3600);
-  const observedRate = drop / Math.max(hours, 1 / 3600);
+  const hours = Math.max(seconds / 3600, 1 / 3600);
+  const observedRate = drop / hours;
 
   return {
-    normalRange: '0.1–0.3 L/hr',
     observed:
       seconds < 90
         ? `${drop.toFixed(1)}L in ${seconds}s`
@@ -248,7 +238,10 @@ export function buildCorrelationAt(
       tone: speed === 0 ? 'neutral' : 'warn',
     },
     {
-      signal: 'Fuel (OBD)',
+      // Not an OBD reading. The level is a tank modelled from distance driven
+      // and idle time, so the label says so rather than borrowing the
+      // authority of a sensor this hardware does not have.
+      signal: 'Fuel (modelled)',
       state: fuelState,
       detail:
         fuelState === 'RAPID DROP'
@@ -269,7 +262,7 @@ export function buildRecommendedActions(data: EventReplayResponse): string[] {
 
   if (data.event_type === 'receipt_fraud') {
     actions.push('Verify fuel receipt and station timestamp');
-    actions.push('Compare declared liters to OBD refuel curve');
+    actions.push('Compare declared litres against the tank curve');
   } else {
     actions.push('Verify fuel receipts for this vehicle on the same day');
     actions.push('Contact assigned driver for operational context');

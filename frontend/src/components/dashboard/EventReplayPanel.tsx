@@ -12,6 +12,7 @@ import {
   Truck,
 } from 'lucide-react';
 import {
+  EventReplayManoeuvre,
   EventReplayMoment,
   EventReplayResponse,
   api,
@@ -21,7 +22,6 @@ import {
   anomalyDisplayTitle,
   buildBaselineComparison,
   buildCausalTimeline,
-  buildCertaintyTimeline,
   buildConfidenceFactors,
   buildCorrelationAt,
   buildPrimaryExplanation,
@@ -40,8 +40,9 @@ import {
 } from '@/lib/fleet-map-theme';
 import {
   AnomalyMapMarker,
-  EmphasizedRoute,
+  MANOEUVRE_STYLE,
   MapResizeFix,
+  SpeedGradedRoute,
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
 
@@ -49,6 +50,8 @@ const REPLAY_MAP_HEIGHT = 'min(42vh, 420px)';
 const REPLAY_MAP_MIN_HEIGHT_PX = 300;
 const FUEL_CHART_HEIGHT = 200;
 const PLAY_INTERVAL_MS = 550;
+/** Fixes of run-up shown before the flagged moment when the replay opens. */
+const APPROACH_FIXES = 8;
 const PAUSE_MOMENT_TYPES = new Set<EventReplayMoment['type']>([
   'anomaly',
   'fuel_drop',
@@ -74,19 +77,43 @@ function ReplayMap({
   activeIndex,
   anomalyIndex,
   moments,
+  manoeuvres,
 }: {
   readings: EventReplayResponse['readings'];
   activeIndex: number;
   anomalyIndex: number;
   moments: EventReplayMoment[];
+  manoeuvres: EventReplayManoeuvre[];
 }) {
   const map = useMap();
-  const path = useMemo(
+
+  // Readings without a fix are dropped for drawing, which shifts every later
+  // position — so the manoeuvre indices, which are counted against the full
+  // reading list, have to be remapped onto the drawn path or a harsh brake
+  // gets painted onto the wrong corner.
+  // `indexInPath[i]` is -1 for a reading that carried no fix. A plain array
+  // rather than a Map because `Map` is the Google Maps component in this file.
+  const { path, trackPoints, indexInPath } = useMemo(() => {
+    const remap: number[] = new Array(readings.length).fill(-1);
+    const pts: { lat: number; lng: number; speedKph: number }[] = [];
+    readings.forEach((r, i) => {
+      if (r.latitude == null || r.longitude == null) return;
+      remap[i] = pts.length;
+      pts.push({ lat: r.latitude, lng: r.longitude, speedKph: r.speed_kph ?? 0 });
+    });
+    return {
+      trackPoints: pts,
+      indexInPath: remap,
+      path: pts.map((p) => ({ lat: p.lat, lng: p.lng })),
+    };
+  }, [readings]);
+
+  const trackManoeuvres = useMemo(
     () =>
-      readings
-        .filter((r) => r.latitude != null && r.longitude != null)
-        .map((r) => ({ lat: r.latitude!, lng: r.longitude! })),
-    [readings],
+      manoeuvres
+        .map((m) => ({ ...m, index: indexInPath[m.index] ?? -1 }))
+        .filter((m) => m.index >= 0),
+    [manoeuvres, indexInPath],
   );
 
   const active = readings[activeIndex];
@@ -95,17 +122,23 @@ function ReplayMap({
       ? { lat: active.latitude, lng: active.longitude }
       : path[path.length - 1] ?? LAGOS_CENTER;
 
+  // Same remapping as the track: `path` is indexed by drawn point, not by
+  // reading, so indexing it with a reading number pointed the car down the
+  // wrong bearing whenever the window contained a fix without a position.
+  const mapped = indexInPath[activeIndex];
+  const activePathIndex = mapped != null && mapped >= 0 ? mapped : path.length - 1;
+
   const heading = useMemo(() => {
-    if (activeIndex > 0 && path[activeIndex] && path[activeIndex - 1]) {
-      const prev = path[activeIndex - 1];
-      const curr = path[activeIndex];
+    if (activePathIndex > 0 && path[activePathIndex] && path[activePathIndex - 1]) {
+      const prev = path[activePathIndex - 1];
+      const curr = path[activePathIndex];
       return bearingDeg(prev.lat, prev.lng, curr.lat, curr.lng);
     }
     if (path.length > 1) {
       return bearingDeg(path[0].lat, path[0].lng, path[1].lat, path[1].lng);
     }
     return 0;
-  }, [activeIndex, path]);
+  }, [activePathIndex, path]);
 
   const anomaly = readings[anomalyIndex];
   const anomalyPos =
@@ -134,10 +167,10 @@ function ReplayMap({
   return (
     <>
       <MapResizeFix />
-      <EmphasizedRoute
-        path={path}
-        traveledPath={path.slice(0, activeIndex + 1)}
-        emphasized
+      <SpeedGradedRoute
+        points={trackPoints}
+        manoeuvres={trackManoeuvres}
+        traveledTo={activePathIndex}
       />
       {anomalyPos && (
         <AnomalyMapMarker lat={anomalyPos.lat} lng={anomalyPos.lng} />
@@ -318,12 +351,14 @@ function ReplayMapSection({
   activeIndex,
   anomalyIndex,
   moments,
+  manoeuvres,
   locationName,
 }: {
   readings: EventReplayResponse['readings'];
   activeIndex: number;
   anomalyIndex: number;
   moments: EventReplayMoment[];
+  manoeuvres: EventReplayManoeuvre[];
   locationName?: string | null;
 }) {
   const mapPath = readings.filter(
@@ -354,8 +389,34 @@ function ReplayMapSection({
           activeIndex={activeIndex}
           anomalyIndex={anomalyIndex}
           moments={moments}
+          manoeuvres={manoeuvres}
         />
       </Map>
+
+      {/* A colour legend, because a coloured track that needs explaining in
+          prose is just decoration. Manoeuvre keys appear only for the types
+          actually present in this window — never as a list of what the app
+          could theoretically detect. */}
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-edge/80 bg-canvas/90 px-3 py-2 backdrop-blur-md">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+          Speed
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] text-ink-mid">
+          <span className="h-1 w-8 rounded-full bg-gradient-to-r from-[#4d7c3f] via-[#b5cf45] to-[#fdfbe4]" />
+          slow → fast
+        </span>
+        {[...new Set(manoeuvres.map((m) => m.type))]
+          .filter((type) => MANOEUVRE_STYLE[type])
+          .map((type) => (
+            <span key={type} className="flex items-center gap-1.5 text-[10px] text-ink-mid">
+              <span
+                className="h-1.5 w-5 rounded-full"
+                style={{ backgroundColor: MANOEUVRE_STYLE[type].color }}
+              />
+              {MANOEUVRE_STYLE[type].label}
+            </span>
+          ))}
+      </div>
 
       <div className="pointer-events-none absolute inset-x-3 top-3 z-10 max-w-lg rounded-xl border border-edge/80 bg-canvas/90 px-4 py-3 shadow-lg backdrop-blur-md">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
@@ -448,38 +509,6 @@ function CausalTimelineList({
   );
 }
 
-function CertaintyTimelineList({
-  points,
-}: {
-  points: ReturnType<typeof buildCertaintyTimeline>;
-}) {
-  return (
-    <ul className="space-y-2">
-      {points.map((point, i) => (
-        <li
-          key={`${point.time}-${i}`}
-          className="flex items-center justify-between gap-3 text-sm"
-        >
-          <span className="font-mono text-xs text-brand">
-            {formatReplayClock(point.time)}
-          </span>
-          <div className="flex flex-1 items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel">
-              <div
-                className="h-full rounded-full bg-good"
-                style={{ width: `${point.percent}%` }}
-              />
-            </div>
-            <span className="w-10 font-mono text-xs font-semibold text-good">
-              {point.percent}%
-            </span>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 export function EventReplayPanel({
   target,
   onClose,
@@ -501,7 +530,16 @@ export function EventReplayPanel({
     try {
       const result = await api<EventReplayResponse>(path);
       setData(result);
-      setActiveIndex(result.anomaly_index ?? 0);
+
+      // Open on the run-up, not on the event itself. Landing the scrubber
+      // exactly on the flagged moment meant the manager arrived after the only
+      // thing worth watching had happened, and had to drag backwards to find
+      // out what led to it. Playback then starts on its own, so the answer to
+      // "what did the vehicle do here" arrives without anyone hunting for a
+      // Play button.
+      const lead = Math.max(0, (result.anomaly_index ?? 0) - APPROACH_FIXES);
+      setActiveIndex(lead);
+      setPlaying((result.readings?.length ?? 0) > 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load replay');
     } finally {
@@ -516,6 +554,7 @@ export function EventReplayPanel({
   const readings = data?.readings ?? [];
   const anomalyIndex = data?.anomaly_index ?? 0;
   const moments = data?.moments ?? [];
+  const manoeuvres = useMemo(() => data?.manoeuvres ?? [], [data]);
 
   useEffect(() => {
     if (!playing || !readings.length) return;
@@ -555,18 +594,9 @@ export function EventReplayPanel({
       title: anomalyDisplayTitle(data),
       primary: buildPrimaryExplanation(data, readings, anomalyIndex),
       whyFlagged: improveWhyFlagged(data, readings, anomalyIndex),
-      factors: buildConfidenceFactors(data),
+      factors: buildConfidenceFactors(data, readings, anomalyIndex),
       causal: buildCausalTimeline(data, readings, moments, anomalyIndex),
-      certainty:
-        data.anomaly.certainty_timeline ??
-        buildCertaintyTimeline(readings, anomalyIndex, confidence),
-      baseline: data.anomaly.baseline_comparison
-        ? {
-            normalRange: data.anomaly.baseline_comparison.normal_range,
-            observed: data.anomaly.baseline_comparison.observed_value,
-            isAbnormal: true,
-          }
-        : buildBaselineComparison(readings, anomalyIndex),
+      baseline: buildBaselineComparison(readings, anomalyIndex),
       correlation: buildCorrelationAt(readings[activeIndex], data),
       actions: buildRecommendedActions(data),
       severity: severityLabel(confidence),
@@ -665,6 +695,7 @@ export function EventReplayPanel({
                   activeIndex={activeIndex}
                   anomalyIndex={anomalyIndex}
                   moments={moments}
+                  manoeuvres={manoeuvres}
                   locationName={data.location_name}
                 />
               </APIProvider>
@@ -692,8 +723,11 @@ export function EventReplayPanel({
 
                 <section className="rounded-xl border border-edge bg-panel p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    {/* Not "primary evidence" — a modelled curve cannot be the
+                        strongest thing in the room. The GPS trace is measured;
+                        this is inferred from it. */}
                     <p className="text-sm font-semibold text-ink">
-                      Fuel level — primary evidence
+                      Tank level — modelled, not measured
                     </p>
                     <span className="font-mono text-xs text-ink-dim">
                       {readings[activeIndex]
@@ -709,23 +743,17 @@ export function EventReplayPanel({
                   />
                 </section>
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <section className="rounded-xl border border-edge bg-panel p-4">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-dim">
-                      Incident timeline (causality)
-                    </p>
-                    <CausalTimelineList steps={intelligence.causal} />
-                  </section>
-                  <section className="rounded-xl border border-edge bg-panel p-4">
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-dim">
-                      Detection confidence rising
-                    </p>
-                    <p className="mb-3 text-[10px] text-ink-dim">
-                      How certainty built as telemetry accumulated
-                    </p>
-                    <CertaintyTimelineList points={intelligence.certainty} />
-                  </section>
-                </div>
+                {/* The "Detection confidence rising" panel that sat beside
+                    this one has been removed. Its three rising percentages
+                    were not measurements of anything — they were the final
+                    score multiplied by 0.45 and 0.75 — so it showed a manager
+                    certainty accruing through numbers no evidence produced. */}
+                <section className="rounded-xl border border-edge bg-panel p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-dim">
+                    Incident timeline (causality)
+                  </p>
+                  <CausalTimelineList steps={intelligence.causal} />
+                </section>
 
                 <section className="rounded-xl border border-edge bg-panel p-4">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-dim">
@@ -809,13 +837,31 @@ export function EventReplayPanel({
                       <p className="font-semibold text-bad">
                         {intelligence.title}
                       </p>
+                      {/* "−0.0 L" beside "Est. impact ₦52" was the same
+                          quantity contradicting itself: 0.04 L rounded to one
+                          decimal is a zero the naira figure disproves. Below
+                          the model's resolution, say that instead. */}
                       <p className="mt-1 text-2xl font-bold text-ink">
-                        −{data.anomaly.liters_lost.toFixed(1)} L
+                        {data.anomaly.liters_lost < 0.05
+                          ? 'Under 0.1 L'
+                          : `−${data.anomaly.liters_lost.toFixed(1)} L`}
                       </p>
                       <p className="text-sm text-ink-mid">
-                        Est. impact {formatNgn(data.anomaly.estimated_loss_ngn)}{' '}
+                        {data.anomaly.estimated_loss_ngn != null
+                          ? `Est. impact ${formatNgn(data.anomaly.estimated_loss_ngn)}`
+                          : 'No fuel price recorded — cannot value this'}{' '}
                         · {TRUST_COPY.requiresReview}
                       </p>
+                      {/* Which rate produced that naira figure, so a manager
+                          can tell a benchmark they set from a pump receipt. */}
+                      {data.anomaly.price_ngn_per_liter != null && (
+                        <p className="mt-0.5 text-xs text-ink-dim">
+                          at {formatNgn(data.anomaly.price_ngn_per_liter)}/L
+                          {data.anomaly.price_source === 'receipt'
+                            ? ' from the latest receipt'
+                            : ' from your benchmark price'}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <span
@@ -862,24 +908,23 @@ export function EventReplayPanel({
                 </ul>
               </div>
 
+              {/* The old "normal fuel drift while parked: 0.1–0.3 L/hr" was a
+                  constant string, not this vehicle's figure and not derived
+                  from anything. The model charges nothing at all to an
+                  engine-off hop, so the honest comparison is against zero. */}
               <div className="mt-4 rounded-lg border border-accent/30 bg-accent/10 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-brand">
-                  Compare vs normal behavior
+                  Compare vs expected
                 </p>
                 <div className="mt-3 grid gap-2 text-sm">
                   <div className="flex justify-between gap-2">
                     <span className="text-ink-dim">
-                      Normal fuel drift while parked
+                      Expected with the engine off
                     </span>
-                    <span className="font-mono text-good">
-                      {data.anomaly.baseline_comparison?.normal_range ??
-                        intelligence.baseline.normalRange}
-                    </span>
+                    <span className="font-mono text-good">0.0 L</span>
                   </div>
                   <div className="flex justify-between gap-2">
-                    <span className="text-ink-dim">
-                      Observed during event
-                    </span>
+                    <span className="text-ink-dim">Observed during event</span>
                     <span
                       className={`font-mono font-semibold ${
                         intelligence.baseline.isAbnormal
@@ -887,11 +932,15 @@ export function EventReplayPanel({
                           : 'text-ink'
                       }`}
                     >
-                      {data.anomaly.baseline_comparison?.observed_value ??
-                        intelligence.baseline.observed}
+                      {intelligence.baseline.observed}
                     </span>
                   </div>
                 </div>
+                <p className="mt-2.5 text-[11px] leading-relaxed text-ink-dim">
+                  The tank shown is modelled from distance driven and idle time,
+                  not read from a sensor — so a drop while parked is
+                  unaccounted-for rather than measured loss.
+                </p>
               </div>
 
               {data.event_type === 'receipt_fraud' &&
@@ -904,7 +953,7 @@ export function EventReplayPanel({
                       </span>
                     </div>
                     <div className="mt-2 flex justify-between">
-                      <span className="text-ink-dim">OBD recorded</span>
+                      <span className="text-ink-dim">Tank rose by</span>
                       <span className="font-mono text-bad">
                         {data.anomaly.obd_liters_actual?.toFixed(1) ?? '—'} L
                       </span>

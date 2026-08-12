@@ -26,6 +26,7 @@ import {
   formatNgn,
   kmLToMpg,
 } from '@/lib/api';
+import { DistanceBreakdownCard } from '@/components/dashboard/DistanceBreakdownCard';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { IconTile } from '@/components/ui/chrome';
 import { ReplayTarget } from '@/lib/replay-target';
@@ -189,9 +190,10 @@ export function FleetOperationsOverview({
         : null;
 
     // What this distance should have burned at the benchmark, and therefore how
-    // much of the burn was extra. Compared litre for litre against what the
-    // tracker measured — both sides of the sum are fuel that actually left the
-    // tank. Shown with its arithmetic so the number can be checked.
+    // much of the burn was extra. Both sides are modelled litres rather than
+    // sensed ones, so this is a comparison of two estimates — useful for
+    // spotting drift, not proof of loss. Shown with its arithmetic so the
+    // number can be checked.
     const benchmarkLiters =
       efficiencySummary.total_expected_fuel_liters ??
       (benchmarkKmPerLiter && benchmarkKmPerLiter > 0 ? distanceKm / benchmarkKmPerLiter : null);
@@ -221,6 +223,31 @@ export function FleetOperationsOverview({
     const blendedPricePerLiter =
       liters > 0 ? burnedCost / liters : efficiencySummary.price_per_liter_ngn;
 
+    // What idling cost, in the unit a manager already thinks in.
+    //
+    // This replaces an "Economy 12.6 mpg vs benchmark" readout that could not
+    // fail. The tank is modelled — every litre is charged as distance × the
+    // rate entered on the vehicle, plus idle time × the idle rate — so
+    // distance ÷ litres just returns the entered rate diluted by idling. It
+    // agreed with the vehicle's own settings by construction and told the
+    // manager nothing about the vehicle.
+    //
+    // The same two numbers do say something real once the idle share is split
+    // out: how much economy idling is costing, which is a thing a manager can
+    // act on. It is still arithmetic on a model, so it is labelled as such.
+    const idleLiters = efficiencySummary.total_idle_fuel_liters ?? 0;
+    const drivingLiters = liters - idleLiters;
+    const ratedKmPerLiter = drivingLiters > 0 ? distanceKm / drivingLiters : null;
+    const idleDrag = {
+      idleLiters,
+      idleHours: efficiencySummary.total_idle_hours ?? 0,
+      idleCost: idleLiters * blendedPricePerLiter,
+      ratedKmPerLiter,
+      // Only meaningful when some of the burn was actually idle.
+      idleDragKmPerLiter:
+        ratedKmPerLiter != null && idleLiters > 0 ? ratedKmPerLiter - kmPerLiter : null,
+    };
+
     return {
       distanceKm,
       liters,
@@ -243,6 +270,7 @@ export function FleetOperationsOverview({
           : null,
       monthlyRunRate: (burnedCost / periodDays) * 30,
       pricePerLiter: efficiencySummary.price_per_liter_ngn,
+      ...idleDrag,
     };
   }, [efficiencySummary, efficiency, periodDays]);
 
@@ -615,7 +643,7 @@ export function FleetOperationsOverview({
                 ? `${fuelContext.liters.toFixed(1)} L over ${Math.round(
                     fuelContext.distanceKm
                   )} km at ${formatNgn(fuelContext.blendedPricePerLiter)}/L average`
-                : 'Measured by the tracker — no distance in this window, so this is idling'}
+                : 'No distance in this window, so this is idling'}
             </p>
             {/* Bought and burned are different questions. Keeping the receipt
                 total visible but subordinate stops the two being read as one. */}
@@ -640,22 +668,28 @@ export function FleetOperationsOverview({
                           : null
                       }
                     />
-                    {/* Both units, because the benchmark a manager knows for
-                        their own vehicle is usually the one on its dash, and
-                        that is mpg on most imports here. */}
-                    <Rate
-                      label="Economy"
-                      value={`${fuelContext.kmPerLiter.toFixed(1)} km/L · ${
-                        kmLToMpg(fuelContext.kmPerLiter)?.toFixed(1) ?? '—'
-                      } mpg`}
-                      benchmark={
-                        fuelContext.benchmarkKmPerLiter != null
-                          ? `vs ${fuelContext.benchmarkKmPerLiter.toFixed(1)} km/L · ${
-                              kmLToMpg(fuelContext.benchmarkKmPerLiter)?.toFixed(1) ?? '—'
-                            } mpg benchmark`
-                          : null
-                      }
-                    />
+                    {/* What idling is costing, rather than an economy figure
+                        that only ever restates the vehicle's own settings.
+                        Shown in mpg because that is what is on the dash of
+                        most imports here. */}
+                    {fuelContext.idleDragKmPerLiter != null &&
+                    fuelContext.ratedKmPerLiter != null ? (
+                      <Rate
+                        label="Idle drag"
+                        value={`${kmLToMpg(fuelContext.ratedKmPerLiter)?.toFixed(1) ?? '—'} → ${
+                          kmLToMpg(fuelContext.kmPerLiter)?.toFixed(1) ?? '—'
+                        } mpg`}
+                        benchmark={`${fuelContext.idleLiters.toFixed(1)} L idling · ${formatNgn(
+                          fuelContext.idleCost
+                        )}`}
+                      />
+                    ) : (
+                      <Rate
+                        label="Idle drag"
+                        value="—"
+                        benchmark="no idling recorded this period"
+                      />
+                    )}
                   </div>
                 ) : (
                   /* Says which figure is missing and why, rather than dividing
@@ -663,12 +697,20 @@ export function FleetOperationsOverview({
                      flattering number with nothing behind it. */
                   <div className="grid grid-cols-2 gap-4">
                     <Rate label="Cost per km" value="—" benchmark="not enough fuel data" />
-                    <Rate label="Economy" value="—" benchmark="not enough fuel data" />
+                    <Rate label="Idle drag" value="—" benchmark="not enough fuel data" />
                   </div>
                 )}
+                {/* Stated once, plainly, wherever litres appear as money: this
+                    fleet's trackers carry no fuel sensor and no CAN link, so
+                    the litres are inferred from distance and idle time. */}
+                <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
+                  Litres are modelled from distance driven and idle time, not read
+                  from a fuel sensor. Money is valued at the price in force when
+                  each litre burned.
+                </p>
                 {!fuelContext.fuelComplete && (
                   <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
-                    The tracker measured {fuelContext.liters.toFixed(1)} L over{' '}
+                    The model charges {fuelContext.liters.toFixed(1)} L over{' '}
                     {Math.round(fuelContext.distanceKm)} km — about{' '}
                     {Math.round((fuelContext.fuelCoverage ?? 0) * 100)}% of the{' '}
                     {(fuelContext.benchmarkLiters ?? 0).toFixed(1)} L this distance should have
@@ -704,7 +746,7 @@ export function FleetOperationsOverview({
                   {Math.round(fuelContext.distanceKm)} km at the{' '}
                   {fuelContext.benchmarkKmPerLiter?.toFixed(1)} km/L baseline should burn{' '}
                   {fuelContext.benchmarkLiters?.toFixed(1)} L ({formatNgn(fuelContext.benchmarkCost)}
-                  ). The tracker measured {fuelContext.liters.toFixed(1)} L (
+                  ). The model charges {fuelContext.liters.toFixed(1)} L (
                   {formatNgn(fuelContext.burnedCost)}) —{' '}
                   {Math.abs(fuelContext.savedLiters ?? 0).toFixed(1)} L{' '}
                   {fuelContext.savedNgn >= 0 ? 'less' : 'more'} than expected.
@@ -779,16 +821,23 @@ export function FleetOperationsOverview({
               week of preventable loss by 52 produces a large, alarming number
               that no evidence supports — a single bad week is not a year, and
               the figure reads as a forecast however it is captioned. */}
-          {/* Full width on row two. Removing the annualised projection left
-              three cards in a 2x2 slot and a visible hole beside this one;
-              stretching it squares the block off against the hero tile. */}
+          {/* Fleet health used to stretch the full width of row two purely to
+              fill the hole the removed projection left. One score does not
+              need six columns, so the slack now carries a breakdown of the
+              distance behind every other figure on this screen. */}
           <StatTile
             icon={Gauge}
             label="Fleet health"
             value={healthScore != null ? `${healthScore}/100` : '—'}
             hint="Offline trackers, open alerts, vehicles off baseline"
             tone={healthTone}
-            className="sm:col-span-2 lg:col-span-6"
+            className="lg:col-span-3"
+          />
+          <DistanceBreakdownCard
+            periodDays={periodDays}
+            idleHours={fuelContext?.idleHours}
+            idleCostNgn={fuelContext?.idleCost}
+            className="sm:col-span-2 lg:col-span-3"
           />
         </div>
       </section>

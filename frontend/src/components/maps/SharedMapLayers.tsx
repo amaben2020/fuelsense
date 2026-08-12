@@ -393,3 +393,159 @@ export function AnomalyMapMarker({
 
   return <Marker position={{ lat, lng }} icon={icon} zIndex={500} title={title} />;
 }
+
+// ---------------------------------------------------------------------------
+// Speed-graded replay track
+//
+// The replay used to draw one flat line and caption it "harsh cornering at this
+// point" — the manager had to take the caption's word for where, and for what.
+// Colouring the track turns the claim into something they can see.
+//
+// Only two things are painted, because only two things are known. Speed is
+// measured: it arrives on every fix. Harsh braking, acceleration and cornering
+// are derived from the speed and heading series by `harsh-driving.ts`, and are
+// drawn over the top at the second they occurred.
+//
+// Nothing here depicts overspeeding. That would need either the device's
+// overspeed scenario (off on this fleet's trackers) or a configured limit to
+// compare against (the app stores none), so a "speeding" stretch would be a
+// guess wearing the colour of a fact.
+// ---------------------------------------------------------------------------
+
+/** Colour ramp for measured speed, slow to fast. */
+const SPEED_BANDS = [
+  { maxKph: 5, color: '#4b5563', label: 'stopped' },
+  { maxKph: 20, color: '#4d7c3f', label: 'under 20 km/h' },
+  { maxKph: 40, color: '#7fa73c', label: '20-40 km/h' },
+  { maxKph: 60, color: '#b5cf45', label: '40-60 km/h' },
+  { maxKph: 80, color: '#e3ef8c', label: '60-80 km/h' },
+  { maxKph: Infinity, color: '#fdfbe4', label: 'over 80 km/h' },
+];
+
+export function speedBand(kph: number) {
+  return SPEED_BANDS.find((b) => kph <= b.maxKph) ?? SPEED_BANDS[SPEED_BANDS.length - 1];
+}
+
+export const MANOEUVRE_STYLE: Record<string, { color: string; label: string }> = {
+  harsh_braking: { color: '#ff4d4f', label: 'Harsh braking' },
+  harsh_cornering: { color: '#ffab00', label: 'Harsh cornering' },
+  harsh_acceleration: { color: '#3b9dff', label: 'Harsh acceleration' },
+};
+
+export interface TrackPoint {
+  lat: number;
+  lng: number;
+  speedKph: number;
+}
+
+export interface TrackManoeuvre {
+  index: number;
+  type: string;
+  severity?: string;
+}
+
+/**
+ * Consecutive segments sharing a colour are merged into one polyline. A 120-fix
+ * replay would otherwise mount 119 map overlays and stutter every time the
+ * scrubber moved; in practice a trip collapses to a handful of runs.
+ */
+function colourRuns(
+  points: TrackPoint[],
+  colourAt: (segmentIndex: number) => string,
+): Array<{ path: google.maps.LatLngLiteral[]; color: string }> {
+  const runs: Array<{ path: google.maps.LatLngLiteral[]; color: string }> = [];
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const color = colourAt(i);
+    const last = runs[runs.length - 1];
+    if (last && last.color === color) {
+      last.path.push({ lat: points[i + 1].lat, lng: points[i + 1].lng });
+    } else {
+      runs.push({
+        color,
+        path: [
+          { lat: points[i].lat, lng: points[i].lng },
+          { lat: points[i + 1].lat, lng: points[i + 1].lng },
+        ],
+      });
+    }
+  }
+
+  return runs;
+}
+
+export const SpeedGradedRoute = memo(function SpeedGradedRoute({
+  points,
+  manoeuvres = [],
+  traveledTo,
+}: {
+  points: TrackPoint[];
+  manoeuvres?: TrackManoeuvre[];
+  /** Index the scrubber has reached; earlier track is drawn at full strength. */
+  traveledTo?: number;
+}) {
+  // A manoeuvre is an instant, but a single fix is invisible at map scale, so
+  // it claims the segment either side of the reading it happened closest to.
+  const manoeuvreAt = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const m of manoeuvres) {
+      const style = MANOEUVRE_STYLE[m.type];
+      if (!style) continue;
+      for (const seg of [m.index - 1, m.index]) {
+        if (seg >= 0) map.set(seg, style.color);
+      }
+    }
+    return map;
+  }, [manoeuvres]);
+
+  const runs = useMemo(
+    () =>
+      colourRuns(points, (i) => manoeuvreAt.get(i) ?? speedBand(points[i].speedKph).color),
+    [points, manoeuvreAt],
+  );
+
+  if (points.length < 2) return null;
+
+  return (
+    <>
+      {/* Dark casing under everything so pale high-speed colours stay legible
+          against light roads. */}
+      <Polyline
+        path={points.map((p) => ({ lat: p.lat, lng: p.lng }))}
+        strokeColor="#0b1220"
+        strokeOpacity={0.85}
+        strokeWeight={9}
+        geodesic
+        zIndex={1}
+      />
+      {runs.map((run, i) => {
+        const isManoeuvre = Object.values(MANOEUVRE_STYLE).some(
+          (s) => s.color === run.color,
+        );
+        return (
+          <Polyline
+            key={`${run.color}-${i}`}
+            path={run.path}
+            strokeColor={run.color}
+            strokeOpacity={1}
+            strokeWeight={isManoeuvre ? 8 : 5}
+            geodesic
+            zIndex={isManoeuvre ? 4 : 2}
+          />
+        );
+      })}
+      {/* Track still ahead of the scrubber is dimmed, so the eye lands on where
+          the vehicle has actually reached. */}
+      {traveledTo != null && traveledTo < points.length - 1 && (
+        <Polyline
+          path={points.slice(traveledTo).map((p) => ({ lat: p.lat, lng: p.lng }))}
+          strokeColor="#0b1220"
+          strokeOpacity={0.55}
+          strokeWeight={7}
+          geodesic
+          zIndex={5}
+        />
+      )}
+    </>
+  );
+});
