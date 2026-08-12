@@ -14,9 +14,10 @@ import {
   Users,
 } from 'lucide-react';
 import {
-  DriverMonth,
+  DriverPeriod,
   DriverReport,
   DriverReportsResponse,
+  ReportBucket,
   fetchDriverReports,
 } from '@/lib/api';
 import { Avatar, HatchBar, Panel, SegmentedPills, StatusChip } from '@/components/ui/chrome';
@@ -31,6 +32,49 @@ function monthLabel(month: string): string {
     timeZone: 'UTC',
   });
 }
+
+/** A day, in the viewer's own timezone, as the `YYYY-MM-DD` a date input wants. */
+function toDateInput(date: Date): string {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+/**
+ * The full label for a bucket, spelled out from the period's own start/end
+ * rather than re-parsed from the key — an ISO week number is not something a
+ * fleet manager should have to decode into dates in their head.
+ */
+function periodLabel(row: DriverPeriod, bucket: ReportBucket): string {
+  if (bucket === 'month') return monthLabel(row.period);
+  const start = new Date(`${row.period_start.slice(0, 10)}T00:00:00Z`);
+  const end = new Date(`${row.period_end.slice(0, 10)}T00:00:00Z`);
+  const fmt = (d: Date, withYear: boolean) =>
+    d.toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      ...(withYear ? { year: 'numeric' } : {}),
+      timeZone: 'UTC',
+    });
+  if (bucket === 'day') return fmt(start, true);
+  return `${fmt(start, false)} – ${fmt(end, true)}`;
+}
+
+/** The short form that fits inside a pill. */
+function periodPillLabel(row: DriverPeriod, bucket: ReportBucket): string {
+  if (bucket === 'month') return monthLabel(row.period).split(' ')[0];
+  const start = new Date(`${row.period_start.slice(0, 10)}T00:00:00Z`);
+  return start.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+const BUCKETS: Array<{ id: ReportBucket; label: string }> = [
+  { id: 'month', label: 'Month' },
+  { id: 'week', label: 'Week' },
+  { id: 'day', label: 'Day' },
+];
 
 /**
  * A metric with no reading is shown as an em dash. Every figure here is
@@ -64,20 +108,22 @@ function Metric({
 
 function DriverCard({
   report,
-  month,
+  period,
+  bucket,
   onViewVehicle,
 }: {
   report: DriverReport;
-  month: string;
+  period: string;
+  bucket: ReportBucket;
   onViewVehicle?: () => void;
 }) {
-  const row = report.months.find((m) => m.month === month) ?? null;
+  const row = report.periods.find((p) => p.period === period) ?? null;
   const previous = useMemo(() => {
-    const idx = report.months.findIndex((m) => m.month === month);
-    return idx >= 0 ? (report.months[idx + 1] ?? null) : null;
-  }, [report.months, month]);
+    const idx = report.periods.findIndex((p) => p.period === period);
+    return idx >= 0 ? (report.periods[idx + 1] ?? null) : null;
+  }, [report.periods, period]);
 
-  // Month-over-month distance, only when both months actually have a reading.
+  // Period-over-period distance, only when both periods actually have a reading.
   const trend =
     row && previous && previous.distance_km > 0
       ? ((row.distance_km - previous.distance_km) / previous.distance_km) * 100
@@ -120,7 +166,7 @@ function DriverCard({
 
       {!row ? (
         <p className="mt-4 rounded-xl bg-panel-deep px-3.5 py-6 text-center text-sm text-ink-dim">
-          No telemetry for {monthLabel(month)}.
+          No telemetry for this {bucket}.
         </p>
       ) : (
         <>
@@ -226,20 +272,31 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
   const [data, setData] = useState<DriverReportsResponse | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [month, setMonth] = useState<string | null>(null);
+  const [bucket, setBucket] = useState<ReportBucket>('month');
+  const [period, setPeriod] = useState<string | null>(null);
+  // Draft values, so a half-typed date does not fire a request on every keystroke.
+  const [fromInput, setFromInput] = useState('');
+  const [toInput, setToInput] = useState('');
+  const [range, setRange] = useState<{ from: string; to: string } | null>(null);
 
   // `loading` starts true, so the first fetch does not set it synchronously
   // inside the effect — that cascades an extra render for no benefit. Only the
   // manual refresh flips it back on.
   const runFetch = useCallback(() => {
-    fetchDriverReports(6)
+    fetchDriverReports({
+      bucket,
+      // An explicit range replaces the rolling window; the end date is pushed to
+      // the close of that day so a same-day range still covers it.
+      from: range ? `${range.from}T00:00:00` : null,
+      to: range ? `${range.to}T23:59:59` : null,
+    })
       .then((res) => {
         setData(res);
         setError(null);
       })
       .catch(setError)
       .finally(() => setLoading(false));
-  }, []);
+  }, [bucket, range]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -250,20 +307,22 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
     runFetch();
   }, [runFetch]);
 
-  // Every month any driver reported in, newest first.
-  const months = useMemo(() => {
-    const set = new Set<string>();
-    data?.drivers.forEach((d) => d.months.forEach((m) => set.add(m.month)));
-    return [...set].sort().reverse();
+  // Every period any driver reported in, newest first, keyed to its own row so
+  // labels can be spelled out from real dates.
+  const periods = useMemo(() => {
+    const byKey = new Map<string, DriverPeriod>();
+    data?.drivers.forEach((d) => d.periods.forEach((p) => byKey.set(p.period, p)));
+    return [...byKey.values()].sort((a, b) => b.period.localeCompare(a.period));
   }, [data]);
 
-  const activeMonth = month ?? months[0] ?? null;
+  const activePeriod = period ?? periods[0]?.period ?? null;
+  const activeRow = periods.find((p) => p.period === activePeriod) ?? null;
 
   const fleetTotals = useMemo(() => {
-    if (!data || !activeMonth) return null;
+    if (!data || !activePeriod) return null;
     const rows = data.drivers
-      .map((d) => d.months.find((m) => m.month === activeMonth))
-      .filter((m): m is DriverMonth => m != null);
+      .map((d) => d.periods.find((p) => p.period === activePeriod))
+      .filter((p): p is DriverPeriod => p != null);
     if (rows.length === 0) return null;
     return {
       drivers: rows.length,
@@ -271,7 +330,40 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
       trips: rows.reduce((n, r) => n + r.trips, 0),
       fuel: rows.reduce((n, r) => n + r.fuel_liters, 0),
     };
-  }, [data, activeMonth]);
+  }, [data, activePeriod]);
+
+  // Changing the grain or the window invalidates whichever period was selected,
+  // so both are reset together at the point of change rather than in an effect
+  // reacting to them — the effect version cascades an extra render each time.
+  const changeBucket = useCallback((next: ReportBucket) => {
+    setBucket(next);
+    setPeriod(null);
+  }, []);
+
+  const applyRange = useCallback(() => {
+    if (!fromInput || !toInput || fromInput > toInput) return;
+    setRange({ from: fromInput, to: toInput });
+    setPeriod(null);
+  }, [fromInput, toInput]);
+
+  const clearRange = useCallback(() => {
+    setFromInput('');
+    setToInput('');
+    setRange(null);
+    setPeriod(null);
+  }, []);
+
+  const applyLastSevenDays = useCallback(() => {
+    const to = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - 6);
+    setFromInput(toDateInput(from));
+    setToInput(toDateInput(to));
+    setRange({ from: toDateInput(from), to: toDateInput(to) });
+    setPeriod(null);
+  }, []);
+
+  const rangeInvalid = Boolean(fromInput && toInput && fromInput > toInput);
 
   if (error) {
     return <LoadErrorBanner error={error} subject="driver reports" onRetry={load} />;
@@ -282,19 +374,92 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
       <Panel
         icon={Users}
         title="Driver performance"
-        subtitle="Measured from vehicle telemetry — distance, fuel, trips and stops per calendar month"
+        subtitle={
+          range
+            ? `Measured from vehicle telemetry — ${range.from} to ${range.to}, grouped by ${bucket}`
+            : `Measured from vehicle telemetry — distance, fuel, trips and stops per ${bucket}`
+        }
         onRefresh={load}
         refreshing={loading}
         actions={
-          months.length > 0 ? (
-            <SegmentedPills
-              items={months.slice(0, 4).map((m) => ({ id: m, label: monthLabel(m).split(' ')[0] }))}
-              active={activeMonth ?? months[0]}
-              onChange={setMonth}
-            />
-          ) : undefined
+          <SegmentedPills items={BUCKETS} active={bucket} onChange={changeBucket} />
         }
       >
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {periods.length > 0 && (
+            <SegmentedPills
+              items={periods.slice(0, 5).map((p) => ({
+                id: p.period,
+                label: periodPillLabel(p, bucket),
+              }))}
+              active={activePeriod ?? periods[0].period}
+              onChange={setPeriod}
+            />
+          )}
+
+          {/* Exact window. Applied on demand rather than per-keystroke, and only
+              when both ends are set — a half-entered range would otherwise
+              silently widen the report to everything. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <input
+              type="date"
+              value={fromInput}
+              max={toInput || undefined}
+              onChange={(e) => setFromInput(e.target.value)}
+              aria-label="Report window start"
+              className={`rounded-lg border bg-panel px-2.5 py-1.5 text-xs text-ink ${
+                rangeInvalid ? 'border-bad' : range ? 'border-good' : 'border-edge'
+              }`}
+            />
+            <span className="text-xs text-ink-dim">→</span>
+            <input
+              type="date"
+              value={toInput}
+              min={fromInput || undefined}
+              onChange={(e) => setToInput(e.target.value)}
+              aria-label="Report window end"
+              className={`rounded-lg border bg-panel px-2.5 py-1.5 text-xs text-ink ${
+                rangeInvalid ? 'border-bad' : range ? 'border-good' : 'border-edge'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={applyRange}
+              disabled={!fromInput || !toInput || rangeInvalid}
+              className="rounded-lg border border-edge bg-panel px-2.5 py-1.5 text-xs text-ink-mid transition-colors hover:bg-panel-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Apply
+            </button>
+            {(range || fromInput || toInput) && (
+              <button
+                type="button"
+                onClick={clearRange}
+                className="rounded-lg border border-edge bg-panel px-2.5 py-1.5 text-xs text-ink-dim transition-colors hover:text-ink"
+                title="Clear the date range and return to the rolling window"
+              >
+                Clear
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={applyLastSevenDays}
+              className="rounded-lg border border-edge bg-panel px-2.5 py-1.5 text-xs text-ink-mid transition-colors hover:bg-panel-hover hover:text-ink"
+            >
+              Last 7 days
+            </button>
+          </div>
+        </div>
+
+        {rangeInvalid && (
+          <p className="mb-3 text-xs text-bad">The start date must not be after the end date.</p>
+        )}
+
+        {activeRow && (
+          <p className="mb-3 text-xs text-ink-dim">
+            Showing {periodLabel(activeRow, bucket)}
+          </p>
+        )}
+
         {fleetTotals ? (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Metric icon={Users} label="Drivers" value={String(fleetTotals.drivers)} />
@@ -320,17 +485,18 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
         <p className="mt-3 flex items-start gap-2 text-[11px] leading-relaxed text-ink-dim">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           Attributed through each vehicle&apos;s current driver assignment — the tracker reports
-          the vehicle, not who was driving it. Reassigning a vehicle reattributes its whole month.
+          the vehicle, not who was driving it. Reassigning a vehicle reattributes its whole {bucket}.
         </p>
       </Panel>
 
-      {activeMonth && data && data.drivers.length > 0 && (
+      {activePeriod && data && data.drivers.length > 0 && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {data.drivers.map((d) => (
             <DriverCard
               key={d.driver_name}
               report={d}
-              month={activeMonth}
+              period={activePeriod}
+              bucket={bucket}
               onViewVehicle={onViewVehicle}
             />
           ))}

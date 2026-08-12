@@ -216,6 +216,7 @@ export default function DashboardPage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeView, setActiveView] = useState<DashboardView>('overview');
+  const [autoDrawZone, setAutoDrawZone] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const [followVehicle, setFollowVehicle] = useState(true);
@@ -909,7 +910,7 @@ export default function DashboardPage() {
               title={viewTitle}
               subtitle={
                 activeView === 'live'
-                  ? `${customer?.company_name || customer?.name} · ${onlineCount} vehicles · refresh every ${LIVE_REFRESH_MS / 1000}s`
+                  ? `${customer?.company_name || customer?.name} · ${onlineCount}/${fleet.length} online · refresh every ${LIVE_REFRESH_MS / 1000}s`
                   : `${todayLabel} · ${
                       lastUpdated
                         ? `updated ${lastUpdated.toLocaleTimeString([], {
@@ -999,6 +1000,8 @@ export default function DashboardPage() {
                 tracks={liveTracks}
                 trips={trips}
                 fleet={fleet}
+                startDrawing={autoDrawZone}
+                onDrawingStarted={() => setAutoDrawZone(false)}
                 initialFocus={pendingTripFocus}
                 onFocusConsumed={() => setPendingTripFocus(null)}
                 selectedVehicleId={selectedVehicleId}
@@ -1086,10 +1089,15 @@ export default function DashboardPage() {
 
           {activeView === 'intel' && <FleetIntelligencePanel />}
 
-          {activeView === 'calibration' && <CalibrationGuidePanel />}
+          {activeView === 'calibration' && <CalibrationGuidePanel fleet={fleet} />}
 
           {activeView === 'geofences' && (
-            <GeofencesPanel onDrawZone={() => switchView('live')} />
+            <GeofencesPanel
+              onDrawZone={() => {
+                setAutoDrawZone(true);
+                switchView('live');
+              }}
+            />
           )}
 
           {activeView === 'drivers' && (

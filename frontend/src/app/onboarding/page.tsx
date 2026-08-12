@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, BulkVehiclesResponse, Customer, getToken } from '@/lib/api';
+import { api, BulkVehiclesResponse, Customer, getToken, setVehicleEconomy } from '@/lib/api';
 import {
+  economyInput,
   emptyVehicle,
   odometerToKm,
   VehicleDeviceFields,
@@ -69,7 +70,7 @@ export default function OnboardingPage() {
     }
 
     try {
-      await api<BulkVehiclesResponse>('/vehicles/bulk', {
+      const created = await api<BulkVehiclesResponse>('/vehicles/bulk', {
         method: 'POST',
         body: JSON.stringify({
           vehicles: payload.map((v) => ({
@@ -83,6 +84,24 @@ export default function OnboardingPage() {
           })),
         }),
       });
+      // Apply each dashboard economy reading to the vehicle it was entered for,
+      // matched on plate since the bulk endpoint returns the created rows. A
+      // failure here must not block onboarding — the vehicles exist, and the
+      // figure can be set later in Calibration.
+      await Promise.all(
+        payload.map(async (v) => {
+          const economy = economyInput(v);
+          if (!economy) return;
+          const row = created.fleet.find(
+            (f) => f.license_plate?.trim() === v.licensePlate.trim()
+          );
+          if (!row) return;
+          await setVehicleEconomy(row.id, economy).catch((e) =>
+            console.error(`[onboarding] economy not saved for ${v.licensePlate}:`, e)
+          );
+        })
+      );
+
       setStep('done');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save vehicles');

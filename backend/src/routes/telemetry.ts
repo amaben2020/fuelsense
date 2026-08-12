@@ -13,6 +13,7 @@ import {
   baselineEfficiencyKmL,
   baselineEfficiencyL100km,
   computeL100km,
+  l100kmToKmL,
   efficiencyDeviationPercentL100km,
   REFUEL_THRESHOLD_LITERS,
   DEFAULT_FUEL_PRICE_NGN_LITER,
@@ -704,12 +705,35 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       })
     );
 
+    // A rate the manager read off the vehicle's own dashboard beats a table
+    // keyed on model name, so it becomes the benchmark when one is set.
+    const rateRows = await db.execute(sql`
+      SELECT id, consumption_rate_l_per_100km, idle_burn_rate_l_per_hour, rate_source
+      FROM vehicles WHERE customer_id = ${customerId}
+    `);
+    const manualL100kmByVehicle = new Map<string, number>();
+    // The same idle rate the tank burns at, so the expectation and the tank
+    // cannot disagree about what an hour of idling costs.
+    const idleBurnLphByVehicle = new Map<string, number>();
+    for (const row of rateRows.rows as Array<Record<string, unknown>>) {
+      const idle = Number(row.idle_burn_rate_l_per_hour);
+      if (Number.isFinite(idle) && idle > 0) idleBurnLphByVehicle.set(row.id as string, idle);
+      if (row.rate_source !== 'manual' || row.consumption_rate_l_per_100km == null) continue;
+      const rate = Number(row.consumption_rate_l_per_100km);
+      if (Number.isFinite(rate) && rate > 0) manualL100kmByVehicle.set(row.id as string, rate);
+    }
+
     const rows = result.rows.map((row) => {
       const r = row as Record<string, unknown>;
       const distanceKm = Number(r.distance_km) || 0;
       const fuelUsed = Number(r.fuel_used_liters) || 0;
-      const expectedKmL = baselineEfficiencyKmL(r.model as string | null | undefined);
-      const expectedL100km = baselineEfficiencyL100km(r.model as string | null | undefined);
+      const manualL100km = manualL100kmByVehicle.get(r.vehicle_id as string) ?? null;
+      const expectedL100km =
+        manualL100km ?? baselineEfficiencyL100km(r.model as string | null | undefined);
+      const expectedKmL =
+        manualL100km != null
+          ? (l100kmToKmL(manualL100km) as number)
+          : baselineEfficiencyKmL(r.model as string | null | undefined);
 
       const tankDistance = Number(r.tank_distance_km) || Number(r.distance_since_purchase_km) || 0;
       const tankFuel = Number(r.tank_fuel_used_liters) || Number(r.fuel_since_purchase_liters) || 0;
@@ -721,9 +745,43 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
         distanceKm > 0 && fuelUsed >= 0.5 ? distanceKm / fuelUsed : null;
       const periodEfficiencyL100km = computeL100km(fuelUsed, distanceKm);
 
+      // Prices come from the SQL already applied per period, so a fleet that
+      // changed its declared price mid-window is costed at both prices rather
+      // than having today's rate projected backwards.
+      const periodPriceNgn = Number(r.avg_price_ngn) || pricePerLiter;
+
+      // What this vehicle should have burned **given how it was actually used**
+      // — the distance it covered and the time it spent idling.
+      //
+      // The benchmark used to cover driving only, while the measured figure was
+      // total fuel including idle. Comparing the two charged every driver for
+      // sitting in traffic: 54 minutes of idling turned a vehicle running
+      // exactly at its entered 15 mpg into "1.8 L over benchmark, ₦2,287
+      // wasted". A driver in Lagos traffic could not have come out any other
+      // way, which is precisely the number a manager learns to distrust.
+      //
+      // Idling is still waste and is still reported — as its own line, priced,
+      // below — but it is no longer double-charged as an efficiency failure.
+      const idleHoursForExpectation = (Number(r.idle_seconds) || 0) / 3600;
+      const vehicleIdleLph =
+        idleBurnLphByVehicle.get(r.vehicle_id as string) ?? IDLE_BURN_LITERS_PER_HOUR;
+      const expectedDrivingLiters = expectedKmL > 0 ? distanceKm / expectedKmL : 0;
+      const expectedIdleLiters = idleHoursForExpectation * vehicleIdleLph;
+      const expectedFuelLiters = expectedDrivingLiters + expectedIdleLiters;
+      const expectedCostNgn = Math.round(expectedFuelLiters * periodPriceNgn);
+
+      // Deliberately compared as litres against litres, not as L/100 km against
+      // the driving baseline. The old form divided total fuel (driving + idle)
+      // by distance and judged it against a driving-only rate, so idling alone
+      // pushed a vehicle past the 10% threshold and flagged it
+      // "underperforming" — a driver in traffic could not avoid it. Measured
+      // against what the vehicle should have burned *for how it was used*, the
+      // number means what a manager reads it to mean: fuel that this trip
+      // cannot account for.
+      const varianceBasisLiters = expectedDrivingLiters + expectedIdleLiters;
       const variancePercent =
-        periodEfficiencyL100km != null && expectedL100km > 0
-          ? efficiencyDeviationPercentL100km(periodEfficiencyL100km, expectedL100km)
+        varianceBasisLiters > 0.5 && fuelUsed > 0
+          ? round1(((fuelUsed - varianceBasisLiters) / varianceBasisLiters) * 100)
           : null;
 
       const tankVariancePercent =
@@ -731,12 +789,6 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
           ? efficiencyDeviationPercentL100km(tankEfficiencyL100km, expectedL100km)
           : null;
 
-      // Prices come from the SQL already applied per period, so a fleet that
-      // changed its declared price mid-window is costed at both prices rather
-      // than having today's rate projected backwards.
-      const periodPriceNgn = Number(r.avg_price_ngn) || pricePerLiter;
-      const expectedFuelLiters = expectedKmL > 0 ? distanceKm / expectedKmL : 0;
-      const expectedCostNgn = Math.round(expectedFuelLiters * periodPriceNgn);
 
       const purchaseCostNgn = Math.round(Number(r.purchase_cost_ngn) || 0);
       const telemetryCostNgn = Math.round(
@@ -750,7 +802,8 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       const actualCostNgn =
         purchaseCostNgn > 0 ? purchaseCostNgn : telemetryCostNgn;
 
-      const efficiencyLossNgn = Math.max(0, telemetryCostNgn - expectedCostNgn);
+      const efficiencyLossNgn =
+        distanceKm >= 1 ? Math.max(0, telemetryCostNgn - expectedCostNgn) : 0;
       const totalLossNgn = theftLossNgn + efficiencyLossNgn;
       const savingsNgn = expectedCostNgn - telemetryCostNgn;
 
@@ -760,7 +813,16 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       // count as context for the remainder.
       const idleHours = (Number(r.idle_seconds) || 0) / 3600;
       const idleLiters = Math.min(idleHours * IDLE_BURN_LITERS_PER_HOUR, fuelUsed);
-      const excessLiters = Math.max(0, fuelUsed - expectedFuelLiters);
+      // Efficiency is fuel per distance, so with no distance there is no
+      // efficiency to judge. The baseline expects 0 L for 0 km, which made
+      // every drop of legitimate idle burn read as "unaccounted for" and
+      // produced a theft-shaped loss figure for a vehicle that never moved.
+      // Below this, report the burn as idling and claim no gap.
+      const MIN_DISTANCE_FOR_EFFICIENCY_KM = 1;
+      const distanceIsJudgeable = distanceKm >= MIN_DISTANCE_FOR_EFFICIENCY_KM;
+      const excessLiters = distanceIsJudgeable
+        ? Math.max(0, fuelUsed - expectedFuelLiters)
+        : 0;
       const idleExcessLiters = Math.min(idleLiters, excessLiters);
       const unexplainedLiters = Math.max(0, excessLiters - idleExcessLiters);
       const harshEvents = harshByVehicle.get(r.vehicle_id as string) || 0;
@@ -1082,13 +1144,18 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
     const purchases = rows.rows.map((row) => {
       const r = row as Record<string, unknown>;
       const declared = Number(r.liters_declared);
-      const actualRaw = r.liters_actual != null ? Number(r.liters_actual) : null;
-      const actual =
-        r.status === 'pending_receipt' && (actualRaw == null || actualRaw === 0)
-          ? 0
-          : actualRaw;
+      // "Nothing was measured" must stay null all the way to the client.
+      //
+      // This used to force a pending receipt's `liters_actual` to 0, which the
+      // UI reads as a real reading of zero litres: the modal's
+      // `liters_actual != null` guard passed and it rendered a fraud-probability
+      // score for a purchase nothing is known about, and the difference became
+      // the entire declared volume. Same mistake as scoring an absent tank
+      // reading as a litre gap — see `hasTankMeasurement` in
+      // receipt-reconciliation.ts.
+      const actual = r.liters_actual != null ? Number(r.liters_actual) : null;
       const diff =
-        actual != null ? Math.max(0, Math.round((declared - actual) * 10) / 10) : declared;
+        actual != null ? Math.max(0, Math.round((declared - actual) * 10) / 10) : null;
       const costPerLiter = Number(r.cost_per_liter_ngn) || DEFAULT_FUEL_PRICE_NGN_LITER;
 
       return {

@@ -2,16 +2,25 @@
 
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowUpRight,
   CheckCircle2,
   Cpu,
   Fuel,
+  Gauge,
   Settings2,
   TriangleAlert,
 } from 'lucide-react';
 import { Panel, StatusChip } from '@/components/ui/chrome';
+import {
+  ECONOMY_UNIT_LABELS,
+  EconomyUnit,
+  FleetVehicle,
+  VehicleCalibrationStatus,
+  fetchCalibrationStatus,
+  setVehicleEconomy,
+} from '@/lib/api';
 
 const Tracker3D = dynamic(() => import('./Tracker3D').then((m) => m.Tracker3D), { ssr: false });
 
@@ -79,8 +88,233 @@ function SpecTable({ rows }: { rows: { field: string; value: string; note: strin
   );
 }
 
-export function CalibrationGuidePanel() {
-  const [tab, setTab] = useState<'tank' | 'device'>('tank');
+/**
+ * The vehicle's own economy figure, typed in from its trip computer.
+ *
+ * Every "vs benchmark" number on the dashboard is currently judged against a
+ * table keyed on model name — a RAV4 is assumed to do 7 km/L regardless of its
+ * age, engine or condition. A reading off the vehicle's own dashboard is better
+ * evidence than that guess, so this replaces it when one is entered.
+ */
+function EconomyCalibration({ fleet }: { fleet: FleetVehicle[] }) {
+  const [vehicleId, setVehicleId] = useState<string>(fleet[0]?.id ?? '');
+  const [value, setValue] = useState('');
+  const [unit, setUnit] = useState<EconomyUnit>('mpg_us');
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<VehicleCalibrationStatus[]>([]);
+
+  const selected = fleet.find((v) => v.id === vehicleId) ?? fleet[0] ?? null;
+
+  // What each vehicle is burning at right now, so the manager can see which
+  // ones are still on a class preset rather than a figure from their own dash.
+  const loadStatus = useCallback(() => {
+    fetchCalibrationStatus()
+      .then((res) => setStatus(res.vehicles))
+      .catch(() => setStatus([]));
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  const currentFor = (id: string) => status.find((s) => s.vehicle_id === id) ?? null;
+  const current = selected ? currentFor(selected.id) : null;
+
+  const save = useCallback(async () => {
+    if (!selected) return;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setError('Enter the figure your dashboard shows.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await setVehicleEconomy(selected.id, { value: parsed, unit });
+      setResult(
+        `Saved — ${selected.license_plate} is now benchmarked at ${res.km_per_liter?.toFixed(2)} km/L ` +
+          `(${res.consumption_l_per_100km.toFixed(2)} L/100 km).`
+      );
+      loadStatus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save that figure.');
+    } finally {
+      setSaving(false);
+    }
+  }, [selected, value, unit, loadStatus]);
+
+  const clear = useCallback(async () => {
+    if (!selected) return;
+    setSaving(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await setVehicleEconomy(selected.id, null);
+      setValue('');
+      setResult(
+        `Cleared — ${selected.license_plate} is back on the class preset ` +
+          `(${res.km_per_liter?.toFixed(2)} km/L).`
+      );
+      loadStatus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not clear that figure.');
+    } finally {
+      setSaving(false);
+    }
+  }, [selected, loadStatus]);
+
+  if (!selected) {
+    return (
+      <Panel icon={Gauge} title="Fuel economy" subtitle="No vehicles yet.">
+        <p className="text-sm text-ink-dim">Add a vehicle to set its economy benchmark.</p>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel
+      icon={Gauge}
+      title="Fuel economy benchmark"
+      subtitle="What this vehicle actually does, read off its own trip computer"
+      chip={<StatusChip tone="accent">Optional</StatusChip>}
+    >
+      <p className="text-sm leading-relaxed text-ink-mid">
+        Without this, FuelSense benchmarks the vehicle against a figure for its model — a guess
+        that ignores age, engine and condition. If the dashboard shows a long-term average, put it
+        in and it becomes the benchmark instead.
+      </p>
+
+      {/* Always rendered, even for a single vehicle: this is a per-vehicle
+          setting, and hiding the selector made it look fleet-wide. */}
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wider text-ink-dim">Vehicle</span>
+          <select
+            value={selected.id}
+            onChange={(e) => {
+              setVehicleId(e.target.value);
+              setValue('');
+              setResult(null);
+              setError(null);
+            }}
+            className="rounded-lg border border-edge bg-panel px-2.5 py-2 text-sm text-ink"
+          >
+            {fleet.map((v) => {
+              const s = currentFor(v.id);
+              const kmL =
+                s?.rate_l_per_100km && s.rate_l_per_100km > 0 ? 100 / s.rate_l_per_100km : null;
+              return (
+                <option key={v.id} value={v.id}>
+                  {v.license_plate}
+                  {kmL ? ` — ${kmL.toFixed(1)} km/L (${s?.rate_source})` : ''}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wider text-ink-dim">Reading</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.1"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="15"
+            className="w-28 rounded-lg border border-edge bg-panel px-2.5 py-2 text-sm text-ink"
+          />
+        </label>
+
+        {/* The unit is a required choice, not a default we quietly apply: 15 mpg
+            is 6.38 km/L on a US gauge and 5.31 on an imperial one, a 20% gap in
+            the number the whole fuel model is anchored on. */}
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wider text-ink-dim">Unit</span>
+          <select
+            value={unit}
+            onChange={(e) => setUnit(e.target.value as EconomyUnit)}
+            className="rounded-lg border border-edge bg-panel px-2.5 py-2 text-sm text-ink"
+          >
+            {(Object.keys(ECONOMY_UNIT_LABELS) as EconomyUnit[]).map((u) => (
+              <option key={u} value={u}>
+                {ECONOMY_UNIT_LABELS[u]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || !value}
+          className="rounded-lg bg-accent-y px-4 py-2 text-sm font-semibold text-accent-y-ink transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={clear}
+          disabled={saving}
+          className="rounded-lg border border-edge bg-panel px-3 py-2 text-sm text-ink-mid transition-colors hover:text-ink disabled:opacity-40"
+          title="Revert to the model preset and let fill-to-fill calibration resume"
+        >
+          Clear
+        </button>
+      </div>
+
+      <p className="mt-2 text-[11px] text-ink-dim">
+        Not sure which mpg? A vehicle imported from the US shows US gallons; one from the UK shows
+        imperial. If the dash offers km/L or L/100 km, prefer those — they are unambiguous.
+      </p>
+
+      {/* What this vehicle is burning at right now, and where that came from.
+          The tank itself runs on this rate, so it is not only a benchmark. */}
+      {current && (
+        <div className="mt-4 rounded-xl bg-panel-deep px-3.5 py-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-ink-dim">
+            {selected.license_plate} is currently running on
+          </p>
+          <p className="mt-1 text-sm text-ink">
+            {current.rate_l_per_100km && current.rate_l_per_100km > 0 ? (
+              <>
+                <span className="font-semibold tabular-nums">
+                  {(100 / current.rate_l_per_100km).toFixed(2)} km/L
+                </span>{' '}
+                <span className="text-ink-dim">
+                  ({current.rate_l_per_100km.toFixed(2)} L/100 km
+                  {current.idle_burn_l_per_hour
+                    ? `, ${current.idle_burn_l_per_hour.toFixed(1)} L/h idling`
+                    : ''}
+                  )
+                </span>
+              </>
+            ) : (
+              <span className="text-ink-dim">no rate recorded</span>
+            )}
+          </p>
+          <p className="mt-1 text-[11px] text-ink-dim">
+            {current.rate_source === 'manual'
+              ? 'From your dashboard reading — the tank burns at this rate.'
+              : current.rate_source === 'calibrated'
+                ? `Measured from ${current.usable_measurements} fill-to-fill interval(s).`
+                : `Class preset for ${current.vehicle_type_label} — enter your own figure to replace it.`}
+          </p>
+        </div>
+      )}
+
+      {result && <p className="mt-3 text-sm text-good">{result}</p>}
+      {error && <p className="mt-3 text-sm text-bad">{error}</p>}
+    </Panel>
+  );
+}
+
+export function CalibrationGuidePanel({ fleet = [] }: { fleet?: FleetVehicle[] }) {
+  const [tab, setTab] = useState<'tank' | 'economy' | 'device'>('tank');
 
   return (
     <div className="space-y-6">
@@ -93,6 +327,7 @@ export function CalibrationGuidePanel() {
           {(
             [
               ['tank', 'Tank calibration'],
+              ['economy', 'Fuel economy'],
               ['device', 'Teltonika Configurator'],
             ] as const
           ).map(([id, label]) => (
@@ -121,7 +356,9 @@ export function CalibrationGuidePanel() {
         </div>
       </Panel>
 
-      {tab === 'tank' ? (
+      {tab === 'economy' ? (
+        <EconomyCalibration fleet={fleet} />
+      ) : tab === 'tank' ? (
         <>
           <Panel
             icon={Fuel}

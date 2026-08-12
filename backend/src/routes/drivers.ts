@@ -2,7 +2,12 @@ import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, drivers, vehicles, eq, and, sql } from '../lib/db-helpers';
-import { driverMonthlyCte, driverTopPlaceCte, driverTripsCte } from '../lib/driver-report-sql';
+import {
+  driverPeriodCte,
+  driverTopPlaceCte,
+  driverTripsCte,
+  type ReportBucket,
+} from '../lib/driver-report-sql';
 import { round1, round2, baselineEfficiencyKmL, kmLToMpg } from '../lib/fuel-metrics';
 import { withCache, cacheKey } from '../lib/redis';
 
@@ -13,8 +18,30 @@ const router = express.Router();
 // why the dashboard has always reported zero drivers.
 router.use(authenticateCustomer);
 
-/** Longest window the monthly report will aggregate over. */
-const MAX_REPORT_MONTHS = 12;
+/**
+ * Longest rolling window the report will aggregate over, per grain. A year of
+ * months and a quarter of weeks are both about a dozen buckets — enough to see
+ * a trend without asking Postgres to scan the whole telemetry table.
+ */
+const MAX_PERIODS: Record<ReportBucket, number> = { month: 12, week: 26, day: 31 };
+const DEFAULT_PERIODS: Record<ReportBucket, number> = { month: 6, week: 8, day: 14 };
+
+/** `YYYY-MM` for months, ISO week `YYYY-Www` for weeks, `YYYY-MM-DD` for days. */
+const PERIOD_FORMAT: Record<ReportBucket, string> = {
+  month: 'YYYY-MM',
+  week: 'IYYY-"W"IW',
+  day: 'YYYY-MM-DD',
+};
+
+const isBucket = (value: unknown): value is ReportBucket =>
+  value === 'month' || value === 'week' || value === 'day';
+
+/** A query param that must parse to a real date, or be absent. Never a silent Invalid Date. */
+function parseDateParam(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 /**
  * Stationary fixes needed before a grid square counts as a place the driver
  * actually visited. At a ~30 s cadence this is roughly three minutes parked,
@@ -265,21 +292,36 @@ router.patch('/assign', async (req: Request, res: Response) => {
  * back-filled, because these numbers get put to drivers.
  */
 router.get('/reports', async (req: Request, res: Response) => {
-  const months = Math.min(Math.max(Number(req.query.months) || 6, 1), MAX_REPORT_MONTHS);
+  const bucket: ReportBucket = isBucket(req.query.bucket) ? req.query.bucket : 'month';
+  const requested = Number(req.query.periods ?? req.query.months);
+  const periods = Math.min(
+    Math.max(Number.isFinite(requested) ? requested : DEFAULT_PERIODS[bucket], 1),
+    MAX_PERIODS[bucket],
+  );
+  const from = parseDateParam(req.query.from);
+  const to = parseDateParam(req.query.to);
+
+  if (from && to && from > to) {
+    res.status(400).json({ error: '`from` must not be after `to`.' });
+    return;
+  }
 
   try {
     const customerId = req.user.customerId;
+    const periodFormat = PERIOD_FORMAT[bucket];
+    const cacheId = [bucket, periods, from?.toISOString() ?? '', to?.toISOString() ?? ''].join(':');
 
-    const payload = await withCache(cacheKey(customerId, 'driver-reports', String(months)), 60, async () => {
+    const payload = await withCache(cacheKey(customerId, 'driver-reports', cacheId), 60, async () => {
       const monthly = await db.execute(sql`
-        WITH ${driverMonthlyCte({ customerId, months })},
+        WITH ${driverPeriodCte({ customerId, bucket, from, to, periods })},
         ${driverTripsCte({ gapMinutes: TRIP_GAP_MINUTES })},
         totals AS (
           SELECT
             driver_id,
             driver_name,
-            month,
+            period,
             MIN(model) AS model,
+            MIN(manual_l100km) AS manual_l100km,
             COUNT(DISTINCT license_plate) AS vehicles,
             COALESCE(SUM(dist_delta), 0) AS distance_km,
             COALESCE(SUM(fuel_delta), 0) AS fuel_liters,
@@ -289,12 +331,15 @@ router.get('/reports', async (req: Request, res: Response) => {
             MAX(recorded_at) AS last_seen_at
           FROM deltas
           WHERE driver_name IS NOT NULL
-          GROUP BY driver_id, driver_name, month
+          GROUP BY driver_id, driver_name, period
         )
         SELECT
           t.driver_id,
           t.driver_name,
-          to_char(t.month, 'YYYY-MM') AS month,
+          to_char(t.period, ${periodFormat}) AS period,
+          t.manual_l100km,
+          t.period AS period_start,
+          (t.period + ('1 ' || ${bucket})::INTERVAL - INTERVAL '1 day')::date AS period_end,
           t.model,
           t.vehicles,
           t.distance_km,
@@ -306,17 +351,17 @@ router.get('/reports', async (req: Request, res: Response) => {
           t.last_seen_at
         FROM totals t
         LEFT JOIN trip_counts tc
-          ON tc.driver_name = t.driver_name AND tc.month = t.month
-        ORDER BY t.driver_name, t.month DESC
+          ON tc.driver_name = t.driver_name AND tc.period = t.period
+        ORDER BY t.driver_name, t.period DESC
       `);
 
       const places = await db.execute(sql`
-        WITH ${driverMonthlyCte({ customerId, months })},
+        WITH ${driverPeriodCte({ customerId, bucket, from, to, periods })},
         ${driverTopPlaceCte({ minFixes: MIN_PLACE_FIXES })}
         SELECT
           driver_id,
           driver_name,
-          to_char(month, 'YYYY-MM') AS month,
+          to_char(period, ${periodFormat}) AS period,
           place_name,
           formatted_address,
           lat_key,
@@ -329,7 +374,7 @@ router.get('/reports', async (req: Request, res: Response) => {
       type PlaceRow = {
         driver_id: string | null;
         driver_name: string;
-        month: string;
+        period: string;
         place_name: string | null;
         formatted_address: string | null;
         lat_key: string;
@@ -339,13 +384,16 @@ router.get('/reports', async (req: Request, res: Response) => {
 
       const placeFor = new Map<string, PlaceRow>();
       for (const row of places.rows as unknown as PlaceRow[]) {
-        placeFor.set(`${row.driver_name}|${row.month}`, row);
+        placeFor.set(`${row.driver_name}|${row.period}`, row);
       }
 
-      type MonthRow = {
+      type PeriodRow = {
         driver_id: string | null;
         driver_name: string;
-        month: string;
+        period: string;
+        period_start: string;
+        period_end: string;
+        manual_l100km: string | null;
         model: string | null;
         vehicles: string;
         distance_km: string;
@@ -359,16 +407,24 @@ router.get('/reports', async (req: Request, res: Response) => {
 
       const byDriver = new Map<
         string,
-        { driver_id: string | null; driver_name: string; months: unknown[] }
+        { driver_id: string | null; driver_name: string; periods: unknown[] }
       >();
 
-      for (const row of monthly.rows as unknown as MonthRow[]) {
+      for (const row of monthly.rows as unknown as PeriodRow[]) {
         const distanceKm = Number(row.distance_km);
         const fuelLiters = Number(row.fuel_liters);
-        const baselineKmL = row.model ? round1(baselineEfficiencyKmL(row.model)) : null;
+        // The vehicle's own dashboard figure, when the manager entered one,
+        // outranks the model-name lookup it would otherwise fall back to.
+        const manualL100km = row.manual_l100km != null ? Number(row.manual_l100km) : null;
+        const baselineKmL =
+          manualL100km != null && manualL100km > 0
+            ? round1(100 / manualL100km)
+            : row.model
+              ? round1(baselineEfficiencyKmL(row.model))
+              : null;
 
         // How much of the fuel this distance must have burned actually shows up
-        // as level deltas. Months where the tracker logged movement but only
+        // as level deltas. Periods where the tracker logged movement but only
         // patchy fuel levels otherwise divide a full distance by a partial
         // litre count and report a RAV4 doing double its rated economy — a
         // flattering number with nothing behind it. Below the floor the ratio
@@ -387,15 +443,17 @@ router.get('/reports', async (req: Request, res: Response) => {
           distanceKm > 1 && fuelLiters > 0.5 && fuelComplete
             ? round2(distanceKm / fuelLiters)
             : null;
-        const place = placeFor.get(`${row.driver_name}|${row.month}`) ?? null;
+        const place = placeFor.get(`${row.driver_name}|${row.period}`) ?? null;
 
         const entry = byDriver.get(row.driver_name) ?? {
           driver_id: row.driver_id,
           driver_name: row.driver_name,
-          months: [],
+          periods: [],
         };
-        entry.months.push({
-          month: row.month,
+        entry.periods.push({
+          period: row.period,
+          period_start: row.period_start,
+          period_end: row.period_end,
           distance_km: round1(distanceKm),
           fuel_liters: round1(fuelLiters),
           efficiency_km_l: efficiencyKmL,
@@ -426,7 +484,10 @@ router.get('/reports', async (req: Request, res: Response) => {
       }
 
       return {
-        months,
+        bucket,
+        periods,
+        from: from?.toISOString() ?? null,
+        to: to?.toISOString() ?? null,
         // Telemetry carries no driver identity, so every figure is attributed
         // through the vehicle's current assignment. Surfaced so the UI can say so.
         attribution: 'vehicle_assignment' as const,

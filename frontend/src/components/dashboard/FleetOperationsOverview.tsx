@@ -24,6 +24,7 @@ import {
   FuelAnomaly,
   FuelEventsResponse,
   formatNgn,
+  kmLToMpg,
 } from '@/lib/api';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { IconTile } from '@/components/ui/chrome';
@@ -40,6 +41,16 @@ import {
   siphonConfidence,
   siphonContextLines,
 } from '@/lib/trust-language';
+
+/**
+ * Minimum share of the fuel a distance should have burned that must actually
+ * appear in the tracker's measurements before a km/L or ₦/km ratio is shown.
+ *
+ * Mirrors `FUEL_COVERAGE_FLOOR` in the backend's driver report, which withholds
+ * the same ratio for the same reason. Kept in step by hand: the two must agree,
+ * or the driver panel and the fleet panel disagree about the same vehicle.
+ */
+const FUEL_COVERAGE_FLOOR = 0.6;
 
 type AttentionItem = {
   id: string;
@@ -190,12 +201,35 @@ export function FleetOperationsOverview({
     const savedNgn = benchmarkCost != null ? benchmarkCost - burnedCost : null;
     const savedLiters = benchmarkLiters != null ? benchmarkLiters - liters : null;
 
+    // Whether enough of the fuel this distance must have burned actually
+    // reached the tracker for a ratio to mean anything.
+    //
+    // The per-vehicle rows already carry this judgement — the API returns
+    // `efficiency_km_l: null` below a 0.6 coverage floor — but this panel
+    // divides the summary totals itself and so bypassed it. With AVL 12
+    // under-reporting, 3.58 km against 0.1 measured litres was published as
+    // "40.0 km/L" and "₦42/km vs ₦186 typical": a RAV4 apparently beating its
+    // benchmark six-fold. The same floor is applied here, against the expected
+    // litres the summary already provides.
+    const fuelCoverage =
+      benchmarkLiters != null && benchmarkLiters > 0 ? liters / benchmarkLiters : null;
+    const fuelComplete = fuelCoverage == null || fuelCoverage >= FUEL_COVERAGE_FLOOR;
+
+    // What this period's fuel actually averaged, derived from the cost the
+    // backend already priced per period rather than from any single declared
+    // figure. Falls back to the current price only when nothing was burned.
+    const blendedPricePerLiter =
+      liters > 0 ? burnedCost / liters : efficiencySummary.price_per_liter_ngn;
+
     return {
       distanceKm,
       liters,
       burnedCost,
       costPerKm,
       kmPerLiter,
+      blendedPricePerLiter,
+      fuelCoverage,
+      fuelComplete,
       litersPer100km,
       benchmarkKmPerLiter,
       benchmarkCostPerKm,
@@ -561,14 +595,26 @@ export function FleetOperationsOverview({
                 Fuel burned · last {periodDays} days
               </span>
             </div>
+            {/* An em-dash read as "broken". A fleet that burned nothing burned
+                ₦0 — say so, and show the litres beside it so the figure has a
+                unit rather than being a bare currency amount. */}
             <p className="mt-3 text-5xl font-bold leading-none tracking-tight tabular-nums text-ink sm:text-6xl">
-              {fuelContext ? formatNgn(fuelContext.burnedCost) : '—'}
+              {formatNgn(fuelContext?.burnedCost ?? 0)}
             </p>
+            <p className="mt-1.5 text-sm text-ink-mid tabular-nums">
+              {(fuelContext?.liters ?? 0).toFixed(1)} L burned ·{' '}
+              {Math.round(fuelContext?.distanceKm ?? 0).toLocaleString()} km driven
+            </p>
+            {/* The blended rate this period actually worked out at, not the
+                latest declared price. Every litre is already valued at the
+                price in force when it burned, so quoting today's figure
+                misrepresented the total above it: a week spanning ₦1,300 and
+                ₦1,275 cost ₦1,290.73/L and the caption claimed ₦1,275. */}
             <p className="mt-2.5 text-sm text-ink-mid">
               {fuelContext
                 ? `${fuelContext.liters.toFixed(1)} L over ${Math.round(
                     fuelContext.distanceKm
-                  )} km at ${formatNgn(fuelContext.pricePerLiter)}/L`
+                  )} km at ${formatNgn(fuelContext.blendedPricePerLiter)}/L average`
                 : 'Measured by the tracker — no distance in this window, so this is idling'}
             </p>
             {/* Bought and burned are different questions. Keeping the receipt
@@ -582,29 +628,63 @@ export function FleetOperationsOverview({
             )}
 
             {fuelContext && (
-              <div className="mt-6 grid grid-cols-2 gap-4 border-t border-edge pt-5">
-                <Rate
-                  label="Cost per km"
-                  value={formatNgn(fuelContext.costPerKm)}
-                  benchmark={
-                    fuelContext.benchmarkCostPerKm != null
-                      ? `vs ${formatNgn(fuelContext.benchmarkCostPerKm)} typical`
-                      : null
-                  }
-                />
-                <Rate
-                  label="Economy"
-                  value={`${fuelContext.kmPerLiter.toFixed(1)} km/L`}
-                  benchmark={
-                    fuelContext.benchmarkKmPerLiter != null
-                      ? `vs ${fuelContext.benchmarkKmPerLiter.toFixed(1)} benchmark`
-                      : null
-                  }
-                />
+              <div className="mt-6 border-t border-edge pt-5">
+                {fuelContext.fuelComplete ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Rate
+                      label="Cost per km"
+                      value={formatNgn(fuelContext.costPerKm)}
+                      benchmark={
+                        fuelContext.benchmarkCostPerKm != null
+                          ? `vs ${formatNgn(fuelContext.benchmarkCostPerKm)} typical`
+                          : null
+                      }
+                    />
+                    {/* Both units, because the benchmark a manager knows for
+                        their own vehicle is usually the one on its dash, and
+                        that is mpg on most imports here. */}
+                    <Rate
+                      label="Economy"
+                      value={`${fuelContext.kmPerLiter.toFixed(1)} km/L · ${
+                        kmLToMpg(fuelContext.kmPerLiter)?.toFixed(1) ?? '—'
+                      } mpg`}
+                      benchmark={
+                        fuelContext.benchmarkKmPerLiter != null
+                          ? `vs ${fuelContext.benchmarkKmPerLiter.toFixed(1)} km/L · ${
+                              kmLToMpg(fuelContext.benchmarkKmPerLiter)?.toFixed(1) ?? '—'
+                            } mpg benchmark`
+                          : null
+                      }
+                    />
+                  </div>
+                ) : (
+                  /* Says which figure is missing and why, rather than dividing
+                     a full distance by a partial litre count and publishing a
+                     flattering number with nothing behind it. */
+                  <div className="grid grid-cols-2 gap-4">
+                    <Rate label="Cost per km" value="—" benchmark="not enough fuel data" />
+                    <Rate label="Economy" value="—" benchmark="not enough fuel data" />
+                  </div>
+                )}
+                {!fuelContext.fuelComplete && (
+                  <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
+                    The tracker measured {fuelContext.liters.toFixed(1)} L over{' '}
+                    {Math.round(fuelContext.distanceKm)} km — about{' '}
+                    {Math.round((fuelContext.fuelCoverage ?? 0) * 100)}% of the{' '}
+                    {(fuelContext.benchmarkLiters ?? 0).toFixed(1)} L this distance should have
+                    burned. Too little of the fuel record is present for a rate to mean anything.
+                  </p>
+                )}
               </div>
             )}
 
-            {fuelContext && fuelContext.savedNgn != null && fuelContext.benchmarkCost != null && (
+            {/* Same coverage gate: "under benchmark by ₦499" is only a saving
+                if the litres it is measured against are real. Under-measured
+                burn would otherwise be reported to a manager as money kept. */}
+            {fuelContext &&
+              fuelContext.fuelComplete &&
+              fuelContext.savedNgn != null &&
+              fuelContext.benchmarkCost != null && (
               <div className="mt-5 rounded-lg border border-edge bg-canvas p-4">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="text-xs font-medium uppercase tracking-[0.1em] text-ink-dim">

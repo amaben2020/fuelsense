@@ -17,6 +17,14 @@ import {
 } from '../lib/db-helpers';
 import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { getVirtualTank, calibrateTank } from '../lib/virtual-tank';
+import {
+  ECONOMY_UNIT_LABELS,
+  baselineEfficiencyL100km,
+  economyToL100km,
+  isEconomyUnit,
+  l100kmToKmL,
+  kmLToMpg,
+} from '../lib/fuel-metrics';
 
 const router = express.Router();
 
@@ -123,6 +131,102 @@ router.post('/:id/virtual-tank/calibrate', async (req: Request, res: Response) =
 
     await invalidate(req.user.customerId, 'fleet', 'summary');
     res.json({ success: true, tank: serializeTank(tank) });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * The vehicle's own economy figure, as read off its dashboard.
+ *
+ * Body: `{ value: number, unit: 'mpg_us'|'mpg_imp'|'km_l'|'l_100km' }`, or
+ * `{ value: null }` to clear it and hand the vehicle back to the class preset
+ * and fill-to-fill calibration.
+ *
+ * Until now the benchmark every economy figure is judged against came from a
+ * table keyed on model name — a RAV4 was assumed to do 7 km/L whatever its age,
+ * engine or condition. The vehicle's own trip computer is better evidence than
+ * our guess, so a manager who has one can put it in. `rate_source = 'manual'`
+ * makes it stick: `recalculateVehicleRate` returns early rather than resetting
+ * it on the next receipt.
+ *
+ * The unit is required, never inferred — see `economyToL100km`.
+ */
+router.post('/:id/economy', async (req: Request, res: Response) => {
+  const { value, unit } = req.body as { value?: number | null; unit?: unknown };
+  const vehicleId = String(req.params.id);
+
+  try {
+    if (!(await ownedVehicle(vehicleId, req.user.customerId))) {
+      res.status(404).json({ error: 'Vehicle not found' });
+      return;
+    }
+
+    const [vehicle] = await db
+      .select({ model: vehicles.model, vehicleType: vehicles.vehicleType })
+      .from(vehicles)
+      .where(eq(vehicles.id, vehicleId))
+      .limit(1);
+
+    // Clearing: fall back to the class preset and let calibration resume.
+    if (value == null) {
+      const presetL100km = baselineEfficiencyL100km(vehicle?.model ?? '');
+      await db
+        .update(vehicles)
+        .set({
+          consumptionRateL100km: presetL100km.toFixed(2),
+          rateSource: 'preset',
+          updatedAt: sql`NOW()`,
+        })
+        .where(eq(vehicles.id, vehicleId));
+
+      await invalidate(req.user.customerId, 'fleet', 'summary');
+      res.json({
+        success: true,
+        rate_source: 'preset',
+        consumption_l_per_100km: presetL100km,
+        km_per_liter: l100kmToKmL(presetL100km),
+      });
+      return;
+    }
+
+    if (!isEconomyUnit(unit)) {
+      res.status(400).json({
+        error: `unit must be one of ${Object.keys(ECONOMY_UNIT_LABELS).join(', ')}`,
+      });
+      return;
+    }
+
+    const l100km = economyToL100km(Number(value), unit);
+    if (l100km == null) {
+      res.status(400).json({
+        error:
+          `${value} ${ECONOMY_UNIT_LABELS[unit]} is not a plausible vehicle economy ` +
+          '(expected between 1 and 50 km/L). Check the figure and the unit.',
+      });
+      return;
+    }
+
+    await db
+      .update(vehicles)
+      .set({
+        consumptionRateL100km: l100km.toFixed(2),
+        rateSource: 'manual',
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(vehicles.id, vehicleId));
+
+    await invalidate(req.user.customerId, 'fleet', 'summary');
+
+    const kmL = l100kmToKmL(l100km);
+    res.json({
+      success: true,
+      rate_source: 'manual',
+      entered: { value: Number(value), unit, label: ECONOMY_UNIT_LABELS[unit] },
+      consumption_l_per_100km: l100km,
+      km_per_liter: kmL,
+      mpg_us: kmLToMpg(kmL),
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

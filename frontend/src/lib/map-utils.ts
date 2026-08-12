@@ -38,8 +38,54 @@ export function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t;
 }
 
+/**
+ * How old a reading may be before it stops describing the vehicle now.
+ *
+ * Matches the backend's `connection_status` rule in `db/queries.ts` (last seen
+ * within 15 minutes = online), so the map, the vehicle view and the fleet list
+ * cannot disagree about whether a tracker is live.
+ */
+export const LIVE_READING_MAX_AGE_MS = 15 * 60 * 1000;
+
+/**
+ * Parse a timestamp from the API.
+ *
+ * `recorded_at` and friends are naive Postgres `timestamp` columns holding UTC,
+ * and several endpoints serialise them as `"2026-08-11 11:45:49"` — a space
+ * separator and no zone marker. `new Date()` reads that as *local* time, so in
+ * Lagos (UTC+1) every reading looked exactly one hour older than it was. A live
+ * fix 22 seconds old measured as 60.4 minutes, which is past every staleness
+ * threshold we have: the map showed "No signal" on a vehicle that was actively
+ * reporting while being driven.
+ *
+ * Anything already carrying a zone (`Z` or `±hh:mm`) or in proper ISO form is
+ * passed through untouched.
+ */
+export function parseServerTime(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value);
+  const normalised = hasZone ? value : `${value.replace(' ', 'T')}Z`;
+  const parsed = new Date(normalised);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * Whether a reading is recent enough to present as the vehicle's current state.
+ *
+ * The last packet before a tracker drops is usually mid-drive — on 2026-08-10
+ * it was 6 km/h with the ignition on — so without this check the map went on
+ * showing a parked vehicle "moving" 13 hours later.
+ */
+export function isReadingLive(isoTimestamp: string | null | undefined): boolean {
+  const parsed = parseServerTime(isoTimestamp);
+  if (!parsed) return false;
+  return Date.now() - parsed.getTime() <= LIVE_READING_MAX_AGE_MS;
+}
+
 export function timeAgo(isoTimestamp: string): string {
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(isoTimestamp).getTime()) / 1000));
+  const parsed = parseServerTime(isoTimestamp);
+  if (!parsed) return 'unknown';
+  const seconds = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;

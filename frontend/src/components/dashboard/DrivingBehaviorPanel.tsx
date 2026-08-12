@@ -26,6 +26,7 @@ import {
 } from '@/lib/api';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
+import { parseServerTime } from '@/lib/map-utils';
 
 // A harsh brake or a swerve is a claim about how someone drove. Replaying the
 // surrounding telemetry is what turns it into something you can discuss with
@@ -609,10 +610,15 @@ export function DrivingBehaviorPanel({
                             vehicleId: item.vehicleId!,
                             activityDate: item.occurredAt.slice(0, 10),
                             flagType: item.eventType,
-                            // Device events arrive as a timezone-less local
-                            // wall clock; replay readings are UTC. Send a true
-                            // instant so the two are comparable at all.
-                            at: new Date(item.occurredAt).toISOString(),
+                            // `occurred_at` is a naive Postgres timestamp
+                            // holding UTC — "2026-08-11 15:44:49.752", no zone
+                            // marker. `new Date()` reads that as *local* time,
+                            // so in Lagos it shifted every event an hour early
+                            // and the replay opened on the wrong stretch of the
+                            // day: clicking a 15:44 harsh cornering produced a
+                            // window with no cornering in it at all, captioned
+                            // as though it did. Parse it as the UTC it is.
+                            at: parseServerTime(item.occurredAt)?.toISOString(),
                           })
                         }
                         className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-y-ink"

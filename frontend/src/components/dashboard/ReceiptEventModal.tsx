@@ -360,10 +360,20 @@ function StatusBadge({
       </span>
     );
   }
-  if (status === 'pending_receipt' || verdict === 'suspicious') {
+  // Only a measured signal earns the warning tone. A receipt whose evidence has
+  // not arrived is unverified, not suspect — badging it "Suspicious" put an
+  // accusation next to a 0% probability score.
+  if (verdict === 'suspicious') {
     return (
       <span className="rounded-full bg-warn/20 px-3 py-1 text-xs font-medium text-warn">
         Suspicious
+      </span>
+    );
+  }
+  if (status === 'pending_receipt' || verdict === 'awaiting_evidence') {
+    return (
+      <span className="rounded-full bg-panel-hover px-3 py-1 text-xs font-medium text-ink-mid">
+        Awaiting evidence
       </span>
     );
   }

@@ -1,4 +1,5 @@
 import { SQL, sql } from 'drizzle-orm';
+import { hopBurnLiters } from './telemetry-deltas-sql';
 
 /**
  * Per-hop distance ceiling, matching the caps in `distanceDeltasCte`. Written
@@ -18,29 +19,57 @@ const DIST_CAP = sql`GREATEST(
   END
 )::double precision`;
 
+/** Calendar buckets the driver report can group on. */
+export type ReportBucket = 'month' | 'week' | 'day';
+
+export interface DriverPeriodParams {
+  customerId: string;
+  /** Calendar grain to group on. */
+  bucket: ReportBucket;
+  /** Explicit window start (inclusive). Overrides the rolling `periods` window. */
+  from?: Date | null;
+  /** Explicit window end (inclusive). */
+  to?: Date | null;
+  /** How many buckets back to look when `from`/`to` are not given. */
+  periods: number;
+}
+
 /**
- * Per-driver, per-calendar-month aggregates.
+ * Per-driver, per-period aggregates.
  *
  * The distance, idle and fuel rules are copied from `telemetryDeltasCte`
  * deliberately rather than imported: those helpers window over a rolling
- * `NOW() - N days`, and a monthly report has to cut on calendar boundaries or
- * the same trip lands in two different months depending on when you ask. Any
+ * `NOW() - N days`, and this report has to cut on calendar boundaries or the
+ * same trip lands in two different buckets depending on when you ask. Any
  * change to the capping rules there must be mirrored here, or the driver report
  * will quietly disagree with the fleet numbers.
+ *
+ * `bucket` is bound as a parameter to `date_trunc`, so a week view and a month
+ * view run the identical aggregation — the only thing that moves is the grain.
+ * An explicit `from`/`to` replaces the rolling window entirely, which is what
+ * a manager picking two dates means.
  *
  * A driver is resolved through `vehicles.driver_id`, falling back to the
  * denormalised `vehicles.driver_name`. Telemetry has no driver column, so every
  * figure is "what this vehicle did while assigned to this driver" — a
- * reassignment mid-month reattributes the whole month. That is a real
+ * reassignment mid-period reattributes the whole period. That is a real
  * limitation and the API reports it rather than hiding it.
  */
-export function driverMonthlyCte({
+export function driverPeriodCte({
   customerId,
-  months,
-}: {
-  customerId: string;
-  months: number;
-}): SQL {
+  bucket,
+  from,
+  to,
+  periods,
+}: DriverPeriodParams): SQL {
+  // An explicit range wins; otherwise fall back to N whole buckets back from
+  // the current one, so the newest bucket is always the one in progress.
+  const window = from
+    ? sql`AND t.recorded_at >= ${from}${to ? sql` AND t.recorded_at <= ${to}` : sql``}`
+    : sql`AND t.recorded_at >= date_trunc(${bucket}, NOW())
+            - ((${periods - 1})::text || ' ' || ${bucket})::INTERVAL
+          ${to ? sql`AND t.recorded_at <= ${to}` : sql``}`;
+
   return sql`
     readings AS (
       SELECT
@@ -49,10 +78,17 @@ export function driverMonthlyCte({
         COALESCE(dr.full_name, v.driver_name) AS driver_name,
         v.license_plate,
         v.model,
-        date_trunc('month', t.recorded_at) AS month,
+        -- Only a manager-entered rate travels with the vehicle; a preset or a
+        -- fill-to-fill figure is already what the model table would give.
+        CASE
+          WHEN v.rate_source = 'manual' THEN v.consumption_rate_l_per_100km::numeric
+        END AS manual_l100km,
+        date_trunc(${bucket}, t.recorded_at) AS period,
         COALESCE(t.odometer_m::double precision / 1000.0, t.odometer_km::double precision)
           AS odometer_km,
         t.fuel_level_liters::numeric AS fuel_level_liters,
+        t.fuel_source,
+        t.burn_ml,
         t.latitude::double precision AS latitude,
         t.longitude::double precision AS longitude,
         t.speed_kph,
@@ -62,7 +98,7 @@ export function driverMonthlyCte({
       JOIN vehicles v ON v.id = t.vehicle_id
       LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
       WHERE t.customer_id = ${customerId}
-        AND t.recorded_at >= date_trunc('month', NOW()) - (${months - 1} || ' months')::INTERVAL
+        ${window}
     ),
     ordered AS (
       SELECT
@@ -82,7 +118,8 @@ export function driverMonthlyCte({
         driver_name,
         license_plate,
         model,
-        month,
+        manual_l100km,
+        period,
         recorded_at,
         latitude,
         longitude,
@@ -120,18 +157,10 @@ export function driverMonthlyCte({
             )
           ELSE 0
         END AS dist_delta,
-        -- Consumption only: a rise of 5 L+ is a refuel, and a 12 L+ drop while
-        -- parked with the engine off is a suspected siphon, not burn.
-        CASE
-          WHEN prev_fuel IS NULL OR fuel_level_liters IS NULL THEN 0
-          WHEN fuel_level_liters - prev_fuel >= 5 THEN 0
-          WHEN prev_fuel - fuel_level_liters >= 12
-            AND NOT COALESCE(ignition_on, false)
-            AND COALESCE(speed_kph, 0) < 2
-            THEN 0
-          WHEN fuel_level_liters < prev_fuel THEN prev_fuel - fuel_level_liters
-          ELSE 0
-        END AS fuel_delta
+        -- Modelled burn where the row carries it, differenced level otherwise.
+        -- Shares the hopBurnLiters expression with telemetryDeltasCte so the
+        -- driver report and fleet figures cannot disagree about a vehicle.
+        ${hopBurnLiters} AS fuel_delta
       FROM ordered
       WHERE prev_recorded_at IS NOT NULL
     )
@@ -151,24 +180,24 @@ export function driverTripsCte({ gapMinutes }: { gapMinutes: number }): SQL {
     moving_fixes AS (
       SELECT
         driver_name,
-        month,
+        period,
         recorded_at,
         LAG(recorded_at) OVER (PARTITION BY vehicle_id ORDER BY recorded_at) AS prev_moving_at
       FROM deltas
       WHERE COALESCE(speed_kph, 0) >= 2
     ),
     trip_counts AS (
-      SELECT driver_name, month, COUNT(*) AS trips
+      SELECT driver_name, period, COUNT(*) AS trips
       FROM moving_fixes
       WHERE prev_moving_at IS NULL
         OR recorded_at - prev_moving_at > (${gapMinutes} || ' minutes')::INTERVAL
-      GROUP BY driver_name, month
+      GROUP BY driver_name, period
     )
   `;
 }
 
 /**
- * Most-visited place per driver-month.
+ * Most-visited place per driver-period.
  *
  * Stops are not stored anywhere — they are derived in-process by the trip
  * segmenter — so this reconstructs them in SQL: consecutive stationary fixes
@@ -185,7 +214,7 @@ export function driverTopPlaceCte({ minFixes }: { minFixes: number }): SQL {
       SELECT
         driver_id,
         driver_name,
-        month,
+        period,
         ROUND(latitude::numeric, 4) AS lat_key,
         ROUND(longitude::numeric, 4) AS lng_key,
         COUNT(*) AS fixes
@@ -193,7 +222,7 @@ export function driverTopPlaceCte({ minFixes }: { minFixes: number }): SQL {
       WHERE latitude IS NOT NULL
         AND longitude IS NOT NULL
         AND COALESCE(speed_kph, 0) < 2
-      GROUP BY driver_id, driver_name, month, lat_key, lng_key
+      GROUP BY driver_id, driver_name, period, lat_key, lng_key
       HAVING COUNT(*) >= ${minFixes}
     ),
     ranked_places AS (
@@ -202,7 +231,7 @@ export function driverTopPlaceCte({ minFixes }: { minFixes: number }): SQL {
         pc.place_name,
         pc.formatted_address,
         ROW_NUMBER() OVER (
-          PARTITION BY s.driver_id, s.driver_name, s.month ORDER BY s.fixes DESC
+          PARTITION BY s.driver_id, s.driver_name, s.period ORDER BY s.fixes DESC
         ) AS rn
       FROM stationary s
       LEFT JOIN place_cache pc

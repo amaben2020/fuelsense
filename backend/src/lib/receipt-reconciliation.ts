@@ -1,5 +1,6 @@
 import { db, sql } from './db-helpers';
 import { REFUEL_THRESHOLD_LITERS, DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics';
+import { isFuelMarker } from './telemetry-deltas-sql';
 
 export const RECEIPT_FRAUD_THRESHOLD_LITERS = 5;
 const MATCH_TOLERANCE_LITERS = 3;
@@ -35,6 +36,10 @@ export async function findObdRefuelMatch({ vehicleId, customerId, transactionDat
       FROM telemetry
       WHERE vehicle_id = ${vehicleId}
         AND customer_id = ${customerId}
+        -- Model re-anchors, not readings. A calibration step of 5 L or more
+        -- would otherwise surface here as a "detected refuel" and be put to a
+        -- driver as corroboration of a receipt the tracker never measured.
+        AND ${isFuelMarker} IS NOT TRUE
         AND recorded_at BETWEEN ${when.toISOString()}::timestamp - INTERVAL '2 hours'
           AND ${when.toISOString()}::timestamp + INTERVAL '2 hours'
       ORDER BY recorded_at ASC
@@ -226,7 +231,16 @@ export function assessReceiptEvent({
   const ignition = ignitionOnAt ? toDate(ignitionOnAt) : null;
   const declared = Number(litersDeclared);
   const actual = litersActual != null ? Number(litersActual) : null;
-  const difference = actual != null ? Math.round((declared - actual) * 10) / 10 : null;
+  // A receipt can only be contradicted by a real measurement of fuel entering
+  // the tank. This vehicle has no CAN/OBD fuel sensor, so `actual` arrives as 0
+  // — "nothing measured", not "zero litres went in". Scoring that as a gap
+  // accused an honest driver of stealing the entire fill, on evidence from a
+  // sensor that does not exist. A gap requires a detected refuel AND a non-zero
+  // reading; otherwise the receipt is simply unverifiable.
+  const hasTankMeasurement = actual != null && actual > 0 && obd != null;
+  const difference = hasTankMeasurement
+    ? Math.round((declared - actual!) * 10) / 10
+    : null;
   const price = costPerLiter ?? DEFAULT_FUEL_PRICE_NGN_LITER;
 
   const timeline = buildReceiptTimeline({ purchasedAt, obdRefuelDetectedAt, ignitionOnAt });
@@ -365,10 +379,19 @@ export function assessReceiptEvent({
 
   probability = Math.max(0, Math.min(99, Math.round(probability)));
 
+  // `pending_receipt` means nobody has attached the evidence yet. It used to
+  // short-circuit to `suspicious`, which produced the self-contradicting
+  // "Suspicious receipt (0% probability)" on a purchase nothing was known
+  // about — the same mistake as scoring an absent tank reading as a litre gap
+  // (see `hasTankMeasurement` above). Missing evidence is now its own verdict,
+  // and only measured signals can raise suspicion.
+  const awaitingEvidence = status === 'pending_receipt';
+
   let verdict = 'verified';
   if (status === 'flagged_theft' || probability >= 70) verdict = 'likely_theft';
-  else if (status === 'pending_receipt' || probability >= 40) verdict = 'suspicious';
+  else if (probability >= 40) verdict = 'suspicious';
   else if (probability >= 20) verdict = 'review';
+  else if (awaitingEvidence) verdict = 'awaiting_evidence';
 
   const summary =
     verdict === 'likely_theft'
@@ -377,7 +400,9 @@ export function assessReceiptEvent({
         ? `Suspicious receipt (${probability}% probability). Review the timeline and liter gap before approving.`
         : verdict === 'review'
           ? `Minor inconsistencies (${probability}% probability). Likely legitimate but worth a quick check.`
-          : `Receipt aligns with OBD telemetry (${probability}% fraud probability).`;
+          : verdict === 'awaiting_evidence'
+            ? 'Nothing contradicts this receipt yet, and nothing confirms it either — the evidence to check it against has not arrived.'
+            : `Receipt aligns with OBD telemetry (${probability}% fraud probability).`;
 
   return {
     chronological_timeline: chronological,

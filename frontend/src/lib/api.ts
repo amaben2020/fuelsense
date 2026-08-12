@@ -280,6 +280,70 @@ export async function calibrateVirtualTank(
   });
 }
 
+/**
+ * Units a dashboard economy readout might be in.
+ *
+ * Asked for explicitly rather than inferred: "15 mpg" is 6.38 km/L on a US
+ * gauge and 5.31 km/L on an imperial one, and this figure becomes the
+ * benchmark every economy number is judged against.
+ */
+/** 1 km/L = 2.35215 miles per US gallon. Mirrors the backend constant. */
+export const KM_PER_LITER_TO_MPG = 2.35215;
+
+export function kmLToMpg(kmL: number | null | undefined): number | null {
+  if (kmL == null || kmL <= 0) return null;
+  return Math.round(kmL * KM_PER_LITER_TO_MPG * 10) / 10;
+}
+
+export type EconomyUnit = 'mpg_us' | 'mpg_imp' | 'km_l' | 'l_100km';
+
+export const ECONOMY_UNIT_LABELS: Record<EconomyUnit, string> = {
+  mpg_us: 'mpg (US)',
+  mpg_imp: 'mpg (imperial)',
+  km_l: 'km/L',
+  l_100km: 'L/100 km',
+};
+
+export interface VehicleEconomyResponse {
+  success: boolean;
+  rate_source: 'manual' | 'preset';
+  entered?: { value: number; unit: EconomyUnit; label: string };
+  consumption_l_per_100km: number;
+  km_per_liter: number | null;
+  mpg_us?: number | null;
+}
+
+export interface VehicleCalibrationStatus {
+  vehicle_id: string;
+  license_plate: string;
+  vehicle_type_label: string;
+  rate_l_per_100km: number | null;
+  idle_burn_l_per_hour: number | null;
+  /** 'manual' = a figure the manager entered; the tank burns at this rate. */
+  rate_source: 'manual' | 'calibrated' | 'preset' | null;
+  purchases_logged: number;
+  usable_measurements: number;
+  fill_ups_until_calibrated: number;
+}
+
+export function fetchCalibrationStatus(): Promise<{
+  calibration_min_purchases: number;
+  vehicles: VehicleCalibrationStatus[];
+}> {
+  return api('/features/calibration-status');
+}
+
+/** Set the vehicle's own economy figure, or pass null to clear it. */
+export async function setVehicleEconomy(
+  vehicleId: string,
+  input: { value: number; unit: EconomyUnit } | null
+): Promise<VehicleEconomyResponse> {
+  return api(`/vehicles/${vehicleId}/economy`, {
+    method: 'POST',
+    body: JSON.stringify(input ?? { value: null }),
+  });
+}
+
 export function fleetMetrics(fleet: FleetVehicle[]) {
   const withFuel = fleet.filter((v) => v.fuel_level_liters != null);
   const online = fleet.filter((v) => v.connection_status === 'online').length;
@@ -673,8 +737,11 @@ export interface Driver {
 }
 
 /** One calendar month of measured activity for a driver. */
-export interface DriverMonth {
-  month: string;
+export interface DriverPeriod {
+  /** `YYYY-MM`, ISO week `YYYY-Www`, or `YYYY-MM-DD` depending on the bucket. */
+  period: string;
+  period_start: string;
+  period_end: string;
   distance_km: number;
   fuel_liters: number;
   /** null until there is enough distance and fuel to divide. */
@@ -704,11 +771,18 @@ export interface DriverMonth {
 export interface DriverReport {
   driver_id: string | null;
   driver_name: string;
-  months: DriverMonth[];
+  periods: DriverPeriod[];
 }
 
+/** Calendar grain the driver report groups on. */
+export type ReportBucket = 'month' | 'week' | 'day';
+
 export interface DriverReportsResponse {
-  months: number;
+  bucket: ReportBucket;
+  /** Buckets covered by the rolling window; ignored when from/to are set. */
+  periods: number;
+  from: string | null;
+  to: string | null;
   /**
    * Telemetry has no driver column, so figures are attributed via the
    * vehicle's current assignment. The UI states this rather than implying the
@@ -718,8 +792,24 @@ export interface DriverReportsResponse {
   drivers: DriverReport[];
 }
 
-export function fetchDriverReports(months = 6): Promise<DriverReportsResponse> {
-  return api<DriverReportsResponse>(`/drivers/reports?months=${months}`);
+export interface DriverReportQuery {
+  bucket?: ReportBucket;
+  periods?: number;
+  /** Explicit window. When set, it replaces the rolling `periods` lookback. */
+  from?: string | null;
+  to?: string | null;
+}
+
+export function fetchDriverReports(
+  query: DriverReportQuery = {},
+): Promise<DriverReportsResponse> {
+  const params = new URLSearchParams();
+  if (query.bucket) params.set('bucket', query.bucket);
+  if (query.periods) params.set('periods', String(query.periods));
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  const qs = params.toString();
+  return api<DriverReportsResponse>(`/drivers/reports${qs ? `?${qs}` : ''}`);
 }
 
 export interface FuelPurchaseTimeline {
@@ -745,7 +835,8 @@ export interface FuelPurchaseEventAssessment {
   chronological_timeline: FuelPurchaseEventStep[];
   expected_sequence: string;
   theft_probability: number;
-  verdict: 'verified' | 'review' | 'suspicious' | 'likely_theft';
+  /** `awaiting_evidence` = nothing known yet; never an accusation. */
+  verdict: 'verified' | 'review' | 'suspicious' | 'likely_theft' | 'awaiting_evidence';
   summary: string;
   reasons: string[];
   signals: Array<{ code: string; weight: number; message: string }>;

@@ -11,7 +11,11 @@ import { decodeScenarioEvent, recordDeviceEvent, resolveClosedAlert } from './li
 import { handleIgnitionForTripStart, closeTripStartAlert } from './lib/trip-notifier';
 import { handleIdleForRecord } from './lib/idle-detector';
 import { handleGeofenceForRecord } from './lib/geofence-monitor';
-import { patchCodec8eIoParsing, patchCodec8eReassembly } from './lib/codec8e-io-patch';
+import {
+  patchCodec8eIoParsing,
+  patchCodec8eReassembly,
+  patchCodec8eRecordParsing,
+} from './lib/codec8e-io-patch';
 import { handleFuelStopForRecord } from './lib/fuel-stop-detector';
 import {
   FUEL_USED_GPS_AVL_ID,
@@ -160,7 +164,7 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
         // Carried for geofence alert phrasing — "LIVE-FMC150 (Benneth) left
         // the depot" is actionable in a way a bare plate is not.
         driver_name: sql<string | null>`(
-          SELECT d.name FROM drivers d WHERE d.id = ${vehicles.driverId}
+          SELECT d.full_name FROM drivers d WHERE d.id = ${vehicles.driverId}
         )`,
       })
       .from(vehicles)
@@ -187,6 +191,9 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
           ? Number(((fuelObdPct / 100) * TANK_CAPACITY_LITERS).toFixed(2))
           : null;
     let fuelSource = fuelCanRaw != null ? 'CAN' : fuelObdPct != null ? 'OBD%' : 'none';
+    // Only the virtual tank models burn per hop. A CAN or OBD vehicle has a
+    // real level and consumption is still read from that, so this stays null.
+    let burnMl: number | null = null;
 
     if (fuelLevelLiters == null && fuelUsedGpsMl != null) {
       try {
@@ -200,6 +207,14 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
             ignitionOn,
             speedKph,
             recordedAt,
+            // The distance half of the burn model. Metres, because rounding to
+            // whole kilometres loses most of a delivery round.
+            odometerM:
+              odometerMeters != null
+                ? Math.round(odometerMeters)
+                : obdMileageKm != null
+                  ? Math.round(obdMileageKm * 1000)
+                  : null,
           },
           {
             latitude: validGps ? rawLat!.toString() : null,
@@ -209,6 +224,7 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
         );
         fuelLevelLiters = Number(virtual.levelLiters.toFixed(2));
         fuelSource = 'virtual';
+        burnMl = virtual.burnMl;
         if (virtual.accumulatorReset) {
           logReal(device.imei, `fuel accumulator reset detected (power cycle), delta=${virtual.deltaMl}ml`);
         }
@@ -222,6 +238,7 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       customerId: device.customerId!,
       vehicleId: device.vehicleId!,
       fuelLevelLiters: fuelLevelLiters?.toString() ?? null,
+      burnMl,
       fuelSource,
       fuelUsedGpsMl,
       fuelRateLph: fuelRateLph?.toString() ?? null,
@@ -479,6 +496,7 @@ export const startTcpServer = async (): Promise<void> => {
   // Must run before any packet is parsed.
   patchCodec8eIoParsing();
   patchCodec8eReassembly();
+  patchCodec8eRecordParsing();
   const port = Number(process.env.TCP_PORT || 5027);
   await tcpServer.listen(port, '0.0.0.0');
   console.log(`Teltonika TCP Server listening on port ${port}`);

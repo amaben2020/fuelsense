@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import { DateRangePicker } from './DateRangePicker';
-import { lerp, timeAgo, tripColor } from '@/lib/map-utils';
+import { isReadingLive, lerp, timeAgo, tripColor } from '@/lib/map-utils';
 import {
   FleetVehicle,
   Geofence,
@@ -38,9 +38,14 @@ import { StopDetailModal } from './StopDetailModal';
 
 const ANIMATION_MS = 1800;
 
+// 12h and 18h cover the shapes 6h and 24h miss: a full shift, and a shift plus
+// the run home. Without them a manager checking "what happened today" had to
+// jump to 24h and pull in yesterday evening alongside it.
 const TRAIL_OPTIONS = [
   { label: '1h', value: 60 },
   { label: '6h', value: 360 },
+  { label: '12h', value: 720 },
+  { label: '18h', value: 1080 },
   { label: '24h', value: 1440 },
   { label: '7d', value: 10080 },
 ] as const;
@@ -389,6 +394,8 @@ export function LiveMonitoringMap({
   tracks,
   trips,
   fleet,
+  startDrawing = false,
+  onDrawingStarted,
   selectedVehicleId,
   onSelectVehicle,
   followSelected,
@@ -404,6 +411,9 @@ export function LiveMonitoringMap({
   tracks: VehicleTrack[];
   trips: TripsResponse | null;
   fleet: FleetVehicle[];
+  /** Arrive from the Geofencing page with the zone tool already armed. */
+  startDrawing?: boolean;
+  onDrawingStarted?: () => void;
   selectedVehicleId: string | null;
   onSelectVehicle: (id: string) => void;
   followSelected: boolean;
@@ -500,6 +510,10 @@ export function LiveMonitoringMap({
   const selectedTrack =
     animated.find((t) => t.vehicleId === selectedVehicleId) ?? animated[0] ?? null;
 
+  // Whether the selected vehicle's last packet is recent enough to describe it
+  // now, rather than to describe the moment its tracker went quiet.
+  const selectedTrackLive = isReadingLive(selectedTrack?.current.recordedAt);
+
   const tripsByVehicle = useMemo(
     () =>
       new globalThis.Map((trips?.vehicles ?? []).map((v) => [v.vehicle_id, v])),
@@ -581,6 +595,14 @@ export function LiveMonitoringMap({
   const [zoneNotifyOn, setZoneNotifyOn] = useState('both');
   const [savingZone, setSavingZone] = useState(false);
   const [zoneError, setZoneError] = useState<string | null>(null);
+
+  // "Draw a zone" on the Geofencing page only switched view, so the map opened
+  // with nothing armed and the click did nothing visible.
+  useEffect(() => {
+    if (!startDrawing) return;
+    setDrawing(true);
+    onDrawingStarted?.();
+  }, [startDrawing, onDrawingStarted]);
 
   const loadZones = useCallback(() => {
     fetchGeofences()
@@ -963,7 +985,7 @@ export function LiveMonitoringMap({
           <div>
             <p className="text-sm font-medium text-ink">Live monitoring</p>
             <p className="text-xs text-ink-dim">
-              {animated.length} vehicle{animated.length !== 1 ? 's' : ''} · GPS updates every 2s
+              {fleet.length} vehicle{fleet.length !== 1 ? 's' : ''} · {animated.length} reporting
             </p>
           </div>
           {/* Interactive controls — pointer-events re-enabled */}
@@ -1038,6 +1060,35 @@ export function LiveMonitoringMap({
           legend. Hovering a chip opens the full card, so the collapsed state
           can stay small enough not to cover the map. */}
       <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 flex max-w-[min(46rem,calc(100%-8rem))] -translate-x-1/2 gap-2 overflow-x-auto pb-1">
+        {/* Vehicles the tracks endpoint knows nothing about — no telemetry has
+            ever arrived for them. They still exist, have a driver and a device,
+            so hiding them entirely made a registered vehicle look like it was
+            not there at all. No position means no map marker, but the chip
+            belongs here. */}
+        {fleet
+          .filter((v) => !animated.some((t) => t.vehicleId === v.id))
+          .map((v) => (
+            <div key={`no-telemetry-${v.id}`} className="group relative shrink-0">
+              <button
+                type="button"
+                onClick={() => handleSelectVehicle(v.id)}
+                className={`pointer-events-auto flex items-center gap-2 rounded-full border px-3.5 py-2 text-left backdrop-blur-md transition ${
+                  v.id === selectedVehicleId
+                    ? 'border-brand bg-panel/95 ring-1 ring-brand/40'
+                    : 'border-edge bg-panel/85 hover:bg-panel-hover/90'
+                }`}
+                title="No telemetry received yet — the tracker has not reported a position"
+              >
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-ink-dim" />
+                <span className="font-mono text-sm font-medium text-ink">
+                  {v.license_plate}
+                </span>
+                <span className="text-xs text-bad">Offline</span>
+                <span className="text-xs text-ink-dim">· awaiting first fix</span>
+              </button>
+            </div>
+          ))}
+
         {animated.map((track) => {
           const status = fleetStatus.get(track.vehicleId) ?? 'offline';
           const meta = fleetMeta.get(track.vehicleId);
@@ -1117,8 +1168,12 @@ export function LiveMonitoringMap({
                 <span className="font-mono text-sm font-medium text-ink">
                   {track.licensePlate}
                 </span>
+                {/* A dash, not a stale speed: this chip is scanned at a glance
+                    and a number on it reads as live. */}
                 <span className="text-xs tabular-nums text-ink-dim">
-                  {Math.round(track.current.speedKph ?? 0)} km/h
+                  {isReadingLive(track.current.recordedAt)
+                    ? `${Math.round(track.current.speedKph ?? 0)} km/h`
+                    : '—'}
                 </span>
               </button>
             </div>
@@ -1129,17 +1184,31 @@ export function LiveMonitoringMap({
       {/* Selected vehicle info panel */}
       {selectedTrack && (
         <div className="pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl border border-edge bg-panel/95 p-4 backdrop-blur-md">
+          {/* Ignition and speed describe the last packet, not the vehicle, once
+              the tracker has gone quiet. Both are reported as last-known rather
+              than current — a stale "Ignition on · 6 km/h" said the car was
+              running when it had been parked overnight. */}
           <div className="flex items-center justify-between">
             <p className="font-semibold text-ink">{selectedTrack.licensePlate}</p>
             <span
               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                selectedTrack.current.ignitionOn
-                  ? 'bg-good/10 text-good'
-                  : 'bg-edge/40 text-ink-dim'
+                !selectedTrackLive
+                  ? 'bg-edge/40 text-ink-dim'
+                  : selectedTrack.current.ignitionOn
+                    ? 'bg-good/10 text-good'
+                    : 'bg-edge/40 text-ink-dim'
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${selectedTrack.current.ignitionOn ? 'bg-good' : 'bg-ink-dim'}`} />
-              {selectedTrack.current.ignitionOn ? 'Ignition on' : 'Ignition off'}
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  selectedTrackLive && selectedTrack.current.ignitionOn ? 'bg-good' : 'bg-ink-dim'
+                }`}
+              />
+              {!selectedTrackLive
+                ? 'No signal'
+                : selectedTrack.current.ignitionOn
+                  ? 'Ignition on'
+                  : 'Ignition off'}
             </span>
           </div>
           <p className="text-xs text-ink-dim">
@@ -1163,12 +1232,17 @@ export function LiveMonitoringMap({
             <div className="rounded-xl bg-canvas p-2">
               <p className="text-ink-dim">Speed</p>
               <SpeedGauge
-                value={selectedTrack.current.speedKph ?? 0}
+                value={selectedTrackLive ? (selectedTrack.current.speedKph ?? 0) : 0}
                 max={160}
                 unit="km/h"
                 size={128}
                 className="mt-1"
               />
+              {!selectedTrackLive && (
+                <p className="mt-1 text-[10px] leading-tight text-ink-dim">
+                  last seen {Math.round(selectedTrack.current.speedKph ?? 0)} km/h
+                </p>
+              )}
             </div>
             {/* "Fuel" alone read as a trip statistic next to "Last trip". This
                 is the modelled level still IN the tank, so it says so — with

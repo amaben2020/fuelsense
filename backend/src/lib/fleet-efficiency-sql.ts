@@ -65,6 +65,11 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
       FROM ordered o
       WHERE o.prev_fuel IS NOT NULL
         AND o.fuel_level_liters - o.prev_fuel >= 5
+        -- A credited receipt is a real fill and still opens a tank window. A
+        -- calibration is the manager correcting the model, so an upward
+        -- re-anchor must not restart "economy since last fill" as though the
+        -- vehicle had just been fuelled.
+        AND o.fuel_source IS DISTINCT FROM 'calibration'
       ORDER BY o.vehicle_id, o.recorded_at DESC
     ),
     since_refuel AS (

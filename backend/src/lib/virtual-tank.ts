@@ -10,6 +10,7 @@
 // since the last calibration because GPS-derived burn drifts from reality.
 import { db, vehicles, alerts, deviceEvents, telemetry, eq, and, sql } from './db-helpers';
 import { virtualTanks } from '../db/schema';
+import type { FuelMarkerSource } from './fuel-metrics';
 import { alertEmail, sendMail } from './mailer';
 import { resolveAlertRecipient } from './alert-mail';
 
@@ -83,6 +84,9 @@ export interface VirtualTankState {
   anchorLevelMl: number | null;
   anchorAccumulatorMl: number | null;
   accumulatorOffsetMl: number;
+  modelledBurnMl: number;
+  anchorModelledMl: number | null;
+  lastOdometerM: number | null;
   confidence: number;
 }
 
@@ -167,6 +171,57 @@ interface FuelGpsReading {
   ignitionOn: boolean;
   speedKph: number | null;
   recordedAt: Date;
+  /** Total odometer in metres — the distance half of the burn model. */
+  odometerM: number | null;
+}
+
+/**
+ * Fuel burned over one hop, modelled from what the tracker measures reliably.
+ *
+ * Not from AVL 12. On this fleet the accumulator counted 13 ml across 3.55 km
+ * of driving while AVL 13 sat at a constant 2.47 l/h whether moving, idling or
+ * parked — neither element describes the vehicle, because the Configurator's
+ * fuel parameters were never set. The odometer, by contrast, validates against
+ * the dashboard to 0.03%.
+ *
+ * So: litres per km from the vehicle's own consumption rate, plus idle burn for
+ * engine-on time that covered no ground. Both rates come from the vehicle row —
+ * the manager's dashboard figure when they have entered one, otherwise the
+ * class preset.
+ *
+ * This is an estimate and must never be presented as a measurement. It is
+ * defensible arithmetic over good inputs, which is more than the device's own
+ * fuel elements currently offer.
+ */
+export function modelHopBurnMl(params: {
+  distanceKm: number;
+  seconds: number;
+  ignitionOn: boolean;
+  speedKph: number | null;
+  consumptionL100km: number;
+  idleBurnLph: number;
+}): number {
+  const { distanceKm, seconds, ignitionOn, speedKph, consumptionL100km, idleBurnLph } = params;
+
+  const driving = distanceKm > 0 ? (distanceKm * consumptionL100km) / 100 : 0;
+
+  // Idle only counts when the engine is running and the vehicle is not moving.
+  // A hop that covered ground is charged for the distance, not for its seconds:
+  // charging both would double-bill the same fuel.
+  //
+  // The gap is capped because a long one is silence, not observed idling. When
+  // the tracker returned on 2026-08-11 after 13.7 hours off air, its first
+  // packet carried ignition-on at a standstill and the uncapped gap modelled
+  // **16.4 litres** of idling in a single hop — a tankful invented out of a
+  // reporting outage. Same 600 s ceiling the delta CTEs use for idle time, so
+  // the tank and the reports agree on what an unobserved gap is worth.
+  const idleSeconds = Math.min(Math.max(0, seconds), MAX_IDLE_HOP_SECONDS);
+  const idling =
+    ignitionOn && distanceKm <= 0 && (speedKph ?? 0) < 2
+      ? (idleSeconds / 3600) * idleBurnLph
+      : 0;
+
+  return Math.max(0, Math.round((driving + idling) * 1000));
 }
 
 interface IdleBurnTracker {
@@ -177,6 +232,84 @@ interface IdleBurnTracker {
 }
 
 const idleBurnByImei = new Map<string, IdleBurnTracker>();
+
+/**
+ * Part-built idle window per device, for the burn-factor cross-check.
+ *
+ * The check compares what AVL 13 says is burning against what AVL 12 actually
+ * accumulated, and needs a stretch long enough for the accumulator to move —
+ * a 2-second hop rounds to noise. That was enforced by requiring a single
+ * ≥30 s gap between consecutive readings, which on this fleet almost never
+ * happens: the FMC150 reports every 5-8 seconds with the engine on, so nearly
+ * every idle sample was discarded for arriving too promptly. After two days of
+ * real driving the correction had five samples of the ten it needs, and the
+ * uncorrected accumulator went on under-reporting burn by ~2.6x.
+ *
+ * Consecutive stationary readings are accumulated here instead until 30 s of
+ * engine time has passed, then taken as one sample. Same evidence, same
+ * threshold — it simply stops throwing data away because the device is
+ * talkative. In-memory by design: a restart loses at most one partial window.
+ */
+interface IdleCrossCheckWindow {
+  ml: number;
+  seconds: number;
+  /** Rate samples over the window, averaged so one noisy frame cannot define it. */
+  rateSum: number;
+  rateCount: number;
+}
+
+const idleCrossCheckByImei = new Map<string, IdleCrossCheckWindow>();
+
+/** Minimum engine-on time a burn-factor sample must span. */
+const IDLE_CROSS_CHECK_WINDOW_SECONDS = 30;
+
+/** A stationary run is broken by this much silence; a stale window is dropped. */
+const IDLE_CROSS_CHECK_MAX_GAP_SECONDS = 600;
+
+/** Above this, an odometer jump is a bad frame rather than distance travelled. */
+const MAX_PLAUSIBLE_SPEED_KPH = 160;
+
+/**
+ * Longest stretch a single hop may be charged idle burn for.
+ *
+ * Matches the 600 s cap the distance and idle CTEs apply. Beyond it the gap is
+ * a tracker that stopped reporting, and billing it as idling invents fuel.
+ */
+const MAX_IDLE_HOP_SECONDS = 600;
+
+/** Fallbacks when a vehicle has no rate of its own recorded yet. */
+const FALLBACK_CONSUMPTION_L100KM = 14.3;
+const FALLBACK_IDLE_BURN_LPH = 1.2;
+
+/**
+ * The consumption and idle rates the burn model runs on.
+ *
+ * Read per reading rather than cached: a manager who corrects the figure in
+ * Calibration expects the tank to start using it, not to wait for a restart.
+ * The vehicle row already carries whichever rate is in force — the dashboard
+ * figure they entered, a fill-to-fill calibration, or the class preset.
+ */
+async function vehicleBurnRates(
+  vehicleId: string
+): Promise<{ consumptionL100km: number; idleBurnLph: number }> {
+  const [row] = await db
+    .select({
+      consumption: vehicles.consumptionRateL100km,
+      idle: vehicles.idleBurnRateLph,
+    })
+    .from(vehicles)
+    .where(eq(vehicles.id, vehicleId))
+    .limit(1);
+
+  const consumption = row?.consumption != null ? Number(row.consumption) : NaN;
+  const idle = row?.idle != null ? Number(row.idle) : NaN;
+
+  return {
+    consumptionL100km:
+      Number.isFinite(consumption) && consumption > 0 ? consumption : FALLBACK_CONSUMPTION_L100KM,
+    idleBurnLph: Number.isFinite(idle) && idle > 0 ? idle : FALLBACK_IDLE_BURN_LPH,
+  };
+}
 
 const rowToState = (row: typeof virtualTanks.$inferSelect): VirtualTankState => ({
   vehicleId: row.vehicleId,
@@ -197,6 +330,9 @@ const rowToState = (row: typeof virtualTanks.$inferSelect): VirtualTankState => 
   anchorAccumulatorMl:
     row.anchorAccumulatorMl != null ? Number(row.anchorAccumulatorMl) : null,
   accumulatorOffsetMl: Number(row.accumulatorOffsetMl ?? 0),
+  modelledBurnMl: Number(row.modelledBurnMl ?? 0),
+  anchorModelledMl: row.anchorModelledMl != null ? Number(row.anchorModelledMl) : null,
+  lastOdometerM: row.lastOdometerM != null ? Number(row.lastOdometerM) : null,
   confidence: row.confidence,
 });
 
@@ -336,6 +472,18 @@ export interface FuelGpsResult {
   confidence: number;
   deltaMl: number;
   accumulatorReset: boolean;
+  /**
+   * Fuel this hop burned, in millilitres, straight from the model.
+   *
+   * Stored per telemetry row so consumption can be **summed** rather than
+   * reconstructed by differencing `fuel_level_liters`. That column is rounded
+   * to 2 dp and, because the device batches records and we order by its own
+   * timestamps, the series is not monotonic: on 2026-08-11 it wobbled by
+   * 0.08-0.12 L, and summing only the down-steps while discarding the up-steps
+   * inflated a real 10.2 L burn to 11.3 L — surfacing as "1.0 L the tracker
+   * cannot account for". A per-hop figure is order-independent and exact.
+   */
+  burnMl: number;
 }
 
 // Main ingestion hook — called from the TCP server for every AVL record that
@@ -392,18 +540,41 @@ export async function processFuelGpsReading(
         : learnedIdleLph + IDLE_EMA_ALPHA * (rate - learnedIdleLph);
 
     // What the accumulator itself claims was burned over the same stretch.
-    // Only gaps long enough to carry a meaningful delta — a 2-second hop
-    // rounds to noise and would swamp the average.
-    if (gapSeconds >= 30 && !accumulatorReset) {
-      const impliedLph = (deltaMl / 1000 / gapSeconds) * 3600;
-      if (impliedLph >= IDLE_RATE_MIN_LPH && impliedLph <= IDLE_RATE_MAX_LPH) {
-        accumulatorIdleLph =
-          accumulatorIdleLph == null
-            ? impliedLph
-            : accumulatorIdleLph + IDLE_EMA_ALPHA * (impliedLph - accumulatorIdleLph);
-        burnFactorSamples += 1;
+    // Accumulated across consecutive stationary readings until the window is
+    // long enough to carry a meaningful delta — see `idleCrossCheckByImei`.
+    if (!accumulatorReset && gapSeconds > 0 && gapSeconds <= IDLE_CROSS_CHECK_MAX_GAP_SECONDS) {
+      const window = idleCrossCheckByImei.get(imei) ?? {
+        ml: 0,
+        seconds: 0,
+        rateSum: 0,
+        rateCount: 0,
+      };
+      window.ml += deltaMl;
+      window.seconds += gapSeconds;
+      window.rateSum += rate;
+      window.rateCount += 1;
+
+      if (window.seconds >= IDLE_CROSS_CHECK_WINDOW_SECONDS) {
+        const impliedLph = (window.ml / 1000 / window.seconds) * 3600;
+        if (impliedLph >= IDLE_RATE_MIN_LPH && impliedLph <= IDLE_RATE_MAX_LPH) {
+          accumulatorIdleLph =
+            accumulatorIdleLph == null
+              ? impliedLph
+              : accumulatorIdleLph + IDLE_EMA_ALPHA * (impliedLph - accumulatorIdleLph);
+          burnFactorSamples += 1;
+        }
+        idleCrossCheckByImei.delete(imei);
+      } else {
+        idleCrossCheckByImei.set(imei, window);
       }
+    } else if (accumulatorReset || gapSeconds > IDLE_CROSS_CHECK_MAX_GAP_SECONDS) {
+      // A power cycle or a long silence means the part-built window no longer
+      // describes one continuous stretch of idling.
+      idleCrossCheckByImei.delete(imei);
     }
+  } else {
+    // Moving or engine off — the stationary run is over.
+    idleCrossCheckByImei.delete(imei);
   }
 
   const { factor: burnFactor, source: burnFactorSource } = deriveBurnFactor(
@@ -414,25 +585,56 @@ export async function processFuelGpsReading(
     state.burnFactor
   );
 
-  // Correct the delta before it touches the tank, so level, consumption and
-  // every naira figure downstream all rest on the same corrected burn.
+  // Retained for diagnostics only — the AVL 12 figure is still recorded and
+  // still shown in the signals table, but it no longer moves the tank.
   const correctedDeltaMl = Math.round(deltaMl * burnFactor);
 
-  // Bank the pre-reset total so the running figure survives a power cycle.
   const accumulatorOffsetMl = accumulatorReset
     ? state.accumulatorOffsetMl + (state.lastFuelUsedMl ?? 0)
     : state.accumulatorOffsetMl;
-  const totalAccumulatorMl = accumulatorTotalMl(reading.fuelUsedMl, accumulatorOffsetMl);
+
+  // ---- Modelled burn: distance and idle time, not the device's fuel elements.
+  const rates = await vehicleBurnRates(vehicleId);
+
+  // Odometer is cumulative and monotonic. A backwards step means the device was
+  // replaced or reset, so re-baseline rather than book negative distance; a
+  // forward jump beyond what the gap could cover is a bad frame and is ignored.
+  let hopKm = 0;
+  if (state.lastOdometerM != null && reading.odometerM != null) {
+    const deltaM = reading.odometerM - state.lastOdometerM;
+    const maxKm = Math.max(1, (Math.max(0, gapSeconds) / 3600) * MAX_PLAUSIBLE_SPEED_KPH);
+    if (deltaM > 0 && deltaM / 1000 <= maxKm) hopKm = deltaM / 1000;
+  }
+
+  const hopBurnMl = modelHopBurnMl({
+    distanceKm: hopKm,
+    seconds: gapSeconds,
+    ignitionOn: reading.ignitionOn,
+    speedKph: reading.speedKph,
+    consumptionL100km: rates.consumptionL100km,
+    idleBurnLph: rates.idleBurnLph,
+  });
+
+  const modelledBurnMl = state.modelledBurnMl + hopBurnMl;
 
   // Anchor on first sight, or after a calibration that left none behind.
-  const anchorAccumulatorMl = state.anchorAccumulatorMl ?? totalAccumulatorMl;
+  const anchorAccumulatorMl = state.anchorAccumulatorMl ?? accumulatorTotalMl(
+    reading.fuelUsedMl,
+    accumulatorOffsetMl
+  );
+  const anchorModelledMl = state.anchorModelledMl ?? modelledBurnMl;
   const anchorLevelMl = state.anchorLevelMl ?? state.levelMl;
 
+  // Same anchored model as before — absolute travel since the anchor, so fuel
+  // burned while the tracker was offline is still counted once it reports
+  // again, and one bad write cannot drift the tank permanently. Only the
+  // counter feeding it has changed. Factor is 1: the model needs no correction
+  // because it is not derived from the miscalibrated accumulator.
   const levelMl = levelFromAnchor(
     anchorLevelMl,
-    anchorAccumulatorMl,
-    totalAccumulatorMl,
-    burnFactor,
+    anchorModelledMl,
+    modelledBurnMl,
+    1,
     capacityMlLimit
   );
   const consumedSinceCalibrationMl = Math.max(0, anchorLevelMl - levelMl);
@@ -445,6 +647,9 @@ export async function processFuelGpsReading(
     accumulatorIdleLph,
     burnFactor,
     burnFactorSource,
+    modelledBurnMl,
+    anchorModelledMl,
+    lastOdometerM: reading.odometerM ?? state.lastOdometerM,
   };
   const confidence = computeConfidence(nextState, reading.recordedAt);
 
@@ -458,6 +663,9 @@ export async function processFuelGpsReading(
       anchorLevelMl,
       anchorAccumulatorMl,
       accumulatorOffsetMl,
+      modelledBurnMl,
+      anchorModelledMl,
+      lastOdometerM: reading.odometerM ?? state.lastOdometerM,
       learnedIdleLph: learnedIdleLph != null ? learnedIdleLph.toFixed(3) : null,
       accumulatorIdleLph: accumulatorIdleLph != null ? accumulatorIdleLph.toFixed(3) : null,
       burnFactor: burnFactor.toFixed(3),
@@ -503,7 +711,7 @@ export async function processFuelGpsReading(
     }).catch((err) => console.error('[virtual_tank] low fuel email failed:', err));
   }
 
-  return { levelLiters, confidence, deltaMl, accumulatorReset };
+  return { levelLiters, confidence, deltaMl, accumulatorReset, burnMl: hopBurnMl };
 }
 
 /** Emails the low-fuel warning, when this customer has opted in to it. */
@@ -543,6 +751,46 @@ async function emailLowFuel(ctx: {
 }
 
 // Manager action: anchor the model to a known level. liters == null → full tank.
+/**
+ * Write a changed tank level into the telemetry series at the moment it changes.
+ *
+ * Every fuel curve on the dashboard is drawn from telemetry, and the next frame
+ * carrying the new level only arrives when the vehicle next reports — which can
+ * be the following day. Until then the vehicle panel reads the updated tank
+ * while the map card reads the stale row, and the two disagree by the size of
+ * the step.
+ *
+ * Carries no position, speed or ignition: this is a fuel-level marker and trip
+ * maths must not see it as movement. It does carry the vehicle's last known
+ * odometer, because the distance CTEs read the previous odometer with LAG over
+ * every row — a NULL there breaks the chain and silently drops one hop of
+ * travel. Repeating the last reading records the marker as exactly zero
+ * movement, which is what it is.
+ */
+async function insertFuelLevelMarker(
+  vehicleId: string,
+  customerId: string,
+  levelLiters: number,
+  source: FuelMarkerSource
+): Promise<void> {
+  const [last] = await db
+    .select({ odometerKm: telemetry.odometerKm, odometerM: telemetry.odometerM })
+    .from(telemetry)
+    .where(and(eq(telemetry.vehicleId, vehicleId), eq(telemetry.customerId, customerId)))
+    .orderBy(sql`recorded_at DESC`)
+    .limit(1);
+
+  await db.insert(telemetry).values({
+    customerId,
+    vehicleId,
+    recordedAt: new Date(),
+    fuelLevelLiters: levelLiters.toFixed(2),
+    fuelSource: source,
+    odometerKm: last?.odometerKm ?? null,
+    odometerM: last?.odometerM ?? null,
+  });
+}
+
 export async function calibrateTank(
   vehicleId: string,
   customerId: string,
@@ -571,6 +819,10 @@ export async function calibrateTank(
       // next device reading re-baseline, so a stale pointer can never be billed
       // as a phantom catch-up delta.
       lastFuelUsedMl: null,
+      // The modelled counter keeps running — it is a lifetime total — but the
+      // anchor moves to here, so everything burned before this calibration is
+      // already priced into the level the manager just declared.
+      anchorModelledMl: sql`modelled_burn_ml`,
       // The anchor has to go with it. `applyFuelGpsReading` recomputes the
       // level from (anchorLevel − travelled × k) and only falls back to the
       // calibrated level when no anchor is stored, so leaving a stale anchor
@@ -586,6 +838,11 @@ export async function calibrateTank(
     })
     .where(eq(virtualTanks.vehicleId, vehicleId))
     .returning();
+
+  // Mark the step in the series. Without this the calibration only reaches
+  // telemetry via the next device frame, which carries the new level on an
+  // ordinary `virtual` row — indistinguishable from burn, and counted as such.
+  await insertFuelLevelMarker(vehicleId, customerId, targetLiters, 'calibration');
 
   return rowToState(row);
 }
@@ -684,6 +941,7 @@ export async function creditRefuel(
         state.lastFuelUsedMl ?? 0,
         state.accumulatorOffsetMl
       ),
+      anchorModelledMl: sql`modelled_burn_ml`,
       consumedSinceCalibrationMl: 0,
       updatedAt: sql`NOW()`,
     })
@@ -694,24 +952,8 @@ export async function creditRefuel(
     await recordDiscrepancy(vehicleId, customerId, state, discrepancyLiters, options);
   }
 
-  // Show the fill happening.
-  //
-  // The tank row is now correct, but every fuel curve on the dashboard is
-  // drawn from telemetry, and the next frame carrying the new level only
-  // arrives when the vehicle next reports — which can be the following day.
-  // Until then the vehicle panel read the credited tank while the map card
-  // read the stale telemetry row, and the two disagreed by the size of the
-  // fill. This writes the step into the series at the moment it is credited.
-  //
-  // Deliberately carries no position, speed or odometer: it is a fuel-level
-  // marker, and trip and distance maths must not see it as movement.
-  await db.insert(telemetry).values({
-    customerId,
-    vehicleId,
-    recordedAt: new Date(),
-    fuelLevelLiters: (levelMl / 1000).toFixed(2),
-    fuelSource: 'receipt',
-  });
+  // Show the fill happening, on the same marker path as a calibration.
+  await insertFuelLevelMarker(vehicleId, customerId, levelMl / 1000, 'receipt');
 
   return { state: row ? rowToState(row) : null, discrepancyLiters };
 }

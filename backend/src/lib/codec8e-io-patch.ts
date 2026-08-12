@@ -23,6 +23,7 @@
 // this once upstream fixes the NX length.
 import { writeFileSync } from 'node:fs';
 import { TeltonikaCodec8eAVLPacket, TeltonikaCodec8eParser } from '@groupe-savoy/teltonika-sdk';
+import { decodeCodec8eData } from './codec8e-decoder';
 
 interface IoGroupLayout {
   countLength?: number;
@@ -199,4 +200,75 @@ export function patchCodec8eReassembly(): void {
 
   proto.__fuelsenseReassemblyPatched = true;
   console.log('[codec8e-patch] Codec 8E TCP reassembly patched (>= instead of ===)');
+}
+
+
+/**
+ * Replaces the SDK's Codec 8E record parsing with our own decoder.
+ *
+ * The SDK mis-slices records whenever a packet carries a variable-length (NX)
+ * element: parseIoGroup is handed a buffer that already begins inside the
+ * previous record's value, so element counts get read out of ASCII text. That
+ * boundary error cannot be fixed from inside the group parser, which is why
+ * patching the NX length and the reassembly test both failed.
+ *
+ * Our decoder is validated against a real 1086-byte FMC150 packet — 6 records,
+ * 179 bytes each, every declared totalIo matching the decoded count.
+ *
+ * The SDK still owns framing, CRC and the acknowledgement it writes back to the
+ * device; only record decoding is replaced. The returned shape matches what the
+ * rest of tcp-server already reads: timestamp, gps, io (raw Buffers) and event.
+ */
+export function patchCodec8eRecordParsing(): void {
+  const proto = TeltonikaCodec8eAVLPacket?.prototype as
+    | { parseRecords?: unknown; __fuelsenseRecordsPatched?: boolean }
+    | undefined;
+
+  if (!proto || typeof proto.parseRecords !== 'function') {
+    console.warn('[codec8e-patch] parseRecords not found — record parsing NOT replaced');
+    return;
+  }
+  if (proto.__fuelsenseRecordsPatched) return;
+
+  proto.parseRecords = function parseRecords(this: { data?: Buffer }, ...args: unknown[]) {
+    // The SDK calls this with the AVL data section in varying positions
+    // depending on version; take the first Buffer argument, else this.data.
+    const data =
+      (args.find((a) => Buffer.isBuffer(a)) as Buffer | undefined) ?? this.data;
+    if (!Buffer.isBuffer(data)) {
+      throw new Error('Codec8E: no data buffer available to parse');
+    }
+
+    // The SDK calls this with the WHOLE frame:
+    //   preamble(4) | dataFieldLength(4) | codec(1) count(1) records… count(1) | crc(4)
+    // Blindly prepending a codec byte here read the record count out of the
+    // preamble, yielding 0 records — the packet was ACKed and silently dropped.
+    let section: Buffer;
+    if (data.length >= 12 && data.readUInt32BE(0) === 0) {
+      const declared = data.readUInt32BE(4);
+      section = data.subarray(8, 8 + declared);
+    } else if (data[0] === 0x8e) {
+      section = data;
+    } else {
+      section = Buffer.concat([Buffer.from([0x8e]), data]);
+    }
+
+    return decodeCodec8eData(section).map((r) => ({
+      timestamp: r.recordedAt.getTime(),
+      priority: r.priority,
+      gps: {
+        latitude: r.gps.latitude,
+        longitude: r.gps.longitude,
+        altitude: r.gps.altitude,
+        angle: r.gps.angle,
+        satellites: r.gps.satellites,
+        speed: r.gps.speedKph,
+      },
+      event: r.eventId,
+      io: r.io,
+    }));
+  };
+
+  proto.__fuelsenseRecordsPatched = true;
+  console.log('[codec8e-patch] Codec 8E record parsing replaced with FuelSense decoder');
 }

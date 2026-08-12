@@ -471,6 +471,7 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('telemetry', 'fuel_source', 'VARCHAR(12)');
   await ensureColumn('telemetry', 'fuel_used_gps_ml', 'BIGINT');
   await ensureColumn('telemetry', 'fuel_rate_lph', 'DECIMAL(8,2)');
+  await ensureColumn('telemetry', 'burn_ml', 'BIGINT');
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS virtual_tanks (
@@ -488,6 +489,13 @@ export const initDatabase = async (): Promise<void> => {
       updated_at TIMESTAMP DEFAULT NOW()
     )
   `);
+
+  // The modelled-burn counter the tank level is computed from. Added here
+  // rather than left to `drizzle-kit push` (which is how the earlier anchor
+  // columns arrived) so a deploy that only restarts the service still gets them.
+  await ensureColumn('virtual_tanks', 'modelled_burn_ml', 'BIGINT NOT NULL DEFAULT 0');
+  await ensureColumn('virtual_tanks', 'anchor_modelled_ml', 'BIGINT');
+  await ensureColumn('virtual_tanks', 'last_odometer_m', 'BIGINT');
 
   await ensureColumn('alerts', 'is_resolved', 'BOOLEAN DEFAULT false');
   await ensureColumn('alerts', 'resolved_at', 'TIMESTAMP');

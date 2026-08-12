@@ -1,9 +1,46 @@
 import { sql, SQL } from 'drizzle-orm';
+import { FUEL_MARKER_SOURCES } from './fuel-metrics';
 
 interface TelemetryDeltasParams {
   customerId: string;
   days: number;
 }
+
+/**
+ * `fuel_source IN (...)` over the marker provenances, each bound as a parameter
+ * so the list stays in one place instead of being spelled out per query.
+ */
+export const isFuelMarker: SQL = sql`fuel_source IN (${sql.join(
+  FUEL_MARKER_SOURCES.map((source) => sql`${source}`),
+  sql`, `,
+)})`;
+
+/**
+ * Fuel burned over one hop, in litres.
+ *
+ * Prefers `burn_ml`, the modelled figure recorded on the row itself. Summing
+ * that is exact and order-independent. The fallback differences
+ * `fuel_level_liters` and exists only for rows written before `burn_ml` did —
+ * it is the lossy path: the column is rounded to 2 dp and the series is not
+ * monotonic once ordered by the device's own timestamps, so counting every
+ * down-step while discarding every up-step over-reports. On 2026-08-11 that
+ * turned a real 10.2 L into 11.3 L and invented "1.0 L unaccounted for".
+ *
+ * Marker rows are re-anchors, not burn, and are zero on both paths.
+ */
+export const hopBurnLiters: SQL = sql`
+  CASE
+    WHEN ${isFuelMarker} THEN 0
+    WHEN burn_ml IS NOT NULL THEN burn_ml / 1000.0
+    WHEN prev_fuel IS NULL OR fuel_level_liters IS NULL THEN 0
+    WHEN fuel_level_liters - prev_fuel >= 5 THEN 0
+    WHEN prev_fuel - fuel_level_liters >= 12
+      AND NOT COALESCE(ignition_on, false)
+      AND COALESCE(speed_kph, 0) < 2
+      THEN 0
+    WHEN fuel_level_liters < prev_fuel THEN prev_fuel - fuel_level_liters
+    ELSE 0
+  END`;
 
 /**
  * Distance-only delta CTEs — no fuel-level or odometer required.
@@ -124,6 +161,8 @@ export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams):
         COALESCE(t.odometer_m::double precision / 1000.0, t.odometer_km::double precision)
           AS odometer_km,
         t.fuel_level_liters::numeric AS fuel_level_liters,
+        t.fuel_source,
+        t.burn_ml,
         t.speed_kph,
         t.ignition_on,
         t.recorded_at
@@ -180,18 +219,14 @@ export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams):
             )
           )
         END AS dist_delta,
-        CASE
-          WHEN prev_fuel IS NULL OR fuel_level_liters IS NULL THEN 0
-          WHEN fuel_level_liters - prev_fuel >= 5 THEN 0
-          WHEN prev_fuel - fuel_level_liters >= 12
-            AND NOT COALESCE(ignition_on, false)
-            AND COALESCE(speed_kph, 0) < 2
-            THEN 0
-          WHEN fuel_level_liters < prev_fuel THEN prev_fuel - fuel_level_liters
-          ELSE 0
-        END AS fuel_delta
+        -- Modelled burn where the row carries it, differenced level otherwise.
+        -- Marker rows (calibration, credited receipt) are re-anchors rather
+        -- than burn: a calibration from 29.95 L to 20 L is a 9.95 L drop, under
+        -- the 12 L siphon guard and nothing like a 5 L rise, so the thresholds
+        -- alone would book it as consumption.
+        ${hopBurnLiters} AS fuel_delta
       FROM ordered
-      WHERE prev_fuel IS NOT NULL
+      WHERE prev_fuel IS NOT NULL OR burn_ml IS NOT NULL
     )
   `;
 }

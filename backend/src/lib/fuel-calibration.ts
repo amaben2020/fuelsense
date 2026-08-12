@@ -43,7 +43,7 @@ export interface ReconcileResult {
   flag_reason: string | null;
   /** Rate now in force for the vehicle, and where it came from. */
   vehicle_rate_l_per_100km: number | null;
-  rate_source: 'preset' | 'calibrated';
+  rate_source: 'preset' | 'calibrated' | 'manual';
 }
 
 /**
@@ -171,7 +171,21 @@ async function gpsDistanceBetween(
  */
 async function recalculateVehicleRate(
   vehicleId: string
-): Promise<{ rate: number | null; source: 'preset' | 'calibrated' }> {
+): Promise<{ rate: number | null; source: 'preset' | 'calibrated' | 'manual' }> {
+  // A rate the manager typed off the vehicle's own dashboard outranks anything
+  // derived here. Without this guard the next reconciliation would reset it to
+  // the class preset — the manual figure would survive until the driver logged
+  // one more receipt, which is worse than not offering the input at all.
+  const [current] = await db
+    .select({ rateSource: vehicles.rateSource, rate: vehicles.consumptionRateL100km })
+    .from(vehicles)
+    .where(eq(vehicles.id, vehicleId))
+    .limit(1);
+
+  if (current?.rateSource === 'manual') {
+    return { rate: current.rate != null ? Number(current.rate) : null, source: 'manual' };
+  }
+
   const rows = await db
     .select({ rate: fuelPurchases.realConsumptionL100km })
     .from(fuelPurchases)

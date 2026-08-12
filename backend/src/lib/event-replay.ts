@@ -643,15 +643,41 @@ function buildReceiptReplay(
   );
 }
 
+/**
+ * The day's readings, or the minutes around one moment of it.
+ *
+ * `LIMIT` with `ORDER BY recorded_at ASC` takes the *earliest* readings of the
+ * day. On a day with 1,700 fixes that is the first 25 minutes, so an event in
+ * the afternoon was never loaded: the focus filter found nothing near it, fell
+ * back to the whole (truncated) set, and the replay opened on the morning while
+ * captioning it "harsh cornering at this point". Clicking Replay on a 15:44
+ * event produced a window ending at 12:00 with no cornering in it — evidence
+ * for the wrong moment, which is worse than no evidence.
+ *
+ * When a focus instant is given the window is applied in SQL, so the rows that
+ * come back are the ones either side of the event rather than the head of the
+ * day.
+ */
 async function loadTelemetryDay({
   vehicleId,
   customerId,
   activityDate,
+  focusAt,
+  windowMinutes,
 }: {
   vehicleId: string;
   customerId: string;
   activityDate: string;
+  focusAt?: string;
+  windowMinutes?: number;
 }) {
+  const focusWindow =
+    focusAt && Number.isFinite(parseInstant(focusAt))
+      ? sql`AND recorded_at BETWEEN
+              ${new Date(parseInstant(focusAt))}::timestamp - (${windowMinutes ?? 5} || ' minutes')::INTERVAL
+          AND ${new Date(parseInstant(focusAt))}::timestamp + (${windowMinutes ?? 5} || ' minutes')::INTERVAL`
+      : sql``;
+
   const result = await db.execute(sql`
     SELECT
       recorded_at,
@@ -665,6 +691,7 @@ async function loadTelemetryDay({
     WHERE vehicle_id = ${vehicleId}
       AND customer_id = ${customerId}
       AND DATE(recorded_at AT TIME ZONE 'Africa/Lagos') = ${activityDate}::date
+      ${focusWindow}
     ORDER BY recorded_at ASC
     LIMIT ${MAX_READINGS}
   `);
@@ -803,6 +830,8 @@ export async function buildDailyActivityReplay({
     vehicleId,
     customerId,
     activityDate,
+    focusAt,
+    windowMinutes: FOCUS_WINDOW_MINUTES,
   })) as RawRow[];
 
   // Narrow to the minutes either side of the event. Wide enough to show the

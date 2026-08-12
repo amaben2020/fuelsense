@@ -220,6 +220,10 @@ export const telemetry = pgTable('telemetry', {
   fuelUsedGpsMl: bigint('fuel_used_gps_ml', { mode: 'number' }),
   // AVL ID 13 — instantaneous burn rate; device sends l/h ×100, stored as l/h
   fuelRateLph: numeric('fuel_rate_lph', { precision: 8, scale: 2 }),
+  // Modelled fuel burned over the hop ending at this reading, in millilitres.
+  // Consumption is SUMmed from this rather than differenced out of
+  // fuel_level_liters — see FuelGpsResult.burnMl for why that mattered.
+  burnMl: bigint('burn_ml', { mode: 'number' }),
   odometerKm: integer('odometer_km'),
   // AVL 16 reports metres. Rounding to whole kilometres made any movement
   // under 500 m invisible, which is most of a delivery round, so the raw
@@ -269,6 +273,21 @@ export const virtualTanks = pgTable('virtual_tanks', {
   // a single bad write cannot drift the tank permanently.
   anchorLevelMl: bigint('anchor_level_ml', { mode: 'number' }),
   anchorAccumulatorMl: bigint('anchor_accumulator_ml', { mode: 'number' }),
+  // Modelled burn — the counter the level is actually computed from.
+  //
+  // AVL 12 was measured counting 13 ml over 3.55 km of driving on this fleet,
+  // and AVL 13 reports a constant ~2.47 l/h whether moving, idling or parked:
+  // the device's fuel elements do not describe the vehicle. Burn is therefore
+  // modelled from distance travelled and time spent idling, both of which the
+  // tracker does measure well (the odometer validates to 0.03%).
+  //
+  // Monotonic and absolute like the accumulator it replaces, so the anchored
+  // model above works unchanged — and so does surviving a power cycle, which
+  // this counter does by construction rather than by offsetting resets.
+  modelledBurnMl: bigint('modelled_burn_ml', { mode: 'number' }).notNull().default(0),
+  anchorModelledMl: bigint('anchor_modelled_ml', { mode: 'number' }),
+  // Previous odometer reading, for the distance half of the model.
+  lastOdometerM: bigint('last_odometer_m', { mode: 'number' }),
   // AVL 12 restarts at zero on every power cycle, so the running total is the
   // raw reading plus everything counted before the resets.
   accumulatorOffsetMl: bigint('accumulator_offset_ml', { mode: 'number' }).notNull().default(0),

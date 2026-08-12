@@ -389,8 +389,13 @@ function ReconciledReceiptsTable({
         {summary && (
           <tfoot className="border-t-2 border-edge bg-canvas text-sm">
             <tr>
+              {/* "Reconciled" asserted a verification that had not happened:
+                  the only row beneath it read Pending / Not checked, and the
+                  header already says 0 of 1 checked against the tracker. This
+                  totals what drivers logged — the checking status is reported
+                  per receipt and counted above, not implied here. */}
               <td colSpan={5} className="px-6 py-4 font-semibold text-ink">
-                Grand total (reconciled)
+                Grand total (logged by drivers)
               </td>
               <td className="px-6 py-4 font-mono font-semibold text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L

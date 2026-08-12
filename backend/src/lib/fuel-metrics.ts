@@ -8,6 +8,27 @@
  * penalty on its own). Holding vehicles to a brochure number makes every driver
  * look wasteful and makes real theft impossible to see against the noise.
  */
+/**
+ * Telemetry rows that re-anchor the fuel model rather than measure it.
+ *
+ * `calibration` is a manager saying "the tank holds this much now";
+ * `receipt` is a verified fill being credited. Both write a level step into the
+ * series so the dashboard curve moves at the moment it happens, and neither is
+ * fuel the engine burned.
+ *
+ * Every query deriving consumption from level deltas must skip these rows. The
+ * consumption thresholds cannot catch them: a calibration from 29.95 L down to
+ * 20 L is a 9.95 L drop, below the 12 L siphon guard and nothing like a 5 L
+ * refuel rise, so it falls between the two and is booked as burn.
+ *
+ * Lives here rather than in `virtual-tank.ts` so the SQL helpers can import it
+ * without pulling the tank engine (and its mailer and alert dependencies) into
+ * a query builder.
+ */
+export const FUEL_MARKER_SOURCES = ['calibration', 'receipt'] as const;
+
+export type FuelMarkerSource = (typeof FUEL_MARKER_SOURCES)[number];
+
 export const VEHICLE_EFFICIENCY: Record<string, { min: number; max: number; avg: number }> = {
   Corolla: { min: 8.0, max: 10.0, avg: 9.0 },
   Camry: { min: 7.0, max: 9.0, avg: 8.0 },
@@ -166,9 +187,65 @@ export function baselineEfficiencyL100km(model: string): number {
 /** 1 km/L = 2.35215 miles per US gallon. */
 export const KM_PER_LITER_TO_MPG = 2.35215;
 
+/** 1 km/L = 2.82481 miles per imperial gallon (a UK gallon is ~20% larger). */
+export const KM_PER_LITER_TO_MPG_IMPERIAL = 2.82481;
+
 export function kmLToMpg(kmL: number | null): number | null {
   if (!kmL || kmL <= 0) return null;
   return round1(kmL * KM_PER_LITER_TO_MPG);
+}
+
+/**
+ * Units a fleet manager might read off a dashboard.
+ *
+ * The unit is asked for rather than assumed, because "15 mpg" is ambiguous by
+ * 20%: a US gallon is 3.785 L and an imperial gallon 4.546 L, so 15 mpg is
+ * either 6.38 or 5.31 km/L depending on which market the vehicle was built
+ * for. Guessing would put a fifth of an error into the one number the whole
+ * fuel model is anchored on.
+ */
+export const ECONOMY_UNITS = ['mpg_us', 'mpg_imp', 'km_l', 'l_100km'] as const;
+
+export type EconomyUnit = (typeof ECONOMY_UNITS)[number];
+
+export const ECONOMY_UNIT_LABELS: Record<EconomyUnit, string> = {
+  mpg_us: 'mpg (US)',
+  mpg_imp: 'mpg (imperial)',
+  km_l: 'km/L',
+  l_100km: 'L/100 km',
+};
+
+export function isEconomyUnit(value: unknown): value is EconomyUnit {
+  return typeof value === 'string' && (ECONOMY_UNITS as readonly string[]).includes(value);
+}
+
+/**
+ * A dashboard economy reading, in whatever unit it was displayed in, converted
+ * to the L/100 km the vehicle row stores. Returns null for values that cannot
+ * describe a real vehicle, so a typo cannot silently re-anchor the fuel model.
+ */
+export function economyToL100km(value: number, unit: EconomyUnit): number | null {
+  if (!Number.isFinite(value) || value <= 0) return null;
+
+  const kmPerLiter =
+    unit === 'mpg_us'
+      ? value / KM_PER_LITER_TO_MPG
+      : unit === 'mpg_imp'
+        ? value / KM_PER_LITER_TO_MPG_IMPERIAL
+        : unit === 'km_l'
+          ? value
+          : 100 / value;
+
+  // A vehicle doing under 1 km/L or over 50 km/L is a mistyped figure or the
+  // wrong unit, not a fleet vehicle.
+  if (!Number.isFinite(kmPerLiter) || kmPerLiter < 1 || kmPerLiter > 50) return null;
+
+  return round2(100 / kmPerLiter);
+}
+
+export function l100kmToKmL(l100km: number | null): number | null {
+  if (!l100km || l100km <= 0) return null;
+  return round2(100 / l100km);
 }
 
 /** Positive % = worse (more fuel per 100 km than baseline). */

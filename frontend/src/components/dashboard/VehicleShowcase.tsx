@@ -31,20 +31,35 @@ const SPEED_MAX_KPH = 160;
 /**
  * Speed panel. The dial itself is the shared Haulix instrument; this wrapper
  * only supplies the card and the severity chip.
+ *
+ * `live` distinguishes a reading from a memory. The last packet before a
+ * tracker drops out is usually mid-drive — on 2026-08-10 it was 6 km/h — and
+ * reporting that as "Moving" indefinitely tells a manager the vehicle is
+ * running when it has been silent for half a day. The tracker's own
+ * connection state already decides this everywhere else on the page, so it
+ * decides it here too rather than a second staleness rule.
  */
-function SpeedPanel({ speedKph }: { speedKph: number }) {
+function SpeedPanel({ speedKph, live }: { speedKph: number; live: boolean }) {
   const clamped = Math.max(0, Math.min(speedKph, SPEED_MAX_KPH));
   return (
     <Panel
       title="Speed"
       chip={
-        <StatusChip tone={clamped > 100 ? 'bad' : clamped > 0 ? 'good' : 'neutral'}>
-          {clamped > 100 ? 'High' : clamped > 0 ? 'Moving' : 'Stopped'}
+        <StatusChip tone={!live ? 'neutral' : clamped > 100 ? 'bad' : clamped > 0 ? 'good' : 'neutral'}>
+          {!live ? 'No signal' : clamped > 100 ? 'High' : clamped > 0 ? 'Moving' : 'Stopped'}
         </StatusChip>
       }
       className="bg-panel-deep"
     >
-      <SpeedGauge value={clamped} max={SPEED_MAX_KPH} unit="km/h" label="Speed" size={210} />
+      {/* A stale dial is parked at zero, not frozen at the last speed: the
+          needle is the most glanceable thing on the card and must not imply
+          live movement. The figure itself stays available in the caption. */}
+      <SpeedGauge value={live ? clamped : 0} max={SPEED_MAX_KPH} unit="km/h" label="Speed" size={210} />
+      {!live && (
+        <p className="mt-2 text-center text-[11px] text-ink-dim">
+          Tracker offline — last reading was {clamped} km/h
+        </p>
+      )}
     </Panel>
   );
 }
@@ -251,7 +266,7 @@ export function VehicleShowcase({
           />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <SpeedPanel speedKph={Number(vehicle.speed_kph ?? 0)} />
+            <SpeedPanel speedKph={Number(vehicle.speed_kph ?? 0)} live={online} />
             {vehicle.fuel_source === 'virtual' || vehicle.virtual_tank_liters != null ? (
               <Panel title="Fuel level" className="bg-panel-deep">
                 <VirtualFuelGauge vehicle={vehicle} />

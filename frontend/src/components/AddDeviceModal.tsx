@@ -1,8 +1,8 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
-import { api, FleetVehicle, WithDeviceResponse } from '@/lib/api';
-import { emptyVehicle, odometerToKm, VehicleDeviceFields } from '@/components/VehicleDeviceFields';
+import { api, FleetVehicle, WithDeviceResponse, setVehicleEconomy } from '@/lib/api';
+import { economyInput, emptyVehicle, odometerToKm, VehicleDeviceFields } from '@/components/VehicleDeviceFields';
 
 interface AddDeviceModalProps {
   isOpen: boolean;
@@ -36,6 +36,17 @@ export function AddDeviceModal({ isOpen, onClose, onAdded }: AddDeviceModalProps
           deviceModel: 'FMC150',
         }),
       });
+
+      // Set the economy the manager read off the dashboard, if they gave one.
+      // A failure here must not lose the vehicle they just created — it is a
+      // refinement of the fuel model, and Calibration can set it later.
+      const economy = economyInput(form);
+      const newVehicleId = result.fleetRow?.id;
+      if (economy && newVehicleId) {
+        await setVehicleEconomy(newVehicleId, economy).catch((e) =>
+          console.error('[add-device] economy not saved:', e)
+        );
+      }
 
       if (result.fleetRow) {
         onAdded(result.fleetRow);
