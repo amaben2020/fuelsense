@@ -6,9 +6,15 @@ turned off, because the product pitch lives on the app's own landing page.
 
 ```bash
 npm install
-npm start      # dev server on :3000
+npm start      # dev server on :3100, hot reloads
 npm run build  # static output in build/
+npm run serve  # serve that build on :3100
 ```
+
+Both `start` and `serve` pin port **3100** rather than Docusaurus's default
+3000, which the Next.js frontend dev server already occupies — the two would
+otherwise refuse to run at the same time, and reading the docs while working on
+the app is the normal case.
 
 ## What goes here
 
