@@ -17,6 +17,7 @@ import {
 } from '../lib/db-helpers';
 import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { getVirtualTank, calibrateTank } from '../lib/virtual-tank';
+import { CATALOGUE_MIN_YEAR, VEHICLE_CATALOGUE } from '../lib/vehicle-catalogue';
 import {
   ECONOMY_UNIT_LABELS,
   baselineEfficiencyL100km,
@@ -329,6 +330,38 @@ router.post('/:id/speed-limit', async (req: Request, res: Response) => {
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }
+});
+
+/**
+ * The make / model / year catalogue behind the Add Vehicle form.
+ *
+ * Served whole rather than as three chained lookups: it is a few kilobytes,
+ * it never changes between requests, and a form that has it in hand can
+ * narrow models and years instantly instead of showing a spinner between
+ * every dropdown.
+ *
+ * Each model carries the figures a new vehicle is seeded with, so the form can
+ * show the manager what picking it will do — "60 L tank, 11.8 L/100 km to
+ * start" — rather than applying it silently.
+ */
+router.get('/catalogue', async (_req: Request, res: Response) => {
+  res.json({
+    min_year: CATALOGUE_MIN_YEAR,
+    max_year: new Date().getFullYear() + 1,
+    makes: VEHICLE_CATALOGUE.map((entry) => ({
+      make: entry.make,
+      models: entry.models.map((spec) => ({
+        model: spec.model,
+        type: spec.type,
+        tank_liters: spec.tankLiters,
+        consumption_l_per_100km: spec.consumptionL100km,
+        idle_burn_l_per_hour: spec.idleBurnLph,
+        year_from: spec.years[0],
+        year_to: Math.min(spec.years[1], new Date().getFullYear() + 1),
+        note: spec.note ?? null,
+      })),
+    })),
+  });
 });
 
 router.post('/', async (req: Request, res: Response) => {

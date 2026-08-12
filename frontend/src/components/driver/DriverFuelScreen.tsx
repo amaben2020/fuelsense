@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
   CheckCircle,
@@ -33,8 +33,24 @@ import {
   removeOfflineReceipt,
 } from '@/lib/driver-offline-queue';
 import { scanReceiptImage } from '@/lib/receipt-ocr';
+import { compressReceiptImage } from '@/lib/receipt-image';
 
 type FuelMode = 'home' | 'scanning' | 'form' | 'success';
+
+/**
+ * Whether a receipt's reconciliation status is shown to the driver.
+ *
+ * Off while the fleet runs on GPS alone. "Checking against tracker" promises a
+ * corroboration these devices cannot perform: with no fuel sensor and no CAN
+ * link there is no measured tank rise to compare a receipt against, only a
+ * modelled one that is itself derived from distance. The status therefore sat
+ * on "checking" forever, and a driver read a permanent amber label against
+ * their own submission as suspicion.
+ *
+ * Turn back on once a fleet has a fuel-level sensor fitted, which is the only
+ * thing that makes the comparison mean anything.
+ */
+const SHOW_RECONCILIATION_STATUS = false;
 
 // "Pending" told a driver nothing about what was happening to their receipt.
 const RECEIPT_STATUS_LABEL: Record<string, string> = {
@@ -63,6 +79,27 @@ export function DriverFuelScreen({
   const [declaredLiters, setDeclaredLiters] = useState('');
   const [pricePerLiter, setPricePerLiter] = useState('1300');
   const [totalAmount, setTotalAmount] = useState('');
+
+  /**
+   * Litres implied by the total and the unit price, when the driver has not
+   * entered litres themselves.
+   *
+   * Offered, never applied silently. A derived figure that appears in the box
+   * on its own is indistinguishable from one the scan read off the paper, and
+   * the two deserve different levels of trust — this one is only as good as
+   * the price per litre, which is often a default rather than what was
+   * actually charged.
+   */
+  const derivedLiters = useMemo(() => {
+    if (declaredLiters.trim()) return null;
+    const total = Number(totalAmount);
+    const price = Number(pricePerLiter);
+    if (!Number.isFinite(total) || !Number.isFinite(price)) return null;
+    if (total <= 0 || price <= 0) return null;
+    const litres = Math.round((total / price) * 100) / 100;
+    // A tank is not 400 litres and a pump does not sell 0.05 of one.
+    return litres >= 0.5 && litres <= 400 ? litres : null;
+  }, [declaredLiters, totalAmount, pricePerLiter]);
   const [transactionDate, setTransactionDate] = useState('');
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
     null,
@@ -177,23 +214,20 @@ export function DriverFuelScreen({
     setError(null);
     setMode('scanning');
 
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const dataUrl = reader.result as string;
+    try {
+      // Downscaled first. A phone camera produces 3-8 MB and the OCR service
+      // refuses anything over 1 MB, so without this the only way a driver can
+      // capture a receipt is also the one way it cannot be submitted.
+      const dataUrl = await compressReceiptImage(file);
       setReceiptPhoto(dataUrl);
-      try {
-        const { parsed } = await scanReceiptImage(dataUrl);
-        applyParsedFields(parsed.fields, parsed.parse_confidence);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Scan failed, enter the details by hand',
-        );
-        setMode('form');
-      }
-    };
-    reader.readAsDataURL(file);
+      const { parsed } = await scanReceiptImage(dataUrl);
+      applyParsedFields(parsed.fields, parsed.parse_confidence);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Scan failed, enter the details by hand',
+      );
+      setMode('form');
+    }
   };
 
   const startManual = () => {
@@ -431,6 +465,29 @@ export function DriverFuelScreen({
               type="number"
             />
           </div>
+
+          {/* Litres is the field everything downstream is built on, and most
+              Nigerian pump slips are POS transfer receipts that never print
+              it. Total and price are almost always there, and litres is just
+              their quotient, so it is offered rather than demanded. */}
+          {derivedLiters != null && (
+            <button
+              type="button"
+              onClick={() => setDeclaredLiters(String(derivedLiters))}
+              className="w-full rounded-xl border border-brand/40 bg-brand/10 px-3 py-2 text-left text-xs leading-relaxed text-brand"
+            >
+              No litres on this receipt. From ₦{Number(totalAmount).toLocaleString()} at ₦
+              {Number(pricePerLiter).toLocaleString()}/L that is{' '}
+              <span className="font-semibold">{derivedLiters} L</span>. Tap to use it.
+            </button>
+          )}
+          {!declaredLiters.trim() && derivedLiters == null && (
+            <p className="rounded-xl border border-warn/40 bg-warn-deep/10 px-3 py-2 text-xs leading-relaxed text-warn">
+              Litres is not on this receipt and has to be entered. Enter the total
+              and price per litre and it will be worked out for you.
+            </p>
+          )}
+
           <Field
             label="Total (₦)"
             value={totalAmount}
@@ -509,22 +566,24 @@ export function DriverFuelScreen({
                   })}{' '}
                   · {Number(r.declared_liters)}L
                 </p>
-                <span
-                  className={`text-[10px] uppercase ${
-                    r.reconciliation_status === 'flagged_theft'
-                      ? 'text-bad'
-                      : r.reconciliation_status === 'matched'
-                        ? 'text-good'
-                        : 'text-warn'
-                  }`}
-                >
-                  {RECEIPT_STATUS_LABEL[r.reconciliation_status] ??
-                    r.reconciliation_status.replace('_', ' ')}
-                </span>
-                {/* The driver is the one who gets blamed for a flag, so the
-                    reason travels with it rather than living only on the
-                    manager's screen. */}
-                {r.verification?.summary && (
+                {/*
+                  Reconciliation status is hidden while the fleet runs on GPS
+                  alone.
+
+                  "Checking against tracker" promises a corroboration these
+                  devices cannot perform: with no fuel sensor and no CAN link,
+                  there is no measured tank rise to compare a receipt against —
+                  only a modelled one, which is itself derived from distance. So
+                  the status sat on "checking" indefinitely and the driver read
+                  a permanent amber label against their own submission as
+                  suspicion.
+
+                  Restore this block once a fleet has a fuel-level sensor
+                  fitted, which is the only thing that makes the check mean
+                  anything. `RECEIPT_STATUS_LABEL` and the verification summary
+                  are left in place for that.
+                */}
+                {SHOW_RECONCILIATION_STATUS && r.verification?.summary && (
                   <p className="mt-1 text-[11px] leading-snug text-ink-dim">
                     {r.verification.summary}
                   </p>

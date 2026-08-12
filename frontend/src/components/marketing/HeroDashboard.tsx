@@ -126,7 +126,7 @@ export function HeroDashboard() {
                   y="0"
                   width={((IDLE_TO - IDLE_FROM) / (CURVE.length - 1)) * 320}
                   height="96"
-                  fill="#ffb95f"
+                  fill="#ff9436"
                   opacity="0.14"
                 />
                 <polyline
@@ -136,7 +136,7 @@ export function HeroDashboard() {
                     return `${x.toFixed(1)},${y.toFixed(1)}`;
                   }).join(' ')}
                   fill="none"
-                  stroke="#00e599"
+                  stroke="#cde04a"
                   strokeWidth="2.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -153,7 +153,7 @@ export function HeroDashboard() {
                   <span className="fs-readrow__label">{label}</span>
                   <span
                     className="fs-readrow__value"
-                    style={warn ? { color: '#ffb95f' } : undefined}
+                    style={warn ? { color: '#ff9436' } : undefined}
                   >
                     {value}
                   </span>
@@ -176,7 +176,7 @@ export function HeroDashboard() {
                   <p className="fs-hero-dash__tilelabel">{tile.label}</p>
                   <p
                     className="fs-hero-dash__tilevalue"
-                    style={tile.good ? { color: '#00e599' } : undefined}
+                    style={tile.good ? { color: '#cde04a' } : undefined}
                   >
                     {tile.value}
                   </p>

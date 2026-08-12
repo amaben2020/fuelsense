@@ -203,14 +203,32 @@ export function ReceiptsPanel({
               </p>
               <p className="mt-1 text-xs text-ink-dim">Driver-entered at fuel station</p>
             </div>
+            {/* "Checked against the tracker · 0/1" read as a failure, and the
+                "0 flagged" line underneath was rendered in red — so a page
+                where nothing at all was wrong looked like an alarm. A receipt
+                is unverified far more often because the tracker has not yet
+                seen a matching tank rise than because anything is suspicious,
+                and the card now says which. */}
             <div className="rounded-lg border border-edge bg-panel p-4">
-              <p className="text-xs text-ink-dim">Checked against the tracker</p>
-              <p className="mt-1 font-mono text-2xl font-bold text-good">
-                {purchases.filter((p) => p.status === 'verified').length}/
-                {purchases.length}
+              <p className="text-xs text-ink-dim">Corroborated by the tracker</p>
+              <p
+                className={`mt-1 font-mono text-2xl font-bold ${
+                  theftCount > 0 ? 'text-warn' : 'text-good'
+                }`}
+              >
+                {purchases.filter((p) => p.status === 'verified').length}/{purchases.length}
               </p>
-              <p className="mt-1 text-xs text-bad">
-                {theftCount} flagged for review on this page
+              <p
+                className={`mt-1 text-xs ${theftCount > 0 ? 'text-warn' : 'text-ink-dim'}`}
+              >
+                {theftCount > 0
+                  ? `${theftCount} flagged for review on this page`
+                  : 'Nothing flagged on this page'}
+              </p>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-dim">
+                Corroborated means the modelled tank rose to match the litres
+                claimed. A recent receipt usually has not been checked yet — it
+                is not a suspicion.
               </p>
             </div>
           </div>

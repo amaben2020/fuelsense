@@ -156,7 +156,7 @@ function TripLayer({
     const trail = new google.maps.Polyline({
       path: [ROUTE[0]],
       map,
-      strokeColor: '#00e599',
+      strokeColor: '#cde04a',
       strokeOpacity: 1,
       strokeWeight: 5,
     });
@@ -172,7 +172,7 @@ function TripLayer({
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 9,
-          fillColor: '#ffb95f',
+          fillColor: '#ff9436',
           fillOpacity: 0.95,
           strokeColor: '#0b0e13',
           strokeWeight: 3,
@@ -192,7 +192,7 @@ function TripLayer({
         scale: 0.95,
         fillColor: '#ffffff',
         fillOpacity: 1,
-        strokeColor: '#00e599',
+        strokeColor: '#cde04a',
         strokeWeight: 2,
         rotation: 0,
       },
@@ -278,7 +278,7 @@ function TripLayer({
       marker.setIcon({
         path: google.maps.SymbolPath.CIRCLE,
         scale: active ? 12 : 9,
-        fillColor: active ? '#00e599' : '#ffb95f',
+        fillColor: active ? '#cde04a' : '#ff9436',
         fillOpacity: 0.95,
         strokeColor: '#0b0e13',
         strokeWeight: 3,
@@ -361,9 +361,9 @@ function StopView({ stop }: { stop: Stop }) {
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
         scale: 12,
-        fillColor: '#00e599',
+        fillColor: '#cde04a',
         fillOpacity: 0.18,
-        strokeColor: '#00e599',
+        strokeColor: '#cde04a',
         strokeWeight: 2.5,
       },
     });

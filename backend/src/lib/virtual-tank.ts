@@ -11,6 +11,7 @@
 import { db, vehicles, alerts, deviceEvents, telemetry, eq, and, sql } from './db-helpers';
 import { virtualTanks } from '../db/schema';
 import type { FuelMarkerSource } from './fuel-metrics';
+import { speedBucketMultiplier } from './fuel-metrics';
 import { alertEmail, sendMail } from './mailer';
 import { resolveAlertRecipient } from './alert-mail';
 
@@ -189,6 +190,20 @@ interface FuelGpsReading {
  * the manager's dashboard figure when they have entered one, otherwise the
  * class preset.
  *
+ * **Each hop is charged at the rate for the speed it was driven at.** A flat
+ * rate said a kilometre crawling through Lagos traffic cost exactly what a
+ * kilometre of steady 60 km/h cruising cost, which no vehicle has ever managed:
+ * real economy follows a U-curve, worst in stop-start and again at motorway
+ * speed, best in the middle. The multipliers live in `SPEED_BUCKETS` and are
+ * applied on top of the base rate rather than baked into it, so the vehicle's
+ * stored rate stays comparable across vehicles and a calibration measured over
+ * mixed driving is still meaningful.
+ *
+ * The speed used is the hop's own average — distance over elapsed time — not
+ * the instantaneous `speedKph` on the closing reading, which is a snapshot of
+ * one moment and would put a whole minute of crawling into the highway band
+ * because the vehicle happened to be accelerating as the packet was sent.
+ *
  * This is an estimate and must never be presented as a measurement. It is
  * defensible arithmetic over good inputs, which is more than the device's own
  * fuel elements currently offer.
@@ -203,7 +218,16 @@ export function modelHopBurnMl(params: {
 }): number {
   const { distanceKm, seconds, ignitionOn, speedKph, consumptionL100km, idleBurnLph } = params;
 
-  const driving = distanceKm > 0 ? (distanceKm * consumptionL100km) / 100 : 0;
+  // Average speed over the hop. Falls back to the reported instantaneous speed
+  // when the elapsed time is unusable, and `speedBucketMultiplier` returns 1
+  // for a null — an unknown speed earns no adjustment rather than a guess.
+  const avgSpeedKph =
+    distanceKm > 0 && seconds > 0 ? (distanceKm / seconds) * 3600 : speedKph;
+
+  const driving =
+    distanceKm > 0
+      ? (distanceKm * consumptionL100km * speedBucketMultiplier(avgSpeedKph)) / 100
+      : 0;
 
   // Idle only counts when the engine is running and the vehicle is not moving.
   // A hop that covered ground is charged for the distance, not for its seconds:

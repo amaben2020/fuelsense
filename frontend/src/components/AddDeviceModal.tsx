@@ -2,7 +2,13 @@
 
 import { FormEvent, useState } from 'react';
 import { api, FleetVehicle, WithDeviceResponse, setVehicleEconomy } from '@/lib/api';
-import { economyInput, emptyVehicle, odometerToKm, VehicleDeviceFields } from '@/components/VehicleDeviceFields';
+import {
+  economyInput,
+  emptyVehicle,
+  makeForSubmit,
+  odometerToKm,
+  VehicleDeviceFields,
+} from '@/components/VehicleDeviceFields';
 
 interface AddDeviceModalProps {
   isOpen: boolean;
@@ -27,7 +33,7 @@ export function AddDeviceModal({ isOpen, onClose, onAdded }: AddDeviceModalProps
         method: 'POST',
         body: JSON.stringify({
           licensePlate: form.licensePlate,
-          make: form.make,
+          make: makeForSubmit(form),
           model: form.model,
           year: form.year,
           tankCapacityLiters: form.tankCapacityLiters,
@@ -87,7 +93,10 @@ export function AddDeviceModal({ isOpen, onClose, onAdded }: AddDeviceModalProps
             <button
               type="submit"
               disabled={loading}
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+              /* Brand lemon, not stock emerald. The primary action on the
+                 dashboard's most important form was the one button on the
+                 product wearing a colour from nowhere in the palette. */
+              className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-canvas transition-colors hover:bg-brand/90 disabled:opacity-60"
             >
               {loading ? 'Adding...' : 'Add vehicle'}
             </button>

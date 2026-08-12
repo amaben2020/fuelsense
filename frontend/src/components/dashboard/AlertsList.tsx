@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { MapPin, Play } from 'lucide-react';
 import { Alert, formatNgn } from '@/lib/api';
 import { TRUST_COPY } from '@/lib/trust-language';
@@ -5,20 +6,42 @@ import { TRUST_COPY } from '@/lib/trust-language';
 export function AlertsList({
   alerts,
   onViewOnMap,
+  onDismiss,
 }: {
   alerts: Alert[];
   onViewOnMap?: (alert: Alert) => void;
+  /** Acknowledge an alert. Omitted where the list is read-only. */
+  onDismiss?: (alert: Alert) => void;
 }) {
+  // Rows leave the list under their own animation rather than vanishing on the
+  // next render — an alert that disappears the instant it is touched gives no
+  // confirmation that the right one went.
+  const [leaving, setLeaving] = useState<Set<Alert['id']>>(new Set());
+
+  const dismiss = (alert: Alert) => {
+    if (!onDismiss) return;
+    setLeaving((prev) => new Set(prev).add(alert.id));
+    window.setTimeout(() => onDismiss(alert), 260);
+  };
+
   if (alerts.length === 0) {
     return <p className="text-sm text-ink-dim">No open alerts.</p>;
   }
 
   return (
     <ul className="space-y-3">
-      {alerts.map((alert) => (
+      {alerts.map((alert, i) => (
         <li
           key={alert.id}
-          className={`rounded-lg p-3 text-sm ${
+          // Double-click rather than single: these rows are also the thing you
+          // click to investigate, and a single-click dismiss would throw away
+          // the alert you were trying to open.
+          onDoubleClick={() => dismiss(alert)}
+          title={onDismiss ? 'Double-click to dismiss' : undefined}
+          style={{ animationDelay: `${Math.min(i, 8) * 45}ms` }}
+          className={`alert-row rounded-lg p-3 text-sm ${
+            leaving.has(alert.id) ? 'is-leaving' : ''
+          } ${
             alert.alert_type === 'fuel_theft'
               ? 'border-l-2 border-l-bad bg-bad-deep/20'
               : 'border-l-2 border-l-warn bg-warn-deep/20'

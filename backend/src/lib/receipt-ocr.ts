@@ -3,6 +3,13 @@ import { parseReceiptText } from './receipt-parser';
 const OCR_SPACE_ENDPOINT = 'https://api.ocr.space/parse/image';
 const OCR_SPACE_DEMO_KEY = 'helloworld';
 
+/** Largest receipt photo accepted from a driver, before OCR. 5 MB covers a
+ *  full-resolution phone capture; the client downscales below the provider's
+ *  own 1 MB free-tier ceiling before sending. */
+export const MAX_RECEIPT_UPLOAD_BYTES = Number(
+  process.env.MAX_RECEIPT_UPLOAD_BYTES || 5 * 1024 * 1024
+);
+
 export function isOcrConfigured(): boolean {
   return true;
 }
@@ -105,10 +112,27 @@ interface ScanHints {
 export async function scanReceiptImage(imageDataUrl: string, hints: ScanHints = {}): Promise<unknown> {
   const { dataUrl, byteLength } = normalizeDataUrl(imageDataUrl);
 
-  if (byteLength > 1024 * 1024) {
-    throw Object.assign(new Error('Receipt image must be under 1MB for free OCR'), {
-      status: 400,
-    });
+  // What we accept from a driver's phone, not what the OCR provider accepts.
+  //
+  // OCR.space's free tier caps an upload at 1 MB, and this guard used to
+  // enforce that number directly — so a driver photographing a receipt on any
+  // modern phone was told "must be under 1MB" and simply could not log it. The
+  // camera is the only realistic way a driver captures a receipt, and phone
+  // cameras have not produced sub-megabyte JPEGs in a decade.
+  //
+  // The client now downscales before uploading (see `compressReceiptImage` in
+  // the driver app), which brings a 5 MB photo comfortably under the provider
+  // limit while keeping receipt text legible. This ceiling is the safety net
+  // for anything that reaches us uncompressed, and the message says what to do
+  // rather than quoting a provider's pricing tier at a driver.
+  if (byteLength > MAX_RECEIPT_UPLOAD_BYTES) {
+    throw Object.assign(
+      new Error(
+        `Receipt image is too large (${(byteLength / (1024 * 1024)).toFixed(1)} MB). ` +
+          `Retake it, or crop to just the receipt.`
+      ),
+      { status: 400 }
+    );
   }
 
   const ocr = await extractTextWithOcrSpace(dataUrl);

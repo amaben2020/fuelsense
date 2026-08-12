@@ -1564,3 +1564,46 @@ export function createGeofence(input: {
 export function deleteGeofence(id: string): Promise<void> {
   return api<void>(`/geofences/${id}`, { method: 'DELETE' });
 }
+
+// ---------------------------------------------------------------------------
+// Vehicle catalogue
+//
+// Make / model / year with the figures a new vehicle is seeded from. Served
+// whole because it is small and static, so the Add Vehicle form can narrow its
+// dropdowns instantly rather than round-tripping between each one.
+// ---------------------------------------------------------------------------
+
+export type VehicleBodyType =
+  | 'sedan'
+  | 'suv_pickup'
+  | 'van_bus'
+  | 'medium_truck'
+  | 'heavy_truck'
+  | 'motorcycle';
+
+export interface CatalogueModel {
+  model: string;
+  type: VehicleBodyType;
+  tank_liters: number;
+  /** Mixed city traffic, not a combined-cycle rating. */
+  consumption_l_per_100km: number;
+  idle_burn_l_per_hour: number;
+  year_from: number;
+  year_to: number;
+  note: string | null;
+}
+
+export interface CatalogueMake {
+  make: string;
+  models: CatalogueModel[];
+}
+
+export interface VehicleCatalogue {
+  min_year: number;
+  max_year: number;
+  makes: CatalogueMake[];
+}
+
+export function fetchVehicleCatalogue(): Promise<VehicleCatalogue> {
+  return api<VehicleCatalogue>('/vehicles/catalogue');
+}

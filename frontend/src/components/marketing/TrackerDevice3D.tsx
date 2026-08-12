@@ -18,7 +18,7 @@ const CASE_TOP = 0x2b333d;
 const CASE_BODY = 0x161b22;
 const CASE_EDGE = 0x3b4552;
 const PORT = 0x0d1117;
-const GREEN = 0x00e599;
+const GREEN = 0xcde04a;
 const AMBER = 0xffb95f;
 const CABLE = 0x2a313b;
 
@@ -257,7 +257,7 @@ export function TrackerDevice3D() {
       <p className="fs-device__caption">Teltonika FMC150</p>
       <ul className="fs-device__legend">
         <li>
-          <span className="fs-device__pip" style={{ background: '#00e599' }} />
+          <span className="fs-device__pip" style={{ background: '#cde04a' }} />
           Fitted behind the dash, wired to power and ignition
         </li>
         <li>

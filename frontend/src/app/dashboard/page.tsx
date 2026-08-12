@@ -552,6 +552,23 @@ export default function DashboardPage() {
     switchView('live');
   };
 
+  /**
+   * Dismiss one alert from the list.
+   *
+   * The row is already animating out by the time this runs, so it is removed
+   * optimistically — putting it back on failure would be a row flying out and
+   * then reappearing, which reads as a bug rather than as an error.
+   */
+  const handleDismissAlert = async (alert: Alert) => {
+    setAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+    try {
+      await api(`/alerts/${alert.id}/acknowledge`, { method: 'PATCH' });
+    } catch {
+      // Restore it, since the alert is genuinely still open server-side.
+      setAlerts((prev) => [alert, ...prev]);
+    }
+  };
+
   const handleAcknowledgeAnomaly = async (id: string) => {
     try {
       await api(`/alerts/${id}/acknowledge`, { method: 'PATCH' });
@@ -1145,7 +1162,11 @@ export default function DashboardPage() {
                 Fuel anomaly alerts include GPS coordinates from the tracker
               </p>
               <div className="mt-4">
-                <AlertsList alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
+                <AlertsList
+                  alerts={alerts}
+                  onViewOnMap={handleViewAlertOnMap}
+                  onDismiss={handleDismissAlert}
+                />
               </div>
             </div>
           )}

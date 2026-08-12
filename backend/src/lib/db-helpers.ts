@@ -25,6 +25,7 @@ import {
   isVehicleType,
   presetForVehicleType,
 } from './fuel-metrics';
+import { resolveVehicleSpec } from './vehicle-catalogue';
 
 export const IMEI_PATTERN = /^\d{15}$/;
 
@@ -115,10 +116,27 @@ export const createVehicle = async (
     throw Object.assign(new Error('License plate is required'), { status: 400 });
   }
 
-  // Every vehicle starts on its class average so estimates are sane from the
-  // first trip; calibration overwrites these once real fill-ups exist.
-  const resolvedType = isVehicleType(vehicleType) ? vehicleType : DEFAULT_VEHICLE_TYPE;
-  const preset = presetForVehicleType(resolvedType);
+  // Seeded from the actual make and model where we know it, and only from the
+  // class average where we do not.
+  //
+  // The class average alone was a poor start: a RAV4 and a Land Cruiser are
+  // both "SUV / pickup" and burn 11.8 and 18.5 L/100 km respectively, so a new
+  // vehicle spent its first weeks wrong by up to 50% in a direction nobody
+  // could predict. Calibration still overwrites all of this once real fill-ups
+  // exist — this only makes day one defensible.
+  const fallbackType = isVehicleType(vehicleType) ? vehicleType : DEFAULT_VEHICLE_TYPE;
+  const fallback = presetForVehicleType(fallbackType);
+  const spec = resolveVehicleSpec(make, model, year ? Number(year) : null, {
+    type: fallbackType,
+    consumptionL100km: fallback.consumptionL100km,
+    idleBurnLph: fallback.idleBurnLph,
+  });
+
+  const resolvedType = spec.type;
+  const preset = {
+    consumptionL100km: spec.consumptionL100km,
+    idleBurnLph: spec.idleBurnLph,
+  };
 
   const [vehicle] = await (tx as typeof db)
     .insert(vehicles)
@@ -128,7 +146,10 @@ export const createVehicle = async (
       make: make?.trim() || null,
       model: model?.trim() || null,
       year: year ? Number(year) : null,
-      tankCapacityLiters: tankCapacityLiters ? Number(tankCapacityLiters) : null,
+      // The manager's own figure wins; the catalogue only fills a blank.
+      tankCapacityLiters: tankCapacityLiters
+        ? Number(tankCapacityLiters)
+        : spec.tankLiters || null,
       odometerBaselineKm:
         odometerBaselineKm != null && Number.isFinite(Number(odometerBaselineKm))
           ? Math.round(Number(odometerBaselineKm))
@@ -137,7 +158,7 @@ export const createVehicle = async (
       vehicleType: resolvedType,
       consumptionRateL100km: preset.consumptionL100km.toFixed(2),
       idleBurnRateLph: preset.idleBurnLph.toFixed(2),
-      rateSource: 'preset',
+      rateSource: spec.matched ? 'catalogue' : 'preset',
     })
     .returning({
       id: vehicles.id,

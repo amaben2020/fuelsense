@@ -1,46 +1,62 @@
 'use client';
 
-import Lottie from 'lottie-react';
-import fleetCommandLoader from '@/assets/animations/fleet-command-loader.json';
-
-export function FleetCommandLoader() {
+/**
+ * The wait before the dashboard has its data.
+ *
+ * Deliberately restrained. The previous version played a looping cartoon truck
+ * driving around a grid, under a stack of three lines of copy — a wordmark, a
+ * "COMMAND CENTER" eyebrow, "Loading fleet command center…", and a sentence
+ * about satellite fixes. A fleet manager sees this several times a day; it is
+ * not a place to advertise, and an animation with personality gets tiring long
+ * before the first week is out.
+ *
+ * It also carried two glows in colours from nowhere in the palette — a blue
+ * (rgba(39,110,241)) and the retired mint — which is how a loading screen ends
+ * up looking like it belongs to a different product than the one behind it.
+ *
+ * What is left: the mark, one line of status, and a determinate-looking sweep.
+ * No dependency, no Lottie payload, nothing to tire of.
+ */
+export function FleetCommandLoader({
+  label = 'Loading fleet data',
+}: {
+  label?: string;
+}) {
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-canvas px-6">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(39,110,241,0.22),transparent_55%)]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute bottom-0 left-1/2 h-64 w-[32rem] -translate-x-1/2 bg-[radial-gradient(ellipse_at_center,rgba(78,222,163,0.12),transparent_70%)]"
-      />
+    <div
+      className="flex min-h-screen flex-col items-center justify-center bg-canvas px-6"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex w-full max-w-[280px] flex-col items-center">
+        {/* The product mark — a satellite, because nothing here touches the
+            tank and every litre is derived from a GNSS fix. */}
+        <svg
+          viewBox="0 0 64 64"
+          className="h-9 w-9"
+          aria-hidden="true"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={4}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ color: 'var(--brand)' }}
+        >
+          <rect x="26" y="26" width="12" height="12" rx="2.5" />
+          <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
+          <path d="M32 38v8" />
+          <path d="M22.5 51.5a13 13 0 0 0 19 0" opacity="0.85" />
+        </svg>
 
-      <div className="relative w-full max-w-[420px]">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-8 top-1/2 h-40 -translate-y-1/2 rounded-full bg-accent/20 blur-3xl"
-        />
-        <Lottie
-          animationData={fleetCommandLoader}
-          loop
-          autoplay
-          className="relative h-[300px] w-full drop-shadow-[0_24px_48px_rgba(0,0,0,0.45)]"
-          aria-hidden
-        />
-      </div>
+        <p className="mt-4 text-sm font-semibold tracking-tight text-ink">FuelSense</p>
 
-      <div className="relative mt-2 text-center">
-        <p className="neon-text text-2xl font-bold tracking-tight">FuelSense</p>
-        <p className="mt-1 text-[10px] uppercase tracking-[0.22em] text-good">Command center</p>
-        <p className="mt-5 text-sm font-medium text-ink-mid">
-          Loading fleet command center
-          <span className="fleet-loader-dots" aria-hidden>
-            ...
-          </span>
-        </p>
-        <p className="mt-2 text-xs text-ink-dim">
-          Satellite fixes, routes, and fuel — syncing live telemetry
-        </p>
+        {/* A single hairline sweep. Reads as progress without claiming a
+            percentage we do not know. */}
+        <div className="mt-6 h-px w-full overflow-hidden bg-edge">
+          <div className="fleet-loader-sweep h-full w-1/3 bg-brand" />
+        </div>
+
+        <p className="mt-4 text-xs text-ink-dim">{label}</p>
       </div>
     </div>
   );

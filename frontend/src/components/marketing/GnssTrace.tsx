@@ -32,8 +32,8 @@ const MARKERS: Marker[] = [
 ];
 
 const TONE_COLOR: Record<Marker['tone'], string> = {
-  good: '#00e599',
-  warn: '#ffb95f',
+  good: '#cde04a',
+  warn: '#ff9436',
   neutral: '#7d8697',
 };
 
@@ -123,8 +123,8 @@ export function GnssTrace() {
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#28303d" strokeWidth="1" />
             </pattern>
             <linearGradient id="fs-trace-grad" x1="0" y1="1" x2="1" y2="0">
-              <stop offset="0%" stopColor="#00885d" />
-              <stop offset="100%" stopColor="#00e599" />
+              <stop offset="0%" stopColor="#9aa832" />
+              <stop offset="100%" stopColor="#cde04a" />
             </linearGradient>
           </defs>
 

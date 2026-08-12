@@ -180,9 +180,49 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 02. the problem ----------------------------------------------- */}
+      {/* 02. live monitoring ------------------------------------------- */}
+      <section className="fs-shell fs-section" id="live">
+        <Marker num="02" label="Live monitoring" />
+        <h2 className="fs-h2" data-reveal>
+          Watch a journey <em>account</em> for itself.
+        </h2>
+        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
+          Every vehicle sits on a live map with its trail behind it. Trips open and close from the
+          ignition, stops are detected and given real addresses, and the tank drains in step with
+          the distance. Scroll to drive the route.
+        </p>
+
+        <LiveMapDemo />
+      </section>
+
+      {/* 03. driver behaviour ------------------------------------------- */}
+      <section className="fs-shell fs-section" id="behaviour">
+        <Marker num="03" label="Driver behaviour" />
+        <h2 className="fs-h2" data-reveal>
+          Every flag points at a <em>second</em> you can watch.
+        </h2>
+        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
+          Harsh braking, harsh cornering and harsh acceleration are computed from the
+          speed and heading the tracker already sends — no extra sensor, no
+          accelerometer scenario to switch on. Declare a speed limit and sustained
+          stretches above it are found the same way. The track is coloured by measured
+          speed, so a flagged moment is something you can see in context rather than a
+          label you have to trust.
+        </p>
+
+        <DrivingEvents />
+
+        <p className="fs-small" style={{ marginTop: '1.75rem', maxWidth: '46rem' }} data-reveal>
+          What is not here matters as much. Nothing on this page comes from an engine
+          computer, because these trackers have no CAN or OBD link — so FuelSense does
+          not claim engine load, RPM or a sensed fuel level. Every colour above is
+          derived from position, speed and time, and the replay shows you the working.
+        </p>
+      </section>
+
+      {/* 04. the problem ----------------------------------------------- */}
       <section className="fs-shell fs-section" id="problem">
-        <Marker num="02" label="The problem" />
+        <Marker num="04" label="The problem" />
         <h2 className="fs-h2" data-reveal>
           Between two fill-ups, a fleet runs <em>blind</em>.
         </h2>
@@ -231,9 +271,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 03. how it works ---------------------------------------------- */}
+      {/* 05. how it works ---------------------------------------------- */}
       <section className="fs-shell fs-section" id="how">
-        <Marker num="03" label="How it works" />
+        <Marker num="05" label="How it works" />
         <h2 className="fs-h2" data-reveal>
           A tracker, satellites, and <em>arithmetic</em> you can audit.
         </h2>
@@ -337,46 +377,6 @@ export default function LandingPage() {
             <FuelMath />
           </div>
         </div>
-      </section>
-
-      {/* 04. live monitoring ------------------------------------------- */}
-      <section className="fs-shell fs-section" id="live">
-        <Marker num="04" label="Live monitoring" />
-        <h2 className="fs-h2" data-reveal>
-          Watch a journey <em>account</em> for itself.
-        </h2>
-        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
-          Every vehicle sits on a live map with its trail behind it. Trips open and close from the
-          ignition, stops are detected and given real addresses, and the tank drains in step with
-          the distance. Scroll to drive the route.
-        </p>
-
-        <LiveMapDemo />
-      </section>
-
-      {/* 05. driving events ------------------------------------------- */}
-      <section className="fs-shell fs-section" id="driving">
-        <Marker num="05" label="Driving events" />
-        <h2 className="fs-h2" data-reveal>
-          Every flag points at a <em>second</em> you can watch.
-        </h2>
-        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
-          Harsh braking, harsh cornering and harsh acceleration are computed from the
-          speed and heading the tracker already sends — no extra sensor, no
-          accelerometer scenario to switch on. Declare a speed limit and sustained
-          stretches above it are found the same way. The track is coloured by measured
-          speed, so a flagged moment is something you can see in context rather than a
-          label you have to trust.
-        </p>
-
-        <DrivingEvents />
-
-        <p className="fs-small" style={{ marginTop: '1.75rem', maxWidth: '46rem' }} data-reveal>
-          What is not here matters as much. Nothing on this page comes from an engine
-          computer, because these trackers have no CAN or OBD link — so FuelSense does
-          not claim engine load, RPM or a sensed fuel level. Every colour above is
-          derived from position, speed and time, and the replay shows you the working.
-        </p>
       </section>
 
       <HaulixShowcase />
@@ -558,7 +558,7 @@ export default function LandingPage() {
           <h2 className="fs-h2">
             Find out what your fleet <em>actually</em> costs.
           </h2>
-          <p className="fs-lede" style={{ color: 'rgba(255,254,251,0.72)', marginTop: '1.25rem' }}>
+          <p className="fs-lede" style={{ marginTop: '1.25rem' }}>
             Start with one vehicle. We supply and configure the Teltonika hardware, or work with
             trackers you already run.
           </p>
@@ -573,7 +573,6 @@ export default function LandingPage() {
             <Link
               href="/register"
               className="fs-btn fs-btn--ghost"
-              style={{ borderColor: 'rgba(255,254,251,0.32)', color: 'var(--paper-raised)' }}
             >
               Create an account
             </Link>

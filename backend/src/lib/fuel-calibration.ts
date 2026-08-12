@@ -33,6 +33,14 @@ export const UNUSUAL_PURCHASE_TOLERANCE = Number(
   process.env.UNUSUAL_PURCHASE_TOLERANCE || 0.35
 );
 
+/**
+ * Where a vehicle's consumption rate came from, weakest evidence first.
+ *
+ * `catalogue` sits between the two because a make/model figure is a real
+ * specification for that vehicle, where `preset` is only its body class.
+ */
+export type RateSource = 'preset' | 'catalogue' | 'calibrated' | 'manual';
+
 export interface ReconcileResult {
   odometer_delta_km: number | null;
   gps_distance_km: number | null;
@@ -43,7 +51,7 @@ export interface ReconcileResult {
   flag_reason: string | null;
   /** Rate now in force for the vehicle, and where it came from. */
   vehicle_rate_l_per_100km: number | null;
-  rate_source: 'preset' | 'calibrated' | 'manual';
+  rate_source: RateSource;
 }
 
 /**
@@ -171,7 +179,7 @@ async function gpsDistanceBetween(
  */
 async function recalculateVehicleRate(
   vehicleId: string
-): Promise<{ rate: number | null; source: 'preset' | 'calibrated' | 'manual' }> {
+): Promise<{ rate: number | null; source: RateSource }> {
   // A rate the manager typed off the vehicle's own dashboard outranks anything
   // derived here. Without this guard the next reconciliation would reset it to
   // the class preset — the manual figure would survive until the driver logged
@@ -211,6 +219,20 @@ async function recalculateVehicleRate(
     .limit(1);
 
   if (measured.length < CALIBRATION_MIN_PURCHASES) {
+    // Not enough measurements yet, so the seed stands.
+    //
+    // A vehicle seeded from the make/model catalogue keeps that figure rather
+    // than being knocked back to its class average. Without this guard the
+    // first receipt logged against a RAV4 replaced its 11.8 L/100 km with the
+    // generic SUV 14.3 — the estimate got *worse* the moment a manager started
+    // supplying real data, which is precisely backwards.
+    if (current?.rateSource === 'catalogue') {
+      return {
+        rate: current.rate != null ? Number(current.rate) : null,
+        source: 'catalogue',
+      };
+    }
+
     const preset = presetForVehicleType(vehicle?.vehicleType);
     await db
       .update(vehicles)
