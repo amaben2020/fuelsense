@@ -11,7 +11,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'FuelSense Engineering',
   tagline: 'How fleet fuel is measured, modelled and priced',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/logo.svg',
 
   future: { v4: true },
 
@@ -54,6 +54,7 @@ const config: Config = {
     colorMode: { defaultMode: 'dark', respectPrefersColorScheme: true },
     navbar: {
       title: 'FuelSense',
+      logo: { alt: 'FuelSense', src: 'img/logo.svg' },
       items: [
         { type: 'docSidebar', sidebarId: 'docs', position: 'left', label: 'Documentation' },
         { href: 'https://api.fuelsense.ng/api/docs', label: 'API reference', position: 'right' },
