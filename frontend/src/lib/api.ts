@@ -442,7 +442,13 @@ export interface EstimatedConsumptionDay {
 
 export interface EstimatedConsumptionResponse {
   period_days: number;
-  price_per_liter_ngn: number;
+  /**
+   * The rate currently in force — a caption only. Each day in `daily` is valued
+   * at the rate that applied on that day. Null when the fleet has never
+   * recorded a benchmark or a receipt, in which case costs are not shown.
+   */
+  price_per_liter_ngn: number | null;
+  price_source?: 'benchmark' | 'receipt' | null;
   basis: string;
   idle_burn_liters_per_hour: number;
   vehicles: EstimatedConsumptionRow[];
@@ -720,6 +726,8 @@ export interface EventReplayResponse {
    * scenario is disabled on this fleet, so it reports none itself.
    */
   manoeuvres?: EventReplayManoeuvre[];
+  /** The fleet's declared limit for this vehicle, km/h. Null when none is set. */
+  speed_limit_kph?: number | null;
   anomaly: {
     type: string;
     liters_lost: number;

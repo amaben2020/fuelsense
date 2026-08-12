@@ -70,6 +70,10 @@ export const vehicles = pgTable(
     consumptionRateL100km: numeric('consumption_rate_l_per_100km', { precision: 6, scale: 2 }),
     idleBurnRateLph: numeric('idle_burn_rate_l_per_hour', { precision: 5, scale: 2 }),
     rateSource: varchar('rate_source', { length: 12 }).default('preset'),
+    // Speed above which this vehicle is overspeeding, km/h. Set to match the
+    // limit configured on the tracker. NULL means the fleet has declared none,
+    // and overspeeding is then not reported rather than guessed at.
+    speedLimitKph: integer('speed_limit_kph'),
     // True dashboard odometer, anchored once by the fleet manager. The tracker
     // only reports AVL 16 (distance accumulated since it was fitted), so the
     // real total is this baseline plus whatever the device has counted since

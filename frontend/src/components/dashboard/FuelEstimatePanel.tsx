@@ -53,13 +53,19 @@ export function FuelEstimatePanel() {
             <p className="mt-2 text-sm text-ink-mid">
               Your trackers report GPS position, speed and ignition even when no fuel-level
               sensor is connected. We sum the distance each vehicle actually covered, divide it
-              by the model&apos;s baseline efficiency, then add fuel burned while the engine
+              by the rate you entered for that vehicle, then add fuel burned while the engine
               idled (running but not moving) — traffic, AC, waiting.
             </p>
+            {/* Each day is valued at the rate that applied on that day, so the
+                caption names the current rate rather than implying one
+                multiplier was used across the whole window. */}
             <p className="mt-2 text-xs text-ink-dim">
-              Estimated fuel = distance ÷ baseline km/L + idle hours ×{' '}
-              {data?.idle_burn_liters_per_hour ?? 0.9} L/h
-              {data ? ` · priced at ${formatNgn(data.price_per_liter_ngn)}/L` : ''}
+              Estimated fuel = distance ÷ your km/L + idle hours × the vehicle&apos;s idle rate
+              {data?.price_per_liter_ngn != null
+                ? ` · valued at the price in force each day, currently ${formatNgn(
+                    data.price_per_liter_ngn
+                  )}/L`
+                : ' · no fuel price recorded yet, so litres are shown without money'}
             </p>
           </div>
           <div className="flex gap-1">
@@ -103,8 +109,22 @@ export function FuelEstimatePanel() {
           <HeroStat
             icon={Wallet}
             label="Estimated cost"
-            value={loading && !totals ? '…' : formatNgn(totals?.estimated_cost_ngn ?? 0)}
-            detail={data ? `At ${formatNgn(data.price_per_liter_ngn)} per litre` : ''}
+            value={
+              loading && !totals
+                ? '…'
+                : data?.price_per_liter_ngn == null
+                  ? '—'
+                  : formatNgn(totals?.estimated_cost_ngn ?? 0)
+            }
+            detail={
+              data == null
+                ? ''
+                : data.price_per_liter_ngn == null
+                  ? 'Set a fuel price to value this'
+                  : `At the price in force each day · now ${formatNgn(
+                      data.price_per_liter_ngn
+                    )}/L`
+            }
           />
           <HeroStat
             icon={Receipt}

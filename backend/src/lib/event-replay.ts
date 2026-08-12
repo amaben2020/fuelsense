@@ -279,11 +279,19 @@ function buildMoments(
   );
 }
 
-/** The manoeuvre types that get their own colour on the replay track. */
+/**
+ * The manoeuvre types that get their own colour on the replay track.
+ *
+ * `overspeeding` joined this list once vehicles gained a `speed_limit_kph`.
+ * Before that there was no declared limit anywhere in the app, so a red
+ * "speeding" stretch would have been the app inventing fleet policy; now it
+ * means measured GPS speed exceeded a limit the fleet actually set.
+ */
 const TRACK_MANOEUVRES = [
   'harsh_braking',
   'harsh_acceleration',
   'harsh_cornering',
+  'overspeeding',
 ] as const;
 
 interface TrackManoeuvre {
@@ -803,8 +811,10 @@ async function buildDailyReplay({
     const match = manoeuvres.find((m) => m.type === flagType && m.magnitude_ms2 != null);
     if (match) {
       reasons.push(
-        `Peak ${match.magnitude_ms2!.toFixed(1)} m/s² (${(match.magnitude_ms2! / 9.81).toFixed(2)} g)` +
-          (match.speed_kph != null ? ` at ${match.speed_kph} km/h` : '')
+        flagType === 'overspeeding'
+          ? `Peak ${Math.round(match.magnitude_ms2!)} km/h`
+          : `Peak ${match.magnitude_ms2!.toFixed(1)} m/s² (${(match.magnitude_ms2! / 9.81).toFixed(2)} g)` +
+              (match.speed_kph != null ? ` at ${match.speed_kph} km/h` : '')
       );
     }
 
@@ -838,6 +848,11 @@ async function buildDailyReplay({
       location_name: null,
       readings: rows,
       manoeuvres,
+      // Lets the track shade its own overspeed stretches from the speeds it is
+      // already drawing. Null when the fleet has set no limit, and the track
+      // then makes no claim about speeding at all.
+      speed_limit_kph:
+        vehicle.speed_limit_kph != null ? Number(vehicle.speed_limit_kph) : null,
       anomaly: {
         type:
           eventType === 'data_anomaly'
@@ -875,7 +890,7 @@ export async function buildDailyActivityReplay({
   focusAt?: string;
 }): Promise<unknown | null> {
   const vehicleResult = await db.execute(sql`
-    SELECT v.id AS vehicle_id, v.license_plate, v.model,
+    SELECT v.id AS vehicle_id, v.license_plate, v.model, v.speed_limit_kph,
       COALESCE(dr.full_name, v.driver_name) AS driver_name
     FROM vehicles v
     LEFT JOIN drivers dr ON dr.id = v.driver_id
@@ -974,7 +989,7 @@ const MANOEUVRE_REASON: Record<string, string> = {
   harsh_braking: 'Harsh braking, derived from the GPS speed trace at this point',
   harsh_acceleration: 'Harsh acceleration, derived from the GPS speed trace at this point',
   harsh_cornering: 'Harsh cornering, derived from GPS speed and heading change at this point',
-  overspeeding: 'Tracker reported speed above the limit configured on the device',
+  overspeeding: 'Measured GPS speed held above the limit set for this vehicle',
   crash: 'Tracker reported a crash-level impact',
 };
 

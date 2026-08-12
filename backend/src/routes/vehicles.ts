@@ -286,6 +286,51 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Declare the speed above which this vehicle is overspeeding, in km/h.
+ *
+ * Set it to whatever limit is configured on the tracker. The device only emits
+ * AVL 255 when its Overspeeding scenario is enabled, and a limit typed into the
+ * Configurator without that scenario produces no events at all — so the figure
+ * is stored here too and overspeeding is derived from the GPS speed already on
+ * every fix. That also means history can be re-scanned, which a device-side
+ * event never allows.
+ *
+ * Body: `{ speedLimitKph: number | null }`. Null clears it, and no overspeeding
+ * is reported for the vehicle rather than a default being assumed.
+ */
+router.post('/:id/speed-limit', async (req: Request, res: Response) => {
+  const vehicleId = String(req.params.id);
+  const { speedLimitKph } = req.body as { speedLimitKph?: number | null };
+
+  const limit =
+    speedLimitKph === null || speedLimitKph === undefined ? null : Number(speedLimitKph);
+
+  // A limit under 20 km/h would flag a car park as a motorway; over 200 is
+  // beyond anything these vehicles do and is more likely a typo than a policy.
+  if (limit !== null && (!Number.isFinite(limit) || limit < 20 || limit > 200)) {
+    res.status(400).json({ error: 'speedLimitKph must be between 20 and 200, or null' });
+    return;
+  }
+
+  try {
+    if (!(await ownedVehicle(vehicleId, req.user.customerId))) {
+      res.status(404).json({ error: 'Vehicle not found' });
+      return;
+    }
+
+    await db
+      .update(vehicles)
+      .set({ speedLimitKph: limit === null ? null : Math.round(limit), updatedAt: sql`NOW()` })
+      .where(eq(vehicles.id, vehicleId));
+
+    await invalidate(req.user.customerId, 'fleet', 'summary');
+    res.json({ success: true, speed_limit_kph: limit === null ? null : Math.round(limit) });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 router.post('/', async (req: Request, res: Response) => {
   const { licensePlate, make, model, year, tankCapacityLiters, odometerBaselineKm, imei, deviceModel } =
     req.body as {

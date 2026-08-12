@@ -12,6 +12,7 @@ import { FuelMath } from '@/components/marketing/FuelMath';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
 import { ScrollTimeline } from '@/components/marketing/ScrollTimeline';
 import { HaulixShowcase } from '@/components/marketing/HaulixShowcase';
+import { DrivingEvents } from '@/components/marketing/DrivingEvents';
 import { countUp, revealOnScroll, useGsapScope } from '@/components/marketing/useScrollReveal';
 import './marketing.css';
 
@@ -353,6 +354,31 @@ export default function LandingPage() {
         <LiveMapDemo />
       </section>
 
+      {/* 05. driving events ------------------------------------------- */}
+      <section className="fs-shell fs-section" id="driving">
+        <Marker num="05" label="Driving events" />
+        <h2 className="fs-h2" data-reveal>
+          Every flag points at a <em>second</em> you can watch.
+        </h2>
+        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
+          Harsh braking, harsh cornering and harsh acceleration are computed from the
+          speed and heading the tracker already sends — no extra sensor, no
+          accelerometer scenario to switch on. Declare a speed limit and sustained
+          stretches above it are found the same way. The track is coloured by measured
+          speed, so a flagged moment is something you can see in context rather than a
+          label you have to trust.
+        </p>
+
+        <DrivingEvents />
+
+        <p className="fs-small" style={{ marginTop: '1.75rem', maxWidth: '46rem' }} data-reveal>
+          What is not here matters as much. Nothing on this page comes from an engine
+          computer, because these trackers have no CAN or OBD link — so FuelSense does
+          not claim engine load, RPM or a sensed fuel level. Every colour above is
+          derived from position, speed and time, and the replay shows you the working.
+        </p>
+      </section>
+
       <HaulixShowcase />
 
       <section className="fs-shell">
@@ -384,9 +410,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 05. receipts and reconciliation -------------------------------- */}
+      {/* 06. receipts and reconciliation -------------------------------- */}
       <section className="fs-shell fs-section" id="receipts">
-        <Marker num="05" label="Receipts and reconciliation" />
+        <Marker num="06" label="Receipts and reconciliation" />
         <h2 className="fs-h2" data-reveal>
           What was burned, against what was <em>bought</em>.
         </h2>
@@ -426,9 +452,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 06. dashboard -------------------------------------------------- */}
+      {/* 07. dashboard -------------------------------------------------- */}
       <section className="fs-shell fs-section" id="dashboard">
-        <Marker num="06" label="Inside the dashboard" />
+        <Marker num="07" label="Inside the dashboard" />
         <h2 className="fs-h2" data-reveal>
           The numbers, and <em>how</em> they were reached.
         </h2>
@@ -526,7 +552,7 @@ export default function LandingPage() {
         </p>
       </section>
 
-      {/* 07. cta -------------------------------------------------------- */}
+      {/* 08. cta -------------------------------------------------------- */}
       <section className="fs-shell fs-section" style={{ borderTop: 0 }}>
         <div className="fs-cta" data-reveal>
           <h2 className="fs-h2">

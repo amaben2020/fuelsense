@@ -6,6 +6,31 @@ interface TelemetryDeltasParams {
   days: number;
 }
 
+/** Every figure in this app is reported against the fleet's local clock. */
+export const FLEET_TZ = 'Africa/Lagos';
+
+/**
+ * The instant a window of `days` calendar days begins, in the fleet's timezone.
+ *
+ * `days` counts calendar days *including today*, so 1 is midnight this morning
+ * and 7 is midnight six days ago. It used to mean `NOW() - N days`, a window
+ * that slid with the wall clock: at 14:30 on Wednesday the "Today" tab reached
+ * back to 14:30 on Tuesday, so a fleet that had not moved all Wednesday was
+ * shown Tuesday afternoon's 28.6 km under a heading that said today. The table
+ * underneath, which grouped by date, correctly labelled the same rows "TUE 11
+ * AUG" — the panel disagreed with itself on screen.
+ *
+ * Anchoring on the local midnight also stops the boundary drifting through the
+ * day, so two loads an hour apart report the same "today".
+ */
+export function windowStart(days: number): SQL {
+  return sql`((DATE(NOW() AT TIME ZONE ${FLEET_TZ}) - ((${days} - 1) || ' days')::INTERVAL)
+    AT TIME ZONE ${FLEET_TZ})`;
+}
+
+/** The local calendar date a reading falls on. */
+export const localDate: SQL = sql`DATE(recorded_at AT TIME ZONE ${FLEET_TZ})`;
+
 /**
  * `fuel_source IN (...)` over the marker provenances, each bound as a parameter
  * so the list stays in one place instead of being spelled out per query.
@@ -71,7 +96,7 @@ export function distanceDeltasCte({ customerId, days }: TelemetryDeltasParams): 
       JOIN vehicles v ON v.id = t.vehicle_id
       LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
       WHERE t.customer_id = ${customerId}
-        AND t.recorded_at > NOW() - (${days} || ' days')::INTERVAL
+        AND t.recorded_at >= ${windowStart(days)}
     ),
     ordered AS (
       SELECT
@@ -170,7 +195,7 @@ export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams):
       JOIN vehicles v ON v.id = t.vehicle_id
       LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
       WHERE t.customer_id = ${customerId}
-        AND t.recorded_at > NOW() - (${days} || ' days')::INTERVAL
+        AND t.recorded_at >= ${windowStart(days)}
     ),
     ordered AS (
       SELECT

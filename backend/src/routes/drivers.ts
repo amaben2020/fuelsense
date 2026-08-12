@@ -9,6 +9,7 @@ import {
   type ReportBucket,
 } from '../lib/driver-report-sql';
 import { round1, round2, baselineEfficiencyKmL, kmLToMpg } from '../lib/fuel-metrics';
+import { localDate } from '../lib/telemetry-deltas-sql';
 import { withCache, cacheKey } from '../lib/redis';
 
 const router = express.Router();
@@ -327,7 +328,7 @@ router.get('/reports', async (req: Request, res: Response) => {
             COALESCE(SUM(fuel_delta), 0) AS fuel_liters,
             COALESCE(SUM(idle_delta_s), 0) AS idle_seconds,
             COALESCE(SUM(moving_delta_s), 0) AS moving_seconds,
-            COUNT(DISTINCT CASE WHEN dist_delta > 0 THEN recorded_at::date END) AS active_days,
+            COUNT(DISTINCT CASE WHEN dist_delta > 0 THEN ${localDate} END) AS active_days,
             MAX(recorded_at) AS last_seen_at
           FROM deltas
           WHERE driver_name IS NOT NULL

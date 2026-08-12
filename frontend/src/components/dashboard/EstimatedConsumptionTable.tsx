@@ -169,7 +169,10 @@ export function EstimatedConsumptionTableView({
                 <th className="px-6 py-3">Vehicle</th>
                 <th className="px-6 py-3">Driver</th>
                 <th className="px-6 py-3">Distance</th>
-                <th className="px-6 py-3">Baseline km/L</th>
+                {/* This is the rate configured on the vehicle, not a model
+                    average — calling it "baseline" hid the fact that changing
+                    it changes every litre and every naira on this page. */}
+                <th className="px-6 py-3">Your km/L</th>
                 <th className="px-6 py-3">Idle</th>
                 <th className="px-6 py-3">Fuel used</th>
                 <th className="px-6 py-3">Est. cost</th>

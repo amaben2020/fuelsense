@@ -1843,3 +1843,103 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* --------------------------------------------------------------------------
+   Driving events — the scroll-graded trace
+   -------------------------------------------------------------------------- */
+
+.fs-events {
+  margin-top: 3rem;
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 62rem) {
+  .fs-events {
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 2.5rem;
+  }
+}
+
+.fs-events__stage {
+  border: 1px solid var(--fs-edge, #1d2433);
+  border-radius: 1rem;
+  background: #0a0f18;
+  padding: 1.25rem;
+  overflow: hidden;
+}
+
+.fs-events__stage svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.fs-events__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.1rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--fs-ink-dim, #7d8697);
+}
+
+.fs-events__legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.fs-events__swatch {
+  display: inline-block;
+  width: 1.4rem;
+  height: 0.28rem;
+  border-radius: 999px;
+}
+
+.fs-events__swatch--ramp {
+  width: 2.4rem;
+  background: linear-gradient(90deg, #4d7c3f, #8fb840, #cde04a);
+}
+
+.fs-events__flags {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.fs-events__flag {
+  border: 1px solid var(--fs-edge, #1d2433);
+  border-left-width: 3px;
+  border-radius: 0.75rem;
+  background: #0a0f18;
+  padding: 0.95rem 1.1rem;
+}
+
+.fs-events__flagtitle {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fs-ink, #e8ecf3);
+}
+
+.fs-events__flagdetail {
+  margin: 0.3rem 0 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fs-ink-mid, #aab3c2);
+}
+
+/* The provenance line. Deliberately quiet but never omitted: the whole point
+   of this section is that each colour is traceable to a measurement. */
+.fs-events__flagsource {
+  margin: 0.45rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--fs-ink-dim, #7d8697);
+}

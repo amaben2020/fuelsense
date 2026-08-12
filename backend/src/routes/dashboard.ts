@@ -2,7 +2,13 @@ import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, alerts, eq, and, sql } from '../lib/db-helpers';
 import { fleetEfficiencyAggSql } from '../lib/fleet-efficiency-sql';
-import { distanceDeltasCte } from '../lib/telemetry-deltas-sql';
+import {
+  FLEET_TZ,
+  distanceDeltasCte,
+  localDate,
+  windowStart,
+} from '../lib/telemetry-deltas-sql';
+import { benchmarkPriceHistory, latestReceiptPrice } from '../lib/fuel-price';
 import {
   round1,
   round2,
@@ -137,7 +143,8 @@ router.get('/utilisation', async (req: Request, res: Response) => {
           ROUND((COALESCE(SUM(idle_delta_s), 0) / 3600.0)::numeric, 1) AS idle_hours,
           -- Distinct calendar days with real movement: a vehicle doing 200 km
           -- across 20 days is worked harder than one doing it in a single run.
-          COUNT(DISTINCT CASE WHEN dist_delta > 0 THEN recorded_at::date END) AS active_days,
+          -- Local days, so an evening run either side of UTC midnight counts once.
+          COUNT(DISTINCT CASE WHEN dist_delta > 0 THEN ${localDate} END) AS active_days,
           MAX(recorded_at) AS last_active_at
         FROM deltas
         GROUP BY vehicle_id, license_plate, model, driver_name
@@ -178,28 +185,56 @@ router.get('/utilisation', async (req: Request, res: Response) => {
 
 router.get('/estimated-consumption', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
   try {
     const customerId = req.user.customerId;
     const key = cacheKey(customerId, 'estimated-consumption', String(days));
 
     const cached = await withCache(key, 30, async () => {
+      // Price history is read once and resolved per day in memory. Each day's
+      // fuel is valued at the rate that applied on that day, so a week
+      // spanning a price change is not retroactively repriced at today's
+      // figure — which is what a flat ₦1,300 constant did to every row.
+      const [priceHistory, receiptPrice] = await Promise.all([
+        benchmarkPriceHistory(customerId),
+        latestReceiptPrice(customerId),
+      ]);
+
+      /** The rate in force on a local calendar date, or null if never set. */
+      const priceOn = (isoDate: string): number | null => {
+        const at = new Date(`${isoDate}T23:59:59+01:00`).getTime();
+        const period = priceHistory.find((p) => p.effectiveFrom.getTime() <= at);
+        if (period) return period.ngnPerLiter;
+        return receiptPrice?.ngnPerLiter ?? null;
+      };
       // Everything (day groups, per-vehicle rows, grand totals) is derived from
       // the same rounded daily rows so every level of the table sums exactly.
       const dailyResult = await db.execute(sql`
         WITH ${distanceDeltasCte({ customerId, days })}
         SELECT
-          recorded_at::date AS activity_date,
-          vehicle_id,
-          license_plate,
-          model,
-          driver_name,
+          -- Local date, not UTC. Lagos runs an hour ahead, so casting
+          -- recorded_at straight to a date filed the first hour of every local
+          -- day under the previous one, and the group heading then disagreed
+          -- with the tab above it.
+          ${localDate} AS activity_date,
+          d.vehicle_id,
+          d.license_plate,
+          d.model,
+          d.driver_name,
+          -- The rates the manager actually entered for this vehicle. Falling
+          -- back to a model-average meant this panel quoted 7.0 km/L for a
+          -- RAV4 configured at 15 mpg (6.4 km/L), so the estimate here and the
+          -- virtual tank disagreed about the same vehicle on the same day.
+          v.consumption_rate_l_per_100km,
+          v.idle_burn_rate_l_per_hour,
           COALESCE(SUM(dist_delta), 0)::numeric AS distance_km,
           COALESCE(SUM(idle_delta_s), 0)::numeric AS idle_seconds
-        FROM deltas
-        GROUP BY recorded_at::date, vehicle_id, license_plate, model, driver_name
-        ORDER BY activity_date DESC, license_plate ASC
+        FROM deltas d
+        JOIN vehicles v ON v.id = d.vehicle_id
+        GROUP BY
+          ${localDate}, d.vehicle_id, d.license_plate, d.model, d.driver_name,
+          v.consumption_rate_l_per_100km, v.idle_burn_rate_l_per_hour
+        ORDER BY activity_date DESC, d.license_plate ASC
       `);
 
       interface EstimateRow {
@@ -239,10 +274,23 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
         // (parked-day GPS jitter) so groups and totals agree
         if (rawKm < 0.05 && idleHours < 0.05) continue;
 
-        const efficiencyKmL = baselineEfficiencyKmL(String(row.model ?? ''));
+        // Configured rate first, model average only as a fallback for a
+        // vehicle nobody has calibrated yet.
+        const l100 = row.consumption_rate_l_per_100km != null
+          ? Number(row.consumption_rate_l_per_100km)
+          : null;
+        const efficiencyKmL =
+          l100 && l100 > 0 ? 100 / l100 : baselineEfficiencyKmL(String(row.model ?? ''));
+        const idleLph = row.idle_burn_rate_l_per_hour != null
+          ? Number(row.idle_burn_rate_l_per_hour)
+          : IDLE_BURN_LITERS_PER_HOUR;
+
+        const date = String(row.activity_date).slice(0, 10);
+        const dayPrice = priceOn(date);
+
         const distanceKm = round1(rawKm);
         const movingLiters = round1(fuelUsedForDistanceKm(distanceKm, efficiencyKmL));
-        const idleLiters = round1(idleHours * IDLE_BURN_LITERS_PER_HOUR);
+        const idleLiters = round1(idleHours * idleLph);
         const liters = round1(movingLiters + idleLiters);
         const dayRow: EstimateRow = {
           vehicle_id: row.vehicle_id,
@@ -256,10 +304,10 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
           moving_fuel_liters: movingLiters,
           idle_fuel_liters: idleLiters,
           estimated_fuel_liters: liters,
-          estimated_cost_ngn: Math.round(liters * pricePerLiter),
+          // Null, not a guess, when the fleet has never recorded a price.
+          estimated_cost_ngn: dayPrice != null ? Math.round(liters * dayPrice) : 0,
         };
 
-        const date = String(row.activity_date).slice(0, 10);
         if (!dayMap.has(date)) {
           dayMap.set(date, {
             date,
@@ -305,20 +353,32 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
         SELECT
           COUNT(*) AS purchase_count,
           COALESCE(SUM(liters_declared::numeric), 0) AS liters,
-          COALESCE(
-            SUM(liters_declared::numeric * COALESCE(cost_per_liter_ngn, ${pricePerLiter})),
-            0
-          ) AS cost_ngn
+          -- A receipt without a unit price contributes only what was actually
+          -- recorded; it is not topped up to a fleet-wide rate, because the
+          -- point of this figure is money that provably changed hands.
+          COALESCE(SUM(COALESCE(
+            total_amount_ngn,
+            liters_declared::numeric * cost_per_liter_ngn
+          )), 0) AS cost_ngn
         FROM fuel_purchases
         WHERE customer_id = ${customerId}
-          AND purchased_at > NOW() - (${days} || ' days')::INTERVAL
+          AND purchased_at >= ${windowStart(days)}
       `);
       const purchaseRow = (purchaseResult.rows[0] ?? {}) as Record<string, unknown>;
 
+      // The current rate, for the caption — each row above is already valued
+      // at the rate that applied on its own day, so this is a label, not the
+      // multiplier used. Null when the fleet has never recorded a price.
+      const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: FLEET_TZ });
+      const currentPrice = priceOn(todayIso);
+
       return {
         period_days: days,
-        price_per_liter_ngn: pricePerLiter,
-        basis: 'distance_over_baseline_plus_idle_burn',
+        price_per_liter_ngn: currentPrice,
+        price_source: priceHistory.length ? 'benchmark' : receiptPrice ? 'receipt' : null,
+        basis: 'distance_over_configured_rate_plus_idle_burn',
+        // Rates now come from each vehicle's own settings; this stays only as
+        // the fallback applied to a vehicle nobody has calibrated.
         idle_burn_liters_per_hour: IDLE_BURN_LITERS_PER_HOUR,
         vehicles,
         daily: Array.from(dayMap.values()),

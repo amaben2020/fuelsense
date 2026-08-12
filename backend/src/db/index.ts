@@ -407,6 +407,17 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('vehicles', 'idle_burn_rate_l_per_hour', 'DECIMAL(5,2)');
   await ensureColumn('vehicles', 'rate_source', "VARCHAR(12) DEFAULT 'preset'");
 
+  // The speed the fleet considers too fast for this vehicle, in km/h.
+  //
+  // Mirrors the limit set in the Teltonika Configurator so overspeeding can be
+  // reported from the measured GPS speed we already store. The device only
+  // emits AVL 255 when its Overspeeding *scenario* is switched on — setting a
+  // limit alone is not enough — and until now nothing in the app knew what
+  // "too fast" meant, so overspeed could not be shown at all without inventing
+  // a threshold. NULL means the fleet has not declared one and no overspeed is
+  // reported for that vehicle.
+  await ensureColumn('vehicles', 'speed_limit_kph', 'INTEGER');
+
   // Vehicles created before the class presets existed have no rate at all, so
   // every estimate for them would fall back to a hardcoded guess. Seed them
   // with the default class; a manager can correct the type, and calibration

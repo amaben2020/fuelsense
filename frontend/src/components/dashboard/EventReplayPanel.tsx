@@ -78,12 +78,14 @@ function ReplayMap({
   anomalyIndex,
   moments,
   manoeuvres,
+  speedLimitKph,
 }: {
   readings: EventReplayResponse['readings'];
   activeIndex: number;
   anomalyIndex: number;
   moments: EventReplayMoment[];
   manoeuvres: EventReplayManoeuvre[];
+  speedLimitKph?: number | null;
 }) {
   const map = useMap();
 
@@ -170,6 +172,7 @@ function ReplayMap({
       <SpeedGradedRoute
         points={trackPoints}
         manoeuvres={trackManoeuvres}
+        speedLimitKph={speedLimitKph}
         traveledTo={activePathIndex}
       />
       {anomalyPos && (
@@ -352,6 +355,7 @@ function ReplayMapSection({
   anomalyIndex,
   moments,
   manoeuvres,
+  speedLimitKph,
   locationName,
 }: {
   readings: EventReplayResponse['readings'];
@@ -359,6 +363,7 @@ function ReplayMapSection({
   anomalyIndex: number;
   moments: EventReplayMoment[];
   manoeuvres: EventReplayManoeuvre[];
+  speedLimitKph?: number | null;
   locationName?: string | null;
 }) {
   const mapPath = readings.filter(
@@ -390,6 +395,7 @@ function ReplayMapSection({
           anomalyIndex={anomalyIndex}
           moments={moments}
           manoeuvres={manoeuvres}
+          speedLimitKph={speedLimitKph}
         />
       </Map>
 
@@ -696,6 +702,7 @@ export function EventReplayPanel({
                   anomalyIndex={anomalyIndex}
                   moments={moments}
                   manoeuvres={manoeuvres}
+                  speedLimitKph={data.speed_limit_kph}
                   locationName={data.location_name}
                 />
               </APIProvider>

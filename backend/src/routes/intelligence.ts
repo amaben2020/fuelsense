@@ -7,6 +7,7 @@ import {
   utilisationCte,
 } from '../lib/fleet-intelligence-sql';
 import { round1, round2 } from '../lib/fuel-metrics';
+import { localDate } from '../lib/telemetry-deltas-sql';
 import { withCache, cacheKey } from '../lib/redis';
 
 const router = express.Router();
@@ -191,7 +192,7 @@ router.get('/utilisation', async (req: Request, res: Response) => {
             COALESCE(SUM(dist_delta), 0) AS distance_km,
             COALESCE(SUM(engine_seconds), 0) AS engine_seconds,
             COALESCE(SUM(ignition_cycle), 0) AS ignition_cycles,
-            COUNT(DISTINCT CASE WHEN dist_delta > 0 THEN recorded_at::date END) AS active_days
+            COUNT(DISTINCT CASE WHEN dist_delta > 0 THEN ${localDate} END) AS active_days
           FROM util_deltas
           GROUP BY vehicle_id, license_plate, make, model, driver_name
           ORDER BY distance_km DESC

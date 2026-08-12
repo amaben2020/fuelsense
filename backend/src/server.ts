@@ -5,6 +5,8 @@ import './config/env';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import swaggerUi from 'swagger-ui-express';
+import { openApiSpec } from './docs/openapi';
 import rateLimit from 'express-rate-limit';
 import { initDatabase } from './db';
 import { startTcpServer } from './tcp-server';
@@ -102,6 +104,25 @@ app.use(express.json({ limit: '10mb' }));
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Browsable API reference, and the raw document for client generators.
+//
+// Mounted before the authenticated routers so the docs themselves need no
+// token — the spec describes the API, it does not expose any fleet's data.
+// Helmet's default CSP blocks Swagger UI's inline styles, so it is disabled for
+// this subtree only rather than weakened globally.
+app.get('/api/openapi.json', (_req: Request, res: Response) => {
+  res.json(openApiSpec);
+});
+app.use(
+  '/api/docs',
+  helmet({ contentSecurityPolicy: false }),
+  swaggerUi.serve,
+  swaggerUi.setup(openApiSpec, {
+    customSiteTitle: 'FuelSense API',
+    swaggerOptions: { docExpansion: 'none', defaultModelsExpandDepth: 0 },
+  })
+);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/vehicles', vehicleRoutes);

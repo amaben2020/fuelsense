@@ -430,6 +430,9 @@ export const MANOEUVRE_STYLE: Record<string, { color: string; label: string }> =
   harsh_braking: { color: '#ff4d4f', label: 'Harsh braking' },
   harsh_cornering: { color: '#ffab00', label: 'Harsh cornering' },
   harsh_acceleration: { color: '#3b9dff', label: 'Harsh acceleration' },
+  // Magenta rather than another red: overspeeding is a sustained stretch, not
+  // a moment, and must stay distinguishable from a hard brake beside it.
+  overspeeding: { color: '#ff36c0', label: 'Over the limit' },
 };
 
 export interface TrackPoint {
@@ -477,10 +480,18 @@ function colourRuns(
 export const SpeedGradedRoute = memo(function SpeedGradedRoute({
   points,
   manoeuvres = [],
+  speedLimitKph,
   traveledTo,
 }: {
   points: TrackPoint[];
   manoeuvres?: TrackManoeuvre[];
+  /**
+   * The fleet's declared limit for this vehicle. Overspeeding is coloured
+   * straight from the plotted speed rather than from an event index, because
+   * it is a stretch rather than a moment — an event marker would light one
+   * segment of a two-minute run and leave the rest looking lawful.
+   */
+  speedLimitKph?: number | null;
   /** Index the scrubber has reached; earlier track is drawn at full strength. */
   traveledTo?: number;
 }) {
@@ -500,8 +511,17 @@ export const SpeedGradedRoute = memo(function SpeedGradedRoute({
 
   const runs = useMemo(
     () =>
-      colourRuns(points, (i) => manoeuvreAt.get(i) ?? speedBand(points[i].speedKph).color),
-    [points, manoeuvreAt],
+      colourRuns(points, (i) => {
+        // A harsh manoeuvre is the more specific claim about that instant, so
+        // it wins over the sustained overspeed colour underneath it.
+        const marked = manoeuvreAt.get(i);
+        if (marked) return marked;
+        if (speedLimitKph && points[i].speedKph > speedLimitKph) {
+          return MANOEUVRE_STYLE.overspeeding.color;
+        }
+        return speedBand(points[i].speedKph).color;
+      }),
+    [points, manoeuvreAt, speedLimitKph],
   );
 
   if (points.length < 2) return null;

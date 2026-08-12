@@ -10,7 +10,13 @@
 // device would have emitted with its Eco/Green Driving scenario enabled, so
 // the existing scoring, feed and icons pick them up with no further wiring.
 import { db, sql, deviceEvents } from './db-helpers';
-import { detectHarshEvents, DrivingSample, HarshEvent } from './harsh-driving';
+import {
+  detectHarshEvents,
+  detectOverspeed,
+  DrivingSample,
+  HarshEvent,
+  OverspeedStretch,
+} from './harsh-driving';
 
 const LOOKBACK_DAYS = Number(process.env.HARSH_LOOKBACK_DAYS || 14);
 /** Frames per vehicle per pass. A day of driving is a few thousand. */
@@ -35,13 +41,19 @@ export async function detectDrivingEvents(): Promise<{ found: number; written: n
   // so the owning vehicle comes from `devices`.
   const vehicles = (
     await db.execute(sql`
-      SELECT DISTINCT d.vehicle_id, d.customer_id, f.imei
+      SELECT DISTINCT d.vehicle_id, d.customer_id, f.imei, v.speed_limit_kph
       FROM device_frames f
       JOIN devices d ON d.imei = f.imei
+      JOIN vehicles v ON v.id = d.vehicle_id
       WHERE f.received_at > NOW() - (${LOOKBACK_DAYS} || ' days')::INTERVAL
         AND d.vehicle_id IS NOT NULL
     `)
-  ).rows as Array<{ vehicle_id: string; customer_id: string; imei: string }>;
+  ).rows as Array<{
+    vehicle_id: string;
+    customer_id: string;
+    imei: string;
+    speed_limit_kph: number | null;
+  }>;
 
   let found = 0;
   let written = 0;
@@ -94,9 +106,60 @@ export async function detectDrivingEvents(): Promise<{ found: number; written: n
 
       written += 1;
     }
+
+    // Overspeeding, from the same speed series. Only when the fleet has
+    // declared a limit for this vehicle — see `detectOverspeed`.
+    const overspeeds = detectOverspeed(samples, vehicle.speed_limit_kph);
+    found += overspeeds.length;
+
+    for (const stretch of overspeeds) {
+      if (await overspeedRecorded(vehicle.vehicle_id, stretch)) continue;
+
+      await db.insert(deviceEvents).values({
+        imei: vehicle.imei,
+        customerId: vehicle.customer_id,
+        vehicleId: vehicle.vehicle_id,
+        eventType: 'overspeeding',
+        severity: stretch.severity,
+        // The peak, matching what a device-emitted AVL 255 carries, so both
+        // sources land in the same column meaning the same thing.
+        value: stretch.peakKph.toString(),
+        unit: 'km/h',
+        speedKph: stretch.peakKph,
+        latitude: stretch.lat?.toString() ?? null,
+        longitude: stretch.lng?.toString() ?? null,
+        occurredAt: stretch.startedAt,
+      });
+
+      written += 1;
+    }
   }
 
   return { found, written };
+}
+
+/**
+ * Whether this overspeed stretch is already on file.
+ *
+ * Matched on the start instant within a minute, because a stretch is a span
+ * rather than an instant: a re-run over a slightly different frame window can
+ * shift the first qualifying fix by a second or two without it being a
+ * different event. A device-emitted AVL 255 in the same minute also counts as
+ * already recorded, so enabling the tracker's own scenario does not double
+ * every stretch.
+ */
+async function overspeedRecorded(
+  vehicleId: string,
+  stretch: OverspeedStretch,
+): Promise<boolean> {
+  const existing = await db.execute(sql`
+    SELECT 1 FROM device_events
+    WHERE vehicle_id = ${vehicleId}
+      AND event_type = 'overspeeding'
+      AND ABS(EXTRACT(EPOCH FROM (occurred_at - ${stretch.startedAt}::timestamp))) < 60
+    LIMIT 1
+  `);
+  return (existing.rows?.length ?? 0) > 0;
 }
 
 /**

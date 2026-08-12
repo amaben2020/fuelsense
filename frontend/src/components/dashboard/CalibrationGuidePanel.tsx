@@ -18,6 +18,7 @@ import {
   EconomyUnit,
   FleetVehicle,
   VehicleCalibrationStatus,
+  api,
   fetchCalibrationStatus,
   setVehicleEconomy,
 } from '@/lib/api';
@@ -313,8 +314,144 @@ function EconomyCalibration({ fleet }: { fleet: FleetVehicle[] }) {
   );
 }
 
+/**
+ * The speed above which this vehicle counts as overspeeding.
+ *
+ * Deliberately a separate setting from the Configurator's own limit rather than
+ * a mirror of it. The tracker only emits an overspeed event when its
+ * Overspeeding *scenario* is enabled — a limit typed into the Configurator
+ * without that switch produces nothing — and a device-side event can never be
+ * recomputed for a drive that already happened. Storing the figure here lets
+ * FuelSense read overspeeding off the GPS speed it already records, including
+ * for history, and colour those stretches on the replay track.
+ *
+ * Left unset, no overspeeding is reported at all. The app does not pick a
+ * limit on the fleet's behalf.
+ */
+function SpeedLimitSetting({ fleet }: { fleet: FleetVehicle[] }) {
+  const [vehicleId, setVehicleId] = useState<string>('');
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const selected = fleet.find((v) => v.id === vehicleId) ?? fleet[0];
+
+  if (!selected) {
+    return (
+      <Panel icon={Gauge} title="Speed limit" subtitle="No vehicles yet.">
+        <p className="text-sm text-ink-dim">Add a vehicle to set its speed limit.</p>
+      </Panel>
+    );
+  }
+
+  const save = async (clear = false) => {
+    setSaving(true);
+    setError(null);
+    setSaved(null);
+    try {
+      const body = clear ? { speedLimitKph: null } : { speedLimitKph: Number(value) };
+      const res = await api<{ speed_limit_kph: number | null }>(
+        `/vehicles/${selected.id}/speed-limit`,
+        { method: 'POST', body: JSON.stringify(body) }
+      );
+      setSaved(res.speed_limit_kph);
+      if (clear) setValue('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel
+      icon={Gauge}
+      title="Speed limit"
+      subtitle="The speed above which this vehicle is overspeeding"
+      chip={<StatusChip tone="accent">Optional</StatusChip>}
+    >
+      <p className="text-sm leading-relaxed text-ink-mid">
+        Set this to the same limit you configured on the tracker. FuelSense then
+        finds overspeeding in the GPS speed it already records — so it works
+        whether or not the device&apos;s Overspeeding scenario is switched on,
+        and it can scan drives that already happened. Leave it empty and no
+        overspeeding is reported; FuelSense will not invent a limit for you.
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wider text-ink-dim">Vehicle</span>
+          <select
+            value={selected.id}
+            onChange={(e) => {
+              setVehicleId(e.target.value);
+              setValue('');
+              setSaved(null);
+              setError(null);
+            }}
+            className="rounded-lg border border-edge bg-panel px-2.5 py-2 text-sm text-ink"
+          >
+            {fleet.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.license_plate}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wider text-ink-dim">Limit (km/h)</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min="20"
+            max="200"
+            step="5"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="100"
+            className="w-28 rounded-lg border border-edge bg-panel px-2.5 py-2 text-sm text-ink"
+          />
+        </label>
+
+        <button
+          type="button"
+          disabled={saving || !value}
+          onClick={() => save(false)}
+          className="rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-canvas disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save limit'}
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => save(true)}
+          className="rounded-lg border border-edge px-3.5 py-2 text-sm text-ink-mid hover:bg-panel-hover disabled:opacity-50"
+        >
+          Clear
+        </button>
+      </div>
+
+      {error && <p className="mt-3 text-sm text-bad">{error}</p>}
+      {saved != null && (
+        <p className="mt-3 text-sm text-good">
+          Saved. Stretches held above {saved} km/h will be flagged and drawn on the
+          replay track. A small margin over the limit is ignored so GPS noise is
+          not reported as speeding.
+        </p>
+      )}
+      {saved === null && !error && !saving && value === '' && (
+        <p className="mt-3 text-xs text-ink-dim">
+          Cleared limits stop overspeed reporting for that vehicle.
+        </p>
+      )}
+    </Panel>
+  );
+}
+
 export function CalibrationGuidePanel({ fleet = [] }: { fleet?: FleetVehicle[] }) {
-  const [tab, setTab] = useState<'tank' | 'economy' | 'device'>('tank');
+  const [tab, setTab] = useState<'tank' | 'economy' | 'limits' | 'device'>('tank');
 
   return (
     <div className="space-y-6">
@@ -328,6 +465,7 @@ export function CalibrationGuidePanel({ fleet = [] }: { fleet?: FleetVehicle[] }
             [
               ['tank', 'Tank calibration'],
               ['economy', 'Fuel economy'],
+              ['limits', 'Speed limit'],
               ['device', 'Teltonika Configurator'],
             ] as const
           ).map(([id, label]) => (
@@ -358,6 +496,8 @@ export function CalibrationGuidePanel({ fleet = [] }: { fleet?: FleetVehicle[] }
 
       {tab === 'economy' ? (
         <EconomyCalibration fleet={fleet} />
+      ) : tab === 'limits' ? (
+        <SpeedLimitSetting fleet={fleet} />
       ) : tab === 'tank' ? (
         <>
           <Panel

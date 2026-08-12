@@ -41,6 +41,92 @@ export interface DrivingSample {
 
 export type HarshEventType = 'harsh_acceleration' | 'harsh_braking' | 'harsh_cornering';
 
+/**
+ * How far over the limit counts, and for how long.
+ *
+ * GNSS speed carries a little noise, and a limit is not a cliff edge — a fix
+ * reading 101 km/h against a 100 limit is inside the error bar, and reporting
+ * it would bury a real 130 km/h stretch under a hundred rounding artefacts.
+ * The margin and the dwell time together mean a reported stretch is one a
+ * driver would recognise.
+ */
+const OVERSPEED_MARGIN_KPH = Number(process.env.OVERSPEED_MARGIN_KPH || 5);
+const OVERSPEED_MIN_SECONDS = Number(process.env.OVERSPEED_MIN_SECONDS || 10);
+
+export interface OverspeedStretch {
+  startedAt: Date;
+  endedAt: Date;
+  seconds: number;
+  /** Fastest fix in the stretch, km/h. */
+  peakKph: number;
+  limitKph: number;
+  lat: number | null;
+  lng: number | null;
+  severity: 'warning' | 'critical';
+}
+
+/**
+ * Continuous stretches above the fleet's declared limit.
+ *
+ * Derived from the GPS speed already stored on every fix, so it works whether
+ * or not the tracker's own Overspeeding scenario is enabled — and it can be
+ * recomputed for history, which a device-side event never can.
+ *
+ * Returns nothing when no limit is set: without a declared limit there is no
+ * such thing as too fast, and picking a number here would be inventing fleet
+ * policy.
+ */
+export function detectOverspeed(
+  samples: DrivingSample[],
+  limitKph: number | null | undefined,
+): OverspeedStretch[] {
+  if (!limitKph || limitKph <= 0) return [];
+
+  const threshold = limitKph + OVERSPEED_MARGIN_KPH;
+  const stretches: OverspeedStretch[] = [];
+  let open: { start: DrivingSample; peak: DrivingSample; last: DrivingSample } | null = null;
+
+  const close = () => {
+    if (!open) return;
+    const seconds = (open.last.at.getTime() - open.start.at.getTime()) / 1000;
+    if (seconds >= OVERSPEED_MIN_SECONDS) {
+      stretches.push({
+        startedAt: open.start.at,
+        endedAt: open.last.at,
+        seconds: Math.round(seconds),
+        peakKph: Math.round(open.peak.speedKph),
+        limitKph,
+        lat: open.peak.lat,
+        lng: open.peak.lng,
+        // 20% over the limit is a different conversation from a drift above it.
+        severity: open.peak.speedKph >= limitKph * 1.2 ? 'critical' : 'warning',
+      });
+    }
+    open = null;
+  };
+
+  for (const sample of samples) {
+    // A reporting gap says nothing about the speed inside it, so a stretch
+    // never spans one — otherwise an hour offline reads as an hour speeding.
+    const gapS = open ? (sample.at.getTime() - open.last.at.getTime()) / 1000 : 0;
+    if (open && gapS > MAX_SAMPLE_GAP_S * 12) close();
+
+    if (sample.speedKph >= threshold) {
+      if (!open) {
+        open = { start: sample, peak: sample, last: sample };
+      } else {
+        open.last = sample;
+        if (sample.speedKph > open.peak.speedKph) open.peak = sample;
+      }
+    } else {
+      close();
+    }
+  }
+  close();
+
+  return stretches;
+}
+
 export interface HarshEvent {
   type: HarshEventType;
   occurredAt: Date;
