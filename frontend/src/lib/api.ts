@@ -924,6 +924,8 @@ export interface FuelPurchase {
   cost_per_liter_ngn: number;
   total_cost_ngn: number;
   odometer_km?: number | null;
+  /** Fill-to-fill distance since the previous purchase, GPS preferred over odometer. */
+  distance_km?: number | null;
   merchant: string;
   receipt_reference?: string | null;
   status: 'verified' | 'flagged_theft' | 'pending_receipt';

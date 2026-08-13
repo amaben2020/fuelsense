@@ -80,6 +80,7 @@ import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPa
 import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
 import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePanel';
 import { FleetIntelligencePanel } from '@/components/dashboard/FleetIntelligencePanel';
+import { AccountingLedgerPanel } from '@/components/dashboard/AccountingLedgerPanel';
 import {
   IconRail,
   PageHeader,
@@ -115,10 +116,21 @@ type DashboardView =
   | 'fuel'
   | 'estimate'
   | 'receipts'
+  | 'accounting'
   | 'anomalies'
   | 'alerts'
   | 'calibration'
   | 'settings';
+
+/** No lucide glyph for the naira sign, so the rail icon is the character
+ * itself, sized and weighted to sit alongside the stroke icons around it. */
+function NairaIcon({ className = '' }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center justify-center font-bold ${className}`} aria-hidden>
+      ₦
+    </span>
+  );
+}
 
 /** Sidebar entry -> feature flag key. A view with no mapping is always shown. */
 const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
@@ -133,6 +145,7 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
   fuel: 'fuel_analytics',
   estimate: 'fuel_estimate',
   receipts: 'receipts',
+  accounting: 'accounting_ledger',
   anomalies: 'replay_events',
   alerts: 'alerts',
   calibration: 'calibration',
@@ -163,6 +176,7 @@ const VIEW_META: Record<
   fuel: { icon: Fuel, nav: 'Fuel analytics', title: 'Fuel analytics' },
   estimate: { icon: Calculator, nav: 'Fuel estimate', title: 'Fuel estimate' },
   receipts: { icon: ReceiptText, nav: 'Receipts', title: 'Receipts' },
+  accounting: { icon: NairaIcon, nav: 'Accounting', title: 'Accounting' },
   anomalies: { icon: History, nav: 'Replay events', title: 'Replay events' },
   alerts: { icon: Siren, nav: 'Alerts', title: 'Alerts' },
   calibration: { icon: SlidersHorizontal, nav: 'Calibration', title: 'Calibration' },
@@ -181,6 +195,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
+  { id: 'accounting', label: 'Accounting', hash: 'accounting' },
   { id: 'anomalies', label: 'Replay events', hash: 'anomalies' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
   { id: 'calibration', label: 'Calibration', hash: 'calibration' },
@@ -1144,6 +1159,8 @@ export default function DashboardPage() {
               onRefresh={() => loadFuelPurchases(fuelPurchasePage, true)}
             />
           )}
+
+          {activeView === 'accounting' && <AccountingLedgerPanel />}
 
           {activeView === 'anomalies' && (
             <FuelAnomaliesPanel

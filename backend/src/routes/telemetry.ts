@@ -1073,7 +1073,10 @@ router.get('/daily-activity/replay', async (req: Request, res: Response) => {
 
 router.get('/fuel-purchases', async (req: Request, res: Response) => {
   const page = Math.max(Number(req.query.page) || 1, 1);
-  const limit = Math.min(Number(req.query.limit) || 10, 100);
+  // The accounting ledger's export pulls the whole history in as few round
+  // trips as it can, so it gets a much higher ceiling than the on-screen
+  // table ever needs.
+  const limit = Math.min(Number(req.query.limit) || 10, 500);
   const offset = (page - 1) * limit;
   const customerId = req.user.customerId;
   const includeSummary = req.query.include_summary === 'true';
@@ -1126,6 +1129,8 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
         fp.cost_per_liter_ngn,
         fp.total_amount_ngn,
         fp.odometer_km,
+        fp.odometer_delta_km,
+        fp.gps_distance_km,
         fp.status,
         fp.source,
         fr.verification,
@@ -1197,6 +1202,15 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
             ? Number(r.total_amount_ngn)
             : Math.round(declared * costPerLiter),
         odometer_km: r.odometer_km,
+        // GPS is the fill-to-fill distance when the odometer reading and the
+        // tracker's trail disagreed past tolerance; otherwise they agree and
+        // either is the same number.
+        distance_km:
+          r.gps_distance_km != null
+            ? Number(r.gps_distance_km)
+            : r.odometer_delta_km != null
+              ? Number(r.odometer_delta_km)
+              : null,
         status: r.status,
         source: r.source,
         // The checks behind the status: where the vehicle was, whether the
