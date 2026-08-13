@@ -3,6 +3,36 @@ import { MapPin, Play } from 'lucide-react';
 import { Alert, formatNgn } from '@/lib/api';
 import { TRUST_COPY } from '@/lib/trust-language';
 
+/**
+ * Alerts span everything from theft to a driver doing exactly the right
+ * thing (filing a receipt), so severity can't be a fuel_theft/not-fuel_theft
+ * switch — that put "receipt filed" in the same amber-warning card as
+ * "overspeeding". Anything not listed here defaults to `warn`, since an
+ * unrecognised alert type is more likely a new anomaly than routine noise.
+ */
+const ALERT_TONE: Record<string, 'bad' | 'warn' | 'good' | 'neutral'> = {
+  fuel_theft: 'bad',
+  receipt_fraud: 'bad',
+  unlogged_fill: 'warn',
+  excessive_idle: 'warn',
+  idle_fuel_waste: 'warn',
+  route_deviation: 'warn',
+  fuel_discrepancy: 'warn',
+  low_fuel: 'warn',
+  overspeeding: 'warn',
+  geofence_entry: 'neutral',
+  geofence_exit: 'neutral',
+  trip_start: 'neutral',
+  receipt_uploaded: 'good',
+};
+
+const ALERT_TONE_CLASS: Record<'bad' | 'warn' | 'good' | 'neutral', string> = {
+  bad: 'border-l-2 border-l-bad bg-bad-deep/20',
+  warn: 'border-l-2 border-l-warn bg-warn-deep/20',
+  good: 'border-l-2 border-l-good bg-good/10',
+  neutral: 'border-l-2 border-l-ink-dim bg-panel-deep/60',
+};
+
 export function AlertsList({
   alerts,
   onViewOnMap,
@@ -41,11 +71,7 @@ export function AlertsList({
           style={{ animationDelay: `${Math.min(i, 8) * 45}ms` }}
           className={`alert-row rounded-lg p-3 text-sm ${
             leaving.has(alert.id) ? 'is-leaving' : ''
-          } ${
-            alert.alert_type === 'fuel_theft'
-              ? 'border-l-2 border-l-bad bg-bad-deep/20'
-              : 'border-l-2 border-l-warn bg-warn-deep/20'
-          }`}
+          } ${ALERT_TONE_CLASS[ALERT_TONE[alert.alert_type] ?? 'warn']}`}
         >
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
