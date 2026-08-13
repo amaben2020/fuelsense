@@ -568,7 +568,19 @@ export function LiveMonitoringMap({
             odometer: v.total_odometer_km ?? v.odometer_km,
             odometerIsTotal: v.total_odometer_km != null,
             driver: v.driver_name,
-            fuel: v.fuel_level_liters,
+            // A real sensor reading wins when there is one; otherwise the
+            // live virtual-tank level — same fallback VirtualFuelGauge uses.
+            // Neither is `selectedTrack.current.fuelLiters`: that number is
+            // frozen into whichever telemetry row it came from, so a receipt
+            // credited to the tank after the tracker's last ping never
+            // reaches it and this tile goes stale while the vehicle-view tab
+            // (reading straight from `fleet`) shows the correct level.
+            fuel:
+              v.fuel_level_liters != null
+                ? Number(v.fuel_level_liters)
+                : v.virtual_tank_liters != null
+                  ? Number(v.virtual_tank_liters)
+                  : null,
             tankCapacity: v.virtual_tank_capacity_liters != null
               ? Number(v.virtual_tank_capacity_liters)
               : null,
@@ -1253,7 +1265,7 @@ export function LiveMonitoringMap({
               <p className="text-ink-dim">Fuel left</p>
               {(() => {
                 const meta = fleetMeta.get(selectedTrack.vehicleId);
-                const litres = selectedTrack.current.fuelLiters;
+                const litres = meta?.fuel ?? null;
                 const pct =
                   litres != null && meta?.tankCapacity
                     ? Math.round((litres / meta.tankCapacity) * 100)
@@ -1269,7 +1281,7 @@ export function LiveMonitoringMap({
               })()}
               {(() => {
                 const meta = fleetMeta.get(selectedTrack.vehicleId);
-                const litres = selectedTrack.current.fuelLiters;
+                const litres = meta?.fuel ?? null;
                 const pct =
                   litres != null && meta?.tankCapacity
                     ? Math.round((litres / meta.tankCapacity) * 100)

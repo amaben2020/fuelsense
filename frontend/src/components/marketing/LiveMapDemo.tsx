@@ -5,6 +5,7 @@ import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { FLEET_DARK_MAP_STYLES, FLEET_MAPS_KEY } from '@/lib/fleet-map-theme';
+import { VehicleCarMarker } from '@/components/maps/SharedMapLayers';
 import { GnssTrace } from './GnssTrace';
 import { SloshTank } from './SloshTank';
 
@@ -74,22 +75,6 @@ const START_LITERS = 42;
 const USED_LITERS = 3.1;
 const TOTAL_KM = 30.4;
 const PRICE_PER_LITER = 1300;
-
-// Top-down car silhouettes, drawn pointing north so Google's `rotation` can
-// aim them along the direction of travel. A tapered nose, wing mirrors and
-// glass are what make a shape read as a car from directly above; without them
-// it is just a rounded rectangle.
-const CAR_BODY_PATH =
-  'M 0,-22 C 4.6,-22 7.3,-19.4 7.9,-14 L 8.5,-9.2 L 11.6,-7.6 L 11.6,-4.4 ' +
-  'L 8.9,-5.6 L 9.5,8 C 9.5,15.6 6.6,19.6 0,19.6 C -6.6,19.6 -9.5,15.6 -9.5,8 ' +
-  'L -8.9,-5.6 L -11.6,-4.4 L -11.6,-7.6 L -8.5,-9.2 L -7.9,-14 ' +
-  'C -7.3,-19.4 -4.6,-22 0,-22 Z';
-
-const CAR_GLASS_PATH =
-  'M 0,-15.4 C 3.4,-15.4 5.3,-13.8 5.8,-10.6 L 6.3,-6.4 ' +
-  'C 4,-7.6 -4,-7.6 -6.3,-6.4 L -5.8,-10.6 C -5.3,-13.8 -3.4,-15.4 0,-15.4 Z ' +
-  'M 0,10.4 C 3.6,10.4 5.6,9.2 6.2,6.6 L 6.6,2.6 ' +
-  'C 4.2,3.8 -4.2,3.8 -6.6,2.6 L -6.2,6.6 C -5.6,9.2 -3.6,10.4 0,10.4 Z';
 
 /**
  * Compass bearing between two fixes, in degrees.
@@ -184,57 +169,17 @@ function TripLayer({
     });
     markersRef.current = stopMarkers;
 
-    const carBody = new google.maps.Marker({
-      position: ROUTE[0],
-      map,
-      icon: {
-        path: CAR_BODY_PATH,
-        scale: 0.95,
-        fillColor: '#ffffff',
-        fillOpacity: 1,
-        strokeColor: '#cde04a',
-        strokeWeight: 2,
-        rotation: 0,
-      },
-      zIndex: 20,
-    });
-
-    const carGlass = new google.maps.Marker({
-      position: ROUTE[0],
-      map,
-      icon: {
-        path: CAR_GLASS_PATH,
-        scale: 0.95,
-        fillColor: '#0b1410',
-        fillOpacity: 0.92,
-        strokeWeight: 0,
-        rotation: 0,
-      },
-      // Above the body, and never intercepting the click meant for a stop.
-      zIndex: 21,
-      clickable: false,
-    });
-
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const state = { value: reduceMotion ? 1 : 0 };
 
+    // The vehicle itself is drawn by <VehicleCarMarker> — the same marker the
+    // live dashboard uses — driven declaratively off the `fraction` state
+    // this reports upward. Only the trail stays imperative here.
     const paint = () => {
       const fraction = state.value;
       const head = pointAt(fraction);
       const covered = ROUTE.filter((_, i) => i / (ROUTE.length - 1) <= fraction);
       trail.setPath([...covered, head]);
-
-      // Aim the car at where it is about to be, so it turns into corners
-      // rather than snapping after them.
-      const ahead = pointAt(Math.min(1, fraction + 0.012));
-      const heading = bearingBetween(head, ahead);
-
-      [carBody, carGlass].forEach((marker) => {
-        marker.setPosition(head);
-        const icon = marker.getIcon() as google.maps.Symbol;
-        marker.setIcon({ ...icon, rotation: heading });
-      });
-
       progressRef.current(fraction);
     };
 
@@ -261,8 +206,6 @@ function TripLayer({
       tween?.kill();
       ghost.setMap(null);
       trail.setMap(null);
-      carBody.setMap(null);
-      carGlass.setMap(null);
       stopMarkers.forEach((marker) => {
         google.maps.event.clearInstanceListeners(marker);
         marker.setMap(null);
@@ -424,6 +367,12 @@ export function LiveMapDemo() {
   const km = TOTAL_KM * fraction;
   const spend = Math.round(USED_LITERS * fraction * PRICE_PER_LITER);
 
+  // Same lookahead the old imperative marker used, so the car still turns
+  // into corners instead of snapping after them.
+  const head = pointAt(fraction);
+  const ahead = pointAt(Math.min(1, fraction + 0.012));
+  const heading = bearingBetween(head, ahead);
+
   return (
     <div className="fs-trace">
       <div className="fs-trace__map">
@@ -442,6 +391,9 @@ export function LiveMapDemo() {
                 onSelectStop={selectStop}
                 selectedStopId={selected?.id ?? null}
               />
+              {/* The exact marker the live dashboard renders for a moving
+                  vehicle, not a lookalike built for the landing page. */}
+              <VehicleCarMarker lat={head.lat} lng={head.lng} heading={heading} title="FLEET-01" />
             </Map>
           </APIProvider>
 
