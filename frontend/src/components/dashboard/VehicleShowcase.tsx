@@ -5,7 +5,13 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { AlertTriangle, Fuel, Gauge as GaugeIcon, MapPin, Radio, User } from 'lucide-react';
-import { FleetVehicle, formatNgn, formatOdometerMiles } from '@/lib/api';
+import {
+  FleetVehicle,
+  formatNgn,
+  formatOdometerMiles,
+  isInFuelReserve,
+  usableFuelPercent,
+} from '@/lib/api';
 import { useEstimatedConsumption } from './EstimatedConsumptionTable';
 import { VirtualFuelGauge } from './VirtualFuelGauge';
 import { FuelLevelChart } from './FuelLevelChart';
@@ -81,11 +87,15 @@ function FuelPanel({
   estimatedCostNgn: number | null;
 }) {
   const hasSensor = fuelLiters != null && tankLiters != null && tankLiters > 0;
+  // A level and a 7-day consumption estimate are different quantities — the
+  // reserve only means something against a level (litres still IN the tank),
+  // so it is applied only on the sensor branch, not the estimated-used one.
   const pct = hasSensor
-    ? Math.max(0, Math.min(100, (Number(fuelLiters) / Number(tankLiters)) * 100))
+    ? usableFuelPercent(Number(fuelLiters), Number(tankLiters))
     : tankLiters && estimatedUsedLiters != null
       ? Math.max(0, Math.min(100, (estimatedUsedLiters / tankLiters) * 100))
       : null;
+  const inReserve = hasSensor && isInFuelReserve(Number(fuelLiters));
 
   return (
     <Panel
@@ -93,8 +103,8 @@ function FuelPanel({
       chip={
         hasSensor ? (
           pct != null ? (
-            <StatusChip tone={pct < 15 ? 'bad' : pct < 40 ? 'warn' : 'good'}>
-              {Math.round(pct)}%
+            <StatusChip tone={inReserve ? 'bad' : pct < 40 ? 'warn' : 'good'}>
+              {inReserve ? 'Reserve' : `${Math.round(pct)}%`}
             </StatusChip>
           ) : null
         ) : (
@@ -107,6 +117,7 @@ function FuelPanel({
         percent={pct}
         icon={Fuel}
         size={180}
+        inReserve={inReserve}
         primary={
           hasSensor
             ? `${Number(fuelLiters).toFixed(1)} L`
@@ -115,9 +126,11 @@ function FuelPanel({
               : '—'
         }
         secondary={
-          <span className="text-[10px] text-ink-dim">
+          <span className={`text-[10px] ${inReserve ? 'font-semibold text-bad-bright' : 'text-ink-dim'}`}>
             {hasSensor
-              ? `${Math.round(pct ?? 0)}% of tank`
+              ? inReserve
+                ? 'In reserve — refuel soon'
+                : `${Math.round(pct ?? 0)}% usable`
               : estimatedCostNgn != null
                 ? `≈ ${formatNgn(estimatedCostNgn)}`
                 : 'no sensor data'}

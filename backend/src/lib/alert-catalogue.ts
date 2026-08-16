@@ -187,6 +187,37 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     emailable: false,
   },
   {
+    type: 'device_offline',
+    label: 'Tracker went silent',
+    severity: 'critical',
+    meaning:
+      'No telemetry has arrived from this vehicle for a while — nothing is being watched on it right now. Unlike "Tracker disconnected", the device never reported a reason, so this can be a dead SIM, a weak-signal area, a drained backup cell, or a server-side gap.',
+    trigger:
+      'No telemetry for 30 minutes (configurable), checked every 5 minutes. Clears automatically the moment telemetry resumes.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
+    type: 'immobilizer_engaged',
+    label: 'Vehicle immobilized',
+    severity: 'critical',
+    meaning:
+      'A manager remotely cut the engine-start circuit. The vehicle will not start until it is released.',
+    trigger:
+      'Manager action, blocked unless the vehicle has been stopped with the engine off for at least 2 continuous minutes.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
+    type: 'immobilizer_released',
+    label: 'Vehicle released',
+    severity: 'info',
+    meaning: 'A manager restored the engine-start circuit — the vehicle can start normally.',
+    trigger: 'Manager action.',
+    source: 'analysis',
+    emailable: false,
+  },
+  {
     type: 'geofence_exit',
     label: 'Left permitted area',
     severity: 'warning',

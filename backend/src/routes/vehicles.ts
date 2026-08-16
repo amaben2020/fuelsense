@@ -18,6 +18,7 @@ import {
 import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { getVirtualTank, calibrateTank } from '../lib/virtual-tank';
 import { CATALOGUE_MIN_YEAR, VEHICLE_CATALOGUE } from '../lib/vehicle-catalogue';
+import { engageImmobilizer, getImmobilizerStatus, releaseImmobilizer } from '../lib/immobilizer';
 import {
   ECONOMY_UNIT_LABELS,
   baselineEfficiencyL100km,
@@ -573,6 +574,49 @@ router.post('/bulk', async (req: Request, res: Response) => {
       return;
     }
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/immobilizer', async (req: Request, res: Response) => {
+  try {
+    const status = await getImmobilizerStatus(String(req.params.id), req.user.customerId);
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+router.post('/:id/immobilizer/engage', async (req: Request, res: Response) => {
+  try {
+    const result = await engageImmobilizer(
+      String(req.params.id),
+      req.user.customerId,
+      req.user.name ?? req.user.email
+    );
+    if (!result.ok) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json(result.status);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+router.post('/:id/immobilizer/release', async (req: Request, res: Response) => {
+  try {
+    const result = await releaseImmobilizer(
+      String(req.params.id),
+      req.user.customerId,
+      req.user.name ?? req.user.email
+    );
+    if (!result.ok) {
+      res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json(result.status);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 

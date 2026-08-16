@@ -12,6 +12,7 @@
     "@upstash/redis": "^1.38.0",
     "@vis.gl/react-google-maps": "^1.8.3",
     "axios": "^1.16.1",
+    "exceljs": "^4.4.0",
     "gsap": "^3.15.0",
     "lottie-react": "^2.4.1",
     "lucide-react": "^1.16.0",

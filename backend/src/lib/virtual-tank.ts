@@ -35,7 +35,19 @@ const IDLE_EMA_ALPHA = 0.1;
 const IDLE_WASTE_RATE_FLOOR_LPH = 1.2;
 const IDLE_WASTE_RATE_FACTOR = 1.5;
 const IDLE_WASTE_MIN_MINUTES = 5;
-const LOW_FUEL_PERCENT = 15;
+
+/**
+ * Litres still in the tank when a real vehicle's low-fuel light comes on —
+ * not zero. Manufacturers hold back roughly 10-12 L near empty so the
+ * electric fuel pump, which sits in the tank and depends on the fuel around
+ * it for cooling, never runs dry and overheats. A driver reading their own
+ * dashboard already treats this as "empty"; the model should raise the alarm
+ * at the same point, not 15% of nameplate capacity later.
+ *
+ * A flat litre figure rather than a percentage, because the reserve is sized
+ * to the pump, not the tank — a bigger tank does not need a bigger reserve.
+ */
+export const RESERVE_LITERS_DEFAULT = 11;
 
 // The FMC150's two fuel elements are both firmware estimates, and on some
 // vehicles they disagree badly: AVL 12 has been observed accumulating at ~1.0
@@ -706,7 +718,7 @@ export async function processFuelGpsReading(
   const capacityMl = state.capacityLiters * 1000;
   if (
     capacityMl > 0 &&
-    levelMl / capacityMl <= LOW_FUEL_PERCENT / 100 &&
+    levelLiters <= RESERVE_LITERS_DEFAULT &&
     !(await hasOpenAlert(customerId, vehicleId, 'low_fuel'))
   ) {
     const percent = (levelMl / capacityMl) * 100;
@@ -715,7 +727,7 @@ export async function processFuelGpsReading(
       customerId,
       vehicleId,
       alertType: 'low_fuel',
-      message: `Low fuel on ${ctx.licensePlate ?? 'vehicle'}: virtual tank at ${percent.toFixed(0)}% (~${levelLiters.toFixed(1)}L). Plan a refuel.`,
+      message: `${ctx.licensePlate ?? 'Vehicle'} is running on its reserve — about ${levelLiters.toFixed(1)}L left, the same point a real dashboard's low-fuel light would already be on. Refuel soon.`,
       fuelLevelLiters: levelLiters.toFixed(2),
       latitude: ctx.latitude,
       longitude: ctx.longitude,

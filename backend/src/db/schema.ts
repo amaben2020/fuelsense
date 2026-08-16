@@ -206,6 +206,12 @@ export const devices = pgTable('devices', {
   isActive: boolean('is_active').default(true),
   installedAt: timestamp('installed_at').defaultNow(),
   lastSeenAt: timestamp('last_seen_at'),
+  // Whether the engine-start circuit is currently cut via the wired DOUT
+  // relay. Read by every safety check before another command is allowed —
+  // never inferred from the device's own reply, since a command can be sent
+  // to a device that never had the relay wired at all.
+  immobilized: boolean('immobilized').default(false),
+  immobilizedAt: timestamp('immobilized_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

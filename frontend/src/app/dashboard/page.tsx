@@ -11,6 +11,7 @@ import {
   Gauge,
   History,
   LayoutDashboard,
+  Lock,
   LogOut,
   Menu,
   RadioTower,
@@ -81,6 +82,7 @@ import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
 import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePanel';
 import { FleetIntelligencePanel } from '@/components/dashboard/FleetIntelligencePanel';
 import { AccountingLedgerPanel } from '@/components/dashboard/AccountingLedgerPanel';
+import { TheftPanel } from '@/components/dashboard/TheftPanel';
 import {
   IconRail,
   PageHeader,
@@ -118,6 +120,7 @@ type DashboardView =
   | 'receipts'
   | 'accounting'
   | 'anomalies'
+  | 'theft'
   | 'alerts'
   | 'calibration'
   | 'settings';
@@ -147,6 +150,7 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
   receipts: 'receipts',
   accounting: 'accounting_ledger',
   anomalies: 'replay_events',
+  theft: 'theft',
   alerts: 'alerts',
   calibration: 'calibration',
   settings: 'settings',
@@ -154,6 +158,11 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
 
 /** Views that depend on hardware a BASIC fleet does not have. */
 const PRO_ONLY_VIEWS = new Set<DashboardView>(['anomalies']);
+
+/** Immobilizer is still beta — one flag, flipped here, rather than tied to
+ *  the subscription-tier logic `isPro()` drives. Swap for a real entitlement
+ *  check once it graduates out of beta. */
+const IMMOBILIZER_ENABLED = true;
 
 /**
  * One record per destination. The rail, the mobile drawer and the page title
@@ -178,6 +187,7 @@ const VIEW_META: Record<
   receipts: { icon: ReceiptText, nav: 'Receipts', title: 'Receipts' },
   accounting: { icon: NairaIcon, nav: 'Accounting', title: 'Accounting' },
   anomalies: { icon: History, nav: 'Replay events', title: 'Replay events' },
+  theft: { icon: Lock, nav: 'Theft', title: 'Theft & immobilizer' },
   alerts: { icon: Siren, nav: 'Alerts', title: 'Alerts' },
   calibration: { icon: SlidersHorizontal, nav: 'Calibration', title: 'Calibration' },
   settings: { icon: Settings, nav: 'Settings', title: 'Settings' },
@@ -197,6 +207,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
   { id: 'accounting', label: 'Accounting', hash: 'accounting' },
   { id: 'anomalies', label: 'Replay events', hash: 'anomalies' },
+  { id: 'theft', label: 'Theft', hash: 'theft' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
   { id: 'calibration', label: 'Calibration', hash: 'calibration' },
   { id: 'settings', label: 'Settings', hash: 'settings' },
@@ -545,6 +556,7 @@ export default function DashboardPage() {
     // On GNSS-only hardware it has nothing to show, so it is held for PRO
     // rather than shipped as an empty screen.
     if (PRO_ONLY_VIEWS.has(view) && !isPro()) return false;
+    if (view === 'theft' && !IMMOBILIZER_ENABLED) return false;
     const key = VIEW_FLAG[view];
     return key == null || flags[key] !== false;
   };
@@ -640,6 +652,7 @@ export default function DashboardPage() {
     icon: VIEW_META[v.id].icon,
     label: VIEW_META[v.id].nav,
     badge: navBadge[v.id],
+    tag: v.id === 'theft' ? 'Beta' : undefined,
   }));
 
   /** The Haulix metric strip. Values stay terse — the row has to stay one line. */
@@ -1171,6 +1184,8 @@ export default function DashboardPage() {
               }}
             />
           )}
+
+          {activeView === 'theft' && <TheftPanel fleet={fleet} alerts={alerts} />}
 
           {activeView === 'alerts' && (
             <div className="rounded-lg border border-edge bg-panel p-6">

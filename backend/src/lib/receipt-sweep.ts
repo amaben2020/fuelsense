@@ -13,6 +13,7 @@ import { db, sql, alerts, vehicles, eq } from './db-helpers';
 import { verifyReceipt } from './receipt-verification';
 import { latestReceiptPrice } from './fuel-price';
 import { DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics';
+import { lookupPlace } from './place-lookup';
 
 /** How far back to keep retrying. Older than this and the telemetry that would
  *  have settled it is never arriving. */
@@ -138,11 +139,24 @@ export async function alertUnloggedFills(): Promise<number> {
     const price = await latestReceiptPrice(String(row.customer_id)).catch(() => null);
     const at = new Date(row.occurred_at as string);
 
+    // A stop nearby proves proximity to a forecourt, not that the driver was
+    // at the pump — the vehicle could have parked next door. "Stopped at a
+    // filling station" claimed the second thing on the evidence for the
+    // first, so the wording only says what is actually measured (a stop of
+    // this length, this near a station) and states the fuel-bought part as
+    // the open question it is.
+    const address =
+      row.latitude != null && row.longitude != null
+        ? await lookupPlace(Number(row.latitude), Number(row.longitude))
+            .then((place) => place.formatted_address || place.place_name)
+            .catch(() => null)
+        : null;
+
     await db.insert(alerts).values({
       customerId: String(row.customer_id),
       vehicleId: String(row.vehicle_id),
       alertType: 'unlogged_fill',
-      message: `${vehicle?.licensePlate ?? 'Vehicle'} stopped at a filling station for ${Number(row.value ?? 0)} min on ${at.toISOString().slice(0, 10)} at ${at.toISOString().slice(11, 16)} and no receipt was logged. Fuel bought here is unaccounted for at about ₦${Math.round(price?.ngnPerLiter ?? DEFAULT_FUEL_PRICE_NGN_LITER).toLocaleString('en-NG')}/L.`,
+      message: `${vehicle?.licensePlate ?? 'Vehicle'} parked near a filling station for ${Number(row.value ?? 0)} min on ${at.toISOString().slice(0, 10)} at ${at.toISOString().slice(11, 16)}${address ? ` (${address})` : ''} and no receipt was logged. If fuel was bought here, it's unaccounted for at about ₦${Math.round(price?.ngnPerLiter ?? DEFAULT_FUEL_PRICE_NGN_LITER).toLocaleString('en-NG')}/L.`,
       latitude: (row.latitude as string) ?? null,
       longitude: (row.longitude as string) ?? null,
     });

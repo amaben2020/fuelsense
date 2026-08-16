@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Fuel, Gauge, Loader2, MapPin, Navigation } from 'lucide-react';
 import { DriverVehicleStatus, fetchDriverVehicleStatus } from '@/lib/driver-api';
-import { formatOdometerMiles } from '@/lib/api';
+import { formatOdometerMiles, isInFuelReserve, usableFuelPercent } from '@/lib/api';
 
 export function DriverVehicleScreen() {
   const [status, setStatus] = useState<DriverVehicleStatus | null>(null);
@@ -41,10 +41,8 @@ export function DriverVehicleScreen() {
 
   if (!status) return null;
 
-  const fuelPct =
-    status.fuel_level_liters != null && status.tank_capacity_liters
-      ? Math.min(100, Math.round((status.fuel_level_liters / status.tank_capacity_liters) * 100))
-      : null;
+  const fuelPct = usableFuelPercent(status.fuel_level_liters, status.tank_capacity_liters);
+  const fuelInReserve = isInFuelReserve(status.fuel_level_liters);
 
   const mapsUrl =
     status.latitude != null && status.longitude != null
@@ -84,8 +82,14 @@ export function DriverVehicleScreen() {
             }
             // Modelled from GNSS burn, not read from a sensor, so it is not
             // dressed up in the colour reserved for verified figures.
-            accent="text-ink"
-            sub={fuelPct != null ? `about ${fuelPct}% of tank` : undefined}
+            accent={fuelInReserve ? 'text-bad-bright' : 'text-ink'}
+            sub={
+              fuelInReserve
+                ? 'In reserve — refuel soon'
+                : fuelPct != null
+                  ? `about ${fuelPct}% usable`
+                  : undefined
+            }
           />
           <StatCard
             icon={Gauge}
@@ -127,13 +131,17 @@ export function DriverVehicleScreen() {
 
         {fuelPct != null && (
           <div className="mt-5">
-            <div className="mb-1 flex justify-between text-xs text-ink-dim">
-              <span>Tank level</span>
+            <div
+              className={`mb-1 flex justify-between text-xs ${fuelInReserve ? 'font-semibold text-bad-bright' : 'text-ink-dim'}`}
+            >
+              <span>{fuelInReserve ? 'In reserve' : 'Tank level'}</span>
               <span>{fuelPct}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-canvas">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-good to-accent"
+                className={`h-full rounded-full ${
+                  fuelInReserve ? 'bg-bad-bright' : 'bg-gradient-to-r from-good to-accent'
+                }`}
                 style={{ width: `${fuelPct}%` }}
               />
             </div>

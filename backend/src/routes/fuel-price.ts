@@ -2,8 +2,11 @@ import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import {
   benchmarkPriceHistory,
+  benchmarkChangeFraction,
   currentBenchmarkPrice,
+  isNotableBenchmarkChange,
   setBenchmarkPrice,
+  undoBenchmarkPrice,
   latestReceiptPrice,
 } from '../lib/fuel-price';
 import { serializeForApi } from '../lib/serialize';
@@ -67,6 +70,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   try {
     const customerId = req.user.customerId;
+    const previous = await currentBenchmarkPrice(customerId);
     const saved = await setBenchmarkPrice(customerId, {
       ngnPerLiter: price,
       effectiveFrom,
@@ -76,9 +80,41 @@ router.post('/', async (req: Request, res: Response) => {
     // Every cost figure on the dashboard is derived from this.
     invalidate(customerId, 'fleet', 'summary', 'trips').catch(() => {});
 
-    res.status(201).json(serializeForApi(saved));
+    const changeFraction = benchmarkChangeFraction(price, previous);
+
+    res.status(201).json(
+      serializeForApi({
+        ...saved,
+        previous,
+        changeFraction,
+        notableChange: isNotableBenchmarkChange(changeFraction),
+      })
+    );
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * Reverts the price change that was just made. Only works on the newest
+ * period and only for a short window after it was set — see
+ * `undoBenchmarkPrice` for why this isn't a general history editor.
+ */
+router.delete('/:id', async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'id must be a positive integer' });
+  }
+
+  try {
+    const customerId = req.user.customerId;
+    const current = await undoBenchmarkPrice(customerId, id);
+
+    invalidate(customerId, 'fleet', 'summary', 'trips').catch(() => {});
+
+    res.json(serializeForApi(current));
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
   }
 });
 

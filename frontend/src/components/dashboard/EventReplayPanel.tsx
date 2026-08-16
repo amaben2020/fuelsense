@@ -712,12 +712,19 @@ export function EventReplayPanel({
           <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(300px,1fr)]">
             <div className="flex min-h-0 flex-col overflow-y-auto border-b border-edge xl:border-b-0 xl:border-r">
               <div className="space-y-5 p-4 md:p-6">
-                <section className="rounded-xl border border-bad/30 bg-gradient-to-br from-bad-deep/15 to-panel p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-bad">
-                    What happened (operational summary)
+                <section className="rounded-lg border-l-2 border-l-brand border-y border-r border-edge bg-panel p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+                    What happened
                   </p>
                   <p className="mt-2 text-base leading-relaxed text-ink">
                     {intelligence.primary}
+                  </p>
+                  {/* Always shown, never a conditional footnote in the map
+                      overlay — a manager reading this top-to-bottom should
+                      never have to hunt the map for where it happened. */}
+                  <p className="mt-2 flex items-center gap-1.5 text-sm text-ink-mid">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-ink-dim" />
+                    {data.location_name ?? 'Location unavailable for this fix'}
                   </p>
                 </section>
 
@@ -836,12 +843,24 @@ export function EventReplayPanel({
             </div>
 
             <aside className="overflow-y-auto border-edge bg-canvas p-4 md:p-6 xl:border-l">
-              <div className="rounded-lg border border-bad/30 bg-bad/10 p-4">
+              <div
+                className={`rounded-lg border-y border-r border-edge bg-panel p-4 ${
+                  intelligence.severity === 'HIGH'
+                    ? 'border-l-2 border-l-bad'
+                    : intelligence.severity === 'MEDIUM'
+                      ? 'border-l-2 border-l-warn'
+                      : 'border-l-2 border-l-ink-dim'
+                }`}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-bad" />
+                    <AlertTriangle
+                      className={`mt-0.5 h-5 w-5 shrink-0 ${
+                        intelligence.severity === 'HIGH' ? 'text-bad' : 'text-warn'
+                      }`}
+                    />
                     <div>
-                      <p className="font-semibold text-bad">
+                      <p className="font-semibold text-ink">
                         {intelligence.title}
                       </p>
                       {/* "−0.0 L" beside "Est. impact ₦52" was the same
@@ -919,8 +938,8 @@ export function EventReplayPanel({
                   constant string, not this vehicle's figure and not derived
                   from anything. The model charges nothing at all to an
                   engine-off hop, so the honest comparison is against zero. */}
-              <div className="mt-4 rounded-lg border border-accent/30 bg-accent/10 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-brand">
+              <div className="mt-4 rounded-lg border border-edge bg-panel p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
                   Compare vs expected
                 </p>
                 <div className="mt-3 grid gap-2 text-sm">
@@ -968,8 +987,8 @@ export function EventReplayPanel({
                   </div>
                 )}
 
-              <div className="mt-4 rounded-lg border border-good/30 bg-good/10 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-good">
+              <div className="mt-4 rounded-lg border-l-2 border-l-good border-y border-r border-edge bg-panel p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-dim">
                   Recommended next steps
                 </p>
                 <ul className="mt-3 space-y-2">

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Fuel, ShieldCheck, ShieldAlert, X } from 'lucide-react';
-import { FleetVehicle, calibrateVirtualTank } from '@/lib/api';
+import { FleetVehicle, calibrateVirtualTank, isInFuelReserve, usableFuelPercent } from '@/lib/api';
 import { LiquidFuelGauge } from './Gauges';
 
 function relativeTime(iso: string): string {
@@ -39,8 +39,8 @@ export function VirtualFuelGauge({
       : vehicle.virtual_tank_liters != null
         ? Number(vehicle.virtual_tank_liters)
         : null;
-  const pct =
-    liters != null && capacity ? Math.min(100, Math.round((liters / capacity) * 100)) : null;
+  const pct = usableFuelPercent(liters, capacity);
+  const inReserve = isInFuelReserve(liters);
   const confidence = vehicle.virtual_tank_confidence ?? null;
   const calibratedAt = vehicle.virtual_tank_calibrated_at ?? null;
 
@@ -65,10 +65,15 @@ export function VirtualFuelGauge({
         percent={pct}
         icon={Fuel}
         size={170}
+        inReserve={inReserve}
         primary={liters != null ? `${liters.toFixed(1)} L` : '—'}
         secondary={
-          <span className="text-xs text-ink-dim">
-            {pct != null ? `${pct}% of tank` : 'No data'}
+          <span className={`text-xs ${inReserve ? 'font-semibold text-bad-bright' : 'text-ink-dim'}`}>
+            {inReserve
+              ? 'In reserve — refuel soon'
+              : pct != null
+                ? `${pct}% usable`
+                : 'No data'}
           </span>
         }
       />

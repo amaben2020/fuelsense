@@ -1,14 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Fuel, History } from 'lucide-react';
+import { Fuel, History, Undo2 } from 'lucide-react';
 import {
   BenchmarkPrice,
   FuelPriceResponse,
+  SetFuelPriceResult,
   formatNgn,
   getFuelPrice,
   setFuelPrice,
+  undoFuelPrice,
 } from '@/lib/api';
+
+// How long the undo offer stays up. Long enough to notice, short enough that
+// undoing doesn't feel available forever — matches the backend's own
+// UNDO_WINDOW_MS-style reasoning, just tuned for "did I just fat-finger this".
+const UNDO_BANNER_MS = 15_000;
 
 const formatDate = (iso: string): string =>
   new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
@@ -35,7 +42,9 @@ export function FuelPricePanel() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [lastChange, setLastChange] = useState<SetFuelPriceResult | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const [undoError, setUndoError] = useState<string | null>(null);
 
   const load = () => {
     getFuelPrice()
@@ -44,6 +53,14 @@ export function FuelPricePanel() {
   };
 
   useEffect(load, []);
+
+  // The undo offer expires on its own — a stale "undo" button that silently
+  // fails once the backend's own window closes would be worse than none.
+  useEffect(() => {
+    if (!lastChange) return;
+    const timer = setTimeout(() => setLastChange(null), UNDO_BANNER_MS);
+    return () => clearTimeout(timer);
+  }, [lastChange]);
 
   const save = async () => {
     const value = Number(price);
@@ -55,15 +72,31 @@ export function FuelPricePanel() {
     setSaving(true);
     setError(null);
     try {
-      await setFuelPrice({ ngnPerLiter: value, note: note.trim() || undefined });
+      const result = await setFuelPrice({ ngnPerLiter: value, note: note.trim() || undefined });
       setPrice('');
       setNote('');
-      setSavedAt(Date.now());
+      setUndoError(null);
+      setLastChange(result);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save the price');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const undo = async () => {
+    if (!lastChange) return;
+    setUndoing(true);
+    setUndoError(null);
+    try {
+      await undoFuelPrice(lastChange.id);
+      setLastChange(null);
+      load();
+    } catch (err) {
+      setUndoError(err instanceof Error ? err.message : 'Could not undo this change');
+    } finally {
+      setUndoing(false);
     }
   };
 
@@ -141,10 +174,46 @@ export function FuelPricePanel() {
       </div>
 
       {error && <p className="mt-2 text-xs text-bad">{error}</p>}
-      {savedAt && !error && (
-        <p className="mt-2 text-xs text-good">
-          Saved. New figures use this price; earlier periods are unchanged.
-        </p>
+
+      {lastChange && !error && (
+        <div
+          className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border-l-4 p-3 ${
+            lastChange.notable_change
+              ? 'border-l-warn bg-warn-deep/15'
+              : 'border-l-good bg-good/10'
+          }`}
+        >
+          <div>
+            <p className={`text-sm font-semibold ${lastChange.notable_change ? 'text-warn' : 'text-good'}`}>
+              Price set to {formatNgn(lastChange.ngn_per_liter)}/L
+              {lastChange.previous && (
+                <span className="ml-1 font-mono text-xs font-normal text-ink-mid">
+                  (was {formatNgn(lastChange.previous.ngn_per_liter)}/L
+                  {lastChange.change_fraction != null &&
+                    `, ${lastChange.change_fraction >= 0 ? '+' : ''}${Math.round(
+                      lastChange.change_fraction * 100
+                    )}%`}
+                  )
+                </span>
+              )}
+            </p>
+            <p className="mt-0.5 text-[11px] text-ink-dim">
+              {lastChange.notable_change
+                ? "That's a large jump — worth a second look before it flows into cost figures."
+                : 'New figures use this price; earlier periods are unchanged.'}
+            </p>
+            {undoError && <p className="mt-1 text-[11px] text-bad">{undoError}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={undo}
+            disabled={undoing}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-edge bg-canvas px-3 py-1.5 text-xs font-medium text-ink hover:border-brand disabled:opacity-50"
+          >
+            <Undo2 className="h-3 w-3" />
+            {undoing ? 'Undoing…' : 'Undo'}
+          </button>
+        </div>
       )}
 
       {data && data.history.length > 0 && (

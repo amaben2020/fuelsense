@@ -391,6 +391,9 @@ export type RailItem<T extends string> = {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   badge?: number;
+  /** Short text tag next to the label once expanded — "BETA", "NEW". Distinct
+   *  from `badge`, which is a count. */
+  tag?: string;
 };
 
 /**
@@ -584,11 +587,16 @@ export function IconRail<T extends string>({
                   <Icon className="h-[1.15rem] w-[1.15rem]" />
                 </span>
                 <span
-                  className={`truncate text-left text-sm font-medium transition-opacity duration-150 ${
+                  className={`flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium transition-opacity duration-150 ${
                     expanded ? 'flex-1 opacity-100' : 'w-0 opacity-0'
                   }`}
                 >
-                  {item.label}
+                  <span className="truncate">{item.label}</span>
+                  {item.tag && (
+                    <span className="shrink-0 rounded-full bg-accent-y/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-accent-y">
+                      {item.tag}
+                    </span>
+                  )}
                 </span>
                 {badge &&
                   (expanded ? (

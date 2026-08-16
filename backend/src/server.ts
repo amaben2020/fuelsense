@@ -33,6 +33,7 @@ import { startReceiptSweep } from './lib/receipt-sweep';
 import { startRouteSweep } from './lib/route-sweep';
 import { startDrivingEventSweep } from './lib/driving-events-sweep';
 import { startDailyReportScheduler } from './lib/daily-report-mailer';
+import { startDeviceOfflineWatchdog } from './lib/device-offline-watchdog';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -161,6 +162,10 @@ const start = async () => {
 
   // Yesterday's driving, per driver, emailed as a PDF each morning.
   startDailyReportScheduler();
+
+  // Notices a tracker going silent on its own, rather than waiting for a
+  // manager to have the dashboard open when it happens.
+  startDeviceOfflineWatchdog();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {

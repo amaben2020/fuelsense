@@ -52,6 +52,7 @@ export async function latestReceiptPrice(customerId: string): Promise<FuelPrice 
 // ---------------------------------------------------------------------------
 
 export interface BenchmarkPrice {
+  id: number;
   ngnPerLiter: number;
   effectiveFrom: Date;
   source: string;
@@ -62,6 +63,7 @@ export interface BenchmarkPrice {
 export async function benchmarkPriceHistory(customerId: string): Promise<BenchmarkPrice[]> {
   const rows = await db
     .select({
+      id: fuelPrices.id,
       price: fuelPrices.ngnPerLiter,
       effectiveFrom: fuelPrices.effectiveFrom,
       source: fuelPrices.source,
@@ -72,6 +74,7 @@ export async function benchmarkPriceHistory(customerId: string): Promise<Benchma
     .orderBy(desc(fuelPrices.effectiveFrom));
 
   return rows.map((row) => ({
+    id: row.id,
     ngnPerLiter: Number(row.price),
     effectiveFrom: row.effectiveFrom,
     source: row.source,
@@ -90,6 +93,7 @@ export async function benchmarkPriceAt(
 ): Promise<BenchmarkPrice | null> {
   const [row] = await db
     .select({
+      id: fuelPrices.id,
       price: fuelPrices.ngnPerLiter,
       effectiveFrom: fuelPrices.effectiveFrom,
       source: fuelPrices.source,
@@ -102,6 +106,7 @@ export async function benchmarkPriceAt(
 
   if (!row?.price) return null;
   return {
+    id: row.id,
     ngnPerLiter: Number(row.price),
     effectiveFrom: row.effectiveFrom,
     source: row.source,
@@ -129,20 +134,82 @@ export async function setBenchmarkPrice(
 ): Promise<BenchmarkPrice> {
   const effectiveFrom = input.effectiveFrom ?? new Date();
 
-  await db.insert(fuelPrices).values({
-    customerId,
-    ngnPerLiter: input.ngnPerLiter.toFixed(2),
-    effectiveFrom,
-    source: input.source ?? 'manager',
-    note: input.note ?? null,
-  });
+  const [row] = await db
+    .insert(fuelPrices)
+    .values({
+      customerId,
+      ngnPerLiter: input.ngnPerLiter.toFixed(2),
+      effectiveFrom,
+      source: input.source ?? 'manager',
+      note: input.note ?? null,
+    })
+    .returning({ id: fuelPrices.id });
 
   return {
+    id: row.id,
     ngnPerLiter: input.ngnPerLiter,
     effectiveFrom,
     source: input.source ?? 'manager',
     note: input.note ?? null,
   };
+}
+
+// A change is only worth flagging with an undo prompt once it's large enough
+// that a typo (one extra digit, a misplaced decimal) is a plausible cause.
+const NOTABLE_CHANGE_FRACTION = 0.15;
+
+// A manager fixing a mistake needs a real undo, not a permanent second entry
+// in the price history — but only while the mistake is fresh. Past this
+// window a revert is a new decision, not a correction, and should be entered
+// as its own priced period like any other change.
+const UNDO_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * Reverts the most recently set benchmark price for a customer, restoring
+ * whatever period preceded it. Only the newest row can be undone, and only
+ * within a short window of creating it — this is a correction tool, not a
+ * general-purpose history editor.
+ */
+export async function undoBenchmarkPrice(
+  customerId: string,
+  id: number
+): Promise<BenchmarkPrice | null> {
+  const [newest] = await db
+    .select({ id: fuelPrices.id, createdAt: fuelPrices.createdAt })
+    .from(fuelPrices)
+    .where(eq(fuelPrices.customerId, customerId))
+    .orderBy(desc(fuelPrices.effectiveFrom))
+    .limit(1);
+
+  if (!newest || newest.id !== id) {
+    throw new Error('Only the most recent price change can be undone');
+  }
+
+  const createdAt = newest.createdAt ?? new Date(0);
+  if (Date.now() - createdAt.getTime() > UNDO_WINDOW_MS) {
+    throw new Error('This price change is too old to undo — enter a new price instead');
+  }
+
+  await db.delete(fuelPrices).where(and(eq(fuelPrices.id, id), eq(fuelPrices.customerId, customerId)));
+
+  return currentBenchmarkPrice(customerId);
+}
+
+/**
+ * How large a jump this price represents from whatever was in force just
+ * before it, expressed as a fraction (0.2 = 20%). Null when there was no
+ * prior price to compare against.
+ */
+export function benchmarkChangeFraction(
+  next: number,
+  previous: BenchmarkPrice | null
+): number | null {
+  if (!previous || previous.ngnPerLiter <= 0) return null;
+  return (next - previous.ngnPerLiter) / previous.ngnPerLiter;
+}
+
+export function isNotableBenchmarkChange(fraction: number | null): boolean {
+  return fraction != null && Math.abs(fraction) >= NOTABLE_CHANGE_FRACTION;
 }
 
 /**

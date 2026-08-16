@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useId } from 'react';
+import { Fuel } from 'lucide-react';
 
 /**
  * Analogue instrument cluster in the Haulix language.
@@ -249,6 +250,12 @@ export function LiquidFuelGauge({
   icon: Icon,
   size = 190,
   className = '',
+  /** Mirrors a real dashboard's low-fuel telltale — the tank has dropped into
+   *  the litres a manufacturer holds back to keep the fuel pump submerged.
+   *  `percent` is expected to already be reserve-adjusted (see
+   *  `usableFuelPercent` in lib/api), so this only changes the colour and
+   *  adds the warning glyph — it does not re-derive the number. */
+  inReserve = false,
 }: {
   percent: number | null;
   primary: React.ReactNode;
@@ -256,6 +263,7 @@ export function LiquidFuelGauge({
   icon?: React.ComponentType<{ className?: string }>;
   size?: number;
   className?: string;
+  inReserve?: boolean;
 }) {
   const rawId = useId();
   const clipId = `fuel-clip-${rawId}`;
@@ -334,7 +342,7 @@ export function LiquidFuelGauge({
                   <g className="fuel-wave-b">
                     <path
                       d={wavePath(9)}
-                      fill="var(--fuel-amber-deep)"
+                      fill={inReserve ? 'var(--bad-deep)' : 'var(--fuel-amber-deep)'}
                       opacity={0.6}
                       transform={`translate(${-WAVE_PERIOD} 0)`}
                     />
@@ -347,7 +355,7 @@ export function LiquidFuelGauge({
                   <g className="fuel-wave-a">
                     <path
                       d={wavePath(12)}
-                      fill="var(--fuel-amber)"
+                      fill={inReserve ? 'var(--bad-bright)' : 'var(--fuel-amber)'}
                       transform={`translate(${-WAVE_PERIOD} 0)`}
                     />
                   </g>
@@ -363,14 +371,30 @@ export function LiquidFuelGauge({
             cy={cy}
             r={rDial}
             fill="none"
-            stroke="var(--edge)"
-            strokeWidth={1.5}
+            stroke={inReserve ? 'var(--bad-bright)' : 'var(--edge)'}
+            strokeWidth={inReserve ? 2.5 : 1.5}
+            className={inReserve ? 'accent-pulse' : undefined}
           />
         </svg>
 
+        {/* Telltale badge — the same fuel-pump glyph a real dashboard lights
+            up amber/red once the reserve is reached, not a number a manager
+            has to interpret. */}
+        {inReserve && (
+          <div
+            className="accent-pulse absolute -right-1 -top-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-canvas bg-bad-bright text-white shadow-lg"
+            title="In reserve — refuel soon"
+            aria-label="Fuel in reserve"
+          >
+            <Fuel className="h-3.5 w-3.5" />
+          </div>
+        )}
+
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
-          {Icon && <Icon className="h-4 w-4 text-ink-mid" />}
-          <p className="text-xl font-bold tabular-nums tracking-tight text-ink drop-shadow-sm">
+          {Icon && <Icon className={`h-4 w-4 ${inReserve ? 'text-bad-bright' : 'text-ink-mid'}`} />}
+          <p
+            className={`text-xl font-bold tabular-nums tracking-tight drop-shadow-sm ${inReserve ? 'text-bad-bright' : 'text-ink'}`}
+          >
             {primary}
           </p>
           {secondary}

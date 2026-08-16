@@ -280,6 +280,26 @@ export async function calibrateVirtualTank(
   });
 }
 
+export interface ImmobilizerStatus {
+  immobilized: boolean;
+  immobilizedAt: string | null;
+  canImmobilize: boolean;
+  blockedReason: string | null;
+  deviceOnline: boolean;
+}
+
+export async function getImmobilizerStatus(vehicleId: string): Promise<ImmobilizerStatus> {
+  return api(`/vehicles/${vehicleId}/immobilizer`);
+}
+
+export async function engageImmobilizer(vehicleId: string): Promise<ImmobilizerStatus> {
+  return api(`/vehicles/${vehicleId}/immobilizer/engage`, { method: 'POST' });
+}
+
+export async function releaseImmobilizer(vehicleId: string): Promise<ImmobilizerStatus> {
+  return api(`/vehicles/${vehicleId}/immobilizer/release`, { method: 'POST' });
+}
+
 /**
  * Units a dashboard economy readout might be in.
  *
@@ -998,10 +1018,17 @@ export async function getFuelHistory(
 }
 
 export interface BenchmarkPrice {
+  id: number;
   ngn_per_liter: number;
   effective_from: string;
   source: string;
   note: string | null;
+}
+
+export interface SetFuelPriceResult extends BenchmarkPrice {
+  previous: BenchmarkPrice | null;
+  change_fraction: number | null;
+  notable_change: boolean;
 }
 
 export interface FuelPriceResponse {
@@ -1018,8 +1045,8 @@ export async function setFuelPrice(input: {
   ngnPerLiter: number;
   effectiveFrom?: string;
   note?: string;
-}): Promise<BenchmarkPrice> {
-  return api<BenchmarkPrice>('/fuel-price', {
+}): Promise<SetFuelPriceResult> {
+  return api<SetFuelPriceResult>('/fuel-price', {
     method: 'POST',
     body: JSON.stringify({
       ngn_per_liter: input.ngnPerLiter,
@@ -1027,6 +1054,11 @@ export async function setFuelPrice(input: {
       note: input.note,
     }),
   });
+}
+
+/** Reverts the price change from `setFuelPrice`, if it's still undoable. */
+export async function undoFuelPrice(id: number): Promise<BenchmarkPrice | null> {
+  return api<BenchmarkPrice | null>(`/fuel-price/${id}`, { method: 'DELETE' });
 }
 
 export interface VehicleSignal {
@@ -1217,11 +1249,44 @@ export interface VehicleTrack {
 
 export type VehicleDisplayStatus = 'online' | 'idle' | 'offline' | 'no_device';
 
+/**
+ * Litres still in the tank when a real vehicle's low-fuel light comes on —
+ * manufacturers hold back roughly 10-12 L near empty so the electric fuel
+ * pump, submerged in the tank and cooled by the fuel around it, never runs
+ * dry. A driver already reads that point as "empty"; showing a gauge against
+ * full nameplate capacity instead makes the app look more full than the
+ * vehicle's own dashboard would, and less full than that is exactly the
+ * complaint a manager who has driven the vehicle will make.
+ *
+ * A flat litre figure rather than a percentage of capacity, because the
+ * reserve is sized to the pump, not the tank.
+ */
+export const RESERVE_LITERS_DEFAULT = 11;
+
+/**
+ * Percent of *usable* fuel — capacity minus the reserve — floored at 0 once
+ * the tank is inside the reserve band. This is what a driver's own gauge
+ * shows them, so it is what a manager should see too.
+ */
+export function usableFuelPercent(
+  liters: number | null | undefined,
+  capacityLiters: number | null | undefined
+): number | null {
+  if (liters == null || !capacityLiters) return null;
+  const usableCapacity = Math.max(1, capacityLiters - RESERVE_LITERS_DEFAULT);
+  const usableLiters = Math.max(0, liters - RESERVE_LITERS_DEFAULT);
+  return Math.max(0, Math.min(100, Math.round((usableLiters / usableCapacity) * 100)));
+}
+
+/** Whether the tank has dropped into the reserve band — the same moment a
+ *  real dashboard's low-fuel warning light would already be on. */
+export function isInFuelReserve(liters: number | null | undefined): boolean {
+  return liters != null && liters <= RESERVE_LITERS_DEFAULT;
+}
+
 export function fuelPercent(row: FleetVehicle): number | null {
   if (row.fuel_level_liters == null || !row.tank_capacity_liters) return null;
-  return Math.round(
-    (Number(row.fuel_level_liters) / row.tank_capacity_liters) * 100
-  );
+  return usableFuelPercent(Number(row.fuel_level_liters), row.tank_capacity_liters);
 }
 
 export function vehicleDisplayStatus(row: FleetVehicle): VehicleDisplayStatus {

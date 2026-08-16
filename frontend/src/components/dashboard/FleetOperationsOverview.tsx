@@ -68,15 +68,40 @@ type AttentionItem = {
   vehicleId?: string;
 };
 
+/**
+ * Driving/fuel health only — not connectivity.
+ *
+ * Connectivity already has its own number: the "Active alerts" tile's
+ * "N/M vehicles online" line. Folding `offline * 4` in here too meant a
+ * single-vehicle pilot with one disconnected tracker could never score above
+ * ~96 no matter how well the vehicle was driven, and worse, every open alert
+ * — including the routine, informational ones like a driver simply filing a
+ * receipt — cost 5 points apiece. On a real fleet that accumulates a dozen
+ * alerts in a week, that alone floors the score before theft or efficiency
+ * are even weighed, which is exactly the "looks broken, not unhealthy"
+ * problem: two different questions (is the fleet reachable, is it being
+ * driven and fuelled well) were being answered with one number.
+ */
 function fleetHealthScore(summary: DashboardSummary, efficiency: FleetEfficiency[]) {
   let score = 100;
-  const offline = summary.total_vehicles - summary.online_vehicles;
-  score -= offline * 4;
-  score -= summary.active_alerts * 5;
+  // Only alerts that actually indicate a driving/fuel problem count here —
+  // reuses the same bad/warn severity classification the alerts feed itself
+  // uses, so a receipt upload or a routine trip-start note never touches
+  // this score. Weighted lighter than before: one open alert is a thing to
+  // look at, not a tenth of the fleet's health gone.
+  const concerning = summary.active_alerts - summary.theft_alerts;
+  score -= concerning * 2;
   score -= summary.theft_alerts * 10;
   const under = efficiency.filter((e) => e.status !== 'verified').length;
   score -= under * 7;
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+/** Vehicles reachable right now — the connectivity half of "is this fleet
+ *  even being watched", kept separate from driving/fuel health. */
+function connectivityScore(summary: DashboardSummary): number {
+  if (summary.total_vehicles <= 0) return 100;
+  return Math.round((summary.online_vehicles / summary.total_vehicles) * 100);
 }
 
 function driverScore(row: FleetEfficiency) {
@@ -131,7 +156,11 @@ export function FleetOperationsOverview({
 }) {
   const [expandedVehicle, setExpandedVehicle] = useState<string | null>(null);
   const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
-  const [financialDetailsOpen, setFinancialDetailsOpen] = useState(false);
+  // The naira-per-km figure and the litre-by-litre reconciliation below it are
+  // the two things a manager actually budgets and argues against — starting
+  // collapsed buried the best evidence on the page behind a click nobody knew
+  // to make.
+  const [financialDetailsOpen, setFinancialDetailsOpen] = useState(true);
   /** The row whose full evidence is open. Null = queue view. */
   const [detailItem, setDetailItem] = useState<AttentionItem | null>(null);
 
@@ -282,6 +311,8 @@ export function FleetOperationsOverview({
   const healthScore = summary ? fleetHealthScore(summary, efficiency) : null;
   const healthTone =
     healthScore == null ? 'default' : healthScore >= 75 ? 'good' : healthScore >= 50 ? 'warn' : 'bad';
+  const connScore = summary ? connectivityScore(summary) : null;
+  const offlineCount = summary ? summary.total_vehicles - summary.online_vehicles : 0;
 
   const attentionItems = useMemo(() => {
     const items: AttentionItem[] = [];
@@ -667,6 +698,7 @@ export function FleetOperationsOverview({
                           ? `vs ${formatNgn(fuelContext.benchmarkCostPerKm)} typical`
                           : null
                       }
+                      emphasis
                     />
                     {/* What idling is costing, rather than an economy figure
                         that only ever restates the vehicle's own settings.
@@ -813,7 +845,11 @@ export function FleetOperationsOverview({
             icon={AlertTriangle}
             label="Active alerts"
             value={String(summary.active_alerts)}
-            hint={`${summary.online_vehicles}/${summary.total_vehicles} vehicles online`}
+            hint={
+              offlineCount > 0
+                ? `${summary.online_vehicles}/${summary.total_vehicles} online — offline vehicles show their last known state, not live data`
+                : `${summary.online_vehicles}/${summary.total_vehicles} vehicles online`
+            }
             tone={summary.active_alerts > 0 ? 'warn' : 'good'}
             className="lg:col-span-3"
           />
@@ -829,7 +865,17 @@ export function FleetOperationsOverview({
             icon={Gauge}
             label="Fleet health"
             value={healthScore != null ? `${healthScore}/100` : '—'}
-            hint="Offline trackers, open alerts, vehicles off baseline"
+            // Connectivity used to be folded into this number, so one
+            // disconnected tracker could floor it regardless of how well the
+            // fleet was actually driven — a different problem (needs a
+            // technician) answered with the same number as a driving one
+            // (needs a word with the driver). It now shows separately, right
+            // in this tile's hint, rather than inventing a sixth grid tile.
+            hint={
+              connScore != null
+                ? `Driving & fuel only · connectivity ${connScore}%${offlineCount > 0 ? ` (${offlineCount} offline)` : ''}`
+                : 'Theft flags, efficiency, open issues'
+            }
             tone={healthTone}
             className="lg:col-span-3"
           />
@@ -1244,15 +1290,23 @@ function Rate({
   label,
   value,
   benchmark,
+  emphasis = false,
 }: {
   label: string;
   value: string;
   benchmark: string | null;
+  /** Cost per km is what an owner actually budgets against — it earns the
+   *  same visual weight as the hero figure above it, not a secondary stat. */
+  emphasis?: boolean;
 }) {
   return (
     <div>
       <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-dim">{label}</p>
-      <p className="mt-1.5 font-mono text-2xl font-semibold tabular-nums text-ink">{value}</p>
+      <p
+        className={`mt-1.5 font-mono font-semibold tabular-nums text-ink ${emphasis ? 'text-4xl' : 'text-2xl'}`}
+      >
+        {value}
+      </p>
       {benchmark && <p className="mt-0.5 text-xs text-ink-dim">{benchmark}</p>}
     </div>
   );

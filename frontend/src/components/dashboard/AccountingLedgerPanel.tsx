@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, LayoutGrid, Table2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutGrid, Table2 } from 'lucide-react';
 import { api, formatNgn, FuelPurchase, FuelPurchasesResponse } from '@/lib/api';
 
 const PAGE_SIZE = 25;
@@ -10,23 +10,63 @@ const PAGE_SIZE = 25;
 // one big fetch to have covered everything.
 const EXPORT_PAGE_SIZE = 500;
 
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+/** Generic spreadsheet mark in Excel's own green, not a reproduction of
+ * Microsoft's trademarked logo asset. */
+function ExcelIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} fill="none" aria-hidden>
+      <rect x="1" y="2" width="18" height="16" rx="2" fill="#1D6F42" />
+      <rect x="4" y="5" width="12" height="10" rx="1" fill="#0B4A2A" />
+      <path
+        d="M6.5 7l2.4 3-2.4 3h1.7l1.55-2.1L11.3 13H13l-2.4-3 2.4-3h-1.7l-1.55 2.1L8.2 7z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
 }
 
 /**
- * CSV rather than a binary .xlsx: it opens natively in Excel with no library
- * at all, where the obvious alternative (the `xlsx` npm package) carries two
- * open prototype-pollution/ReDoS advisories in its parser that SheetJS never
- * patched on the npm registry. This feature only ever writes a file, so that
- * parser is never reached either way — but there is no reason to carry a
- * flagged dependency for a format Excel already reads.
+ * Real .xlsx via exceljs, built and downloaded client-side. Only the writer
+ * half of the library ever runs here — the parser (`workbook.xlsx.load`)
+ * is never called, since nothing this feature does reads a file back in.
  */
-function downloadCsv(filename: string, rows: string[][]): void {
-  const csv = rows.map((row) => row.map(csvCell).join(',')).join('\r\n');
-  // Leading BOM so Excel reads the naira sign and driver names as UTF-8
-  // instead of guessing a legacy codepage and mangling them.
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+async function downloadXlsx(
+  filename: string,
+  header: string[],
+  rows: (string | number)[][],
+  totalsRow: (string | number)[]
+): Promise<void> {
+  const ExcelJS = (await import('exceljs')).default;
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'FuelSense';
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet('Fuel purchases');
+  sheet.addRow(header);
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).eachCell((cell) => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D6F42' } };
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  });
+
+  rows.forEach((row) => sheet.addRow(row));
+
+  const total = sheet.addRow(totalsRow);
+  total.font = { bold: true };
+
+  sheet.columns.forEach((col) => {
+    let max = 10;
+    col.eachCell?.({ includeEmpty: true }, (cell) => {
+      max = Math.max(max, String(cell.value ?? '').length + 2);
+    });
+    col.width = Math.min(max, 40);
+  });
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -37,21 +77,21 @@ function downloadCsv(filename: string, rows: string[][]): void {
   URL.revokeObjectURL(url);
 }
 
-function purchaseRow(p: FuelPurchase): string[] {
+function purchaseRow(p: FuelPurchase): (string | number)[] {
   return [
     new Date(p.purchased_at ?? p.timestamp).toLocaleString('en-NG'),
     p.driver_name ?? 'Unassigned',
     p.license_plate,
-    p.liters_declared.toFixed(2),
-    String(p.cost_per_liter_ngn),
-    String(p.total_cost_ngn),
-    p.distance_km != null ? p.distance_km.toFixed(1) : '',
+    Number(p.liters_declared.toFixed(2)),
+    p.cost_per_liter_ngn,
+    p.total_cost_ngn,
+    p.distance_km != null ? Number(p.distance_km.toFixed(1)) : '',
     p.merchant ?? '',
     p.status,
   ];
 }
 
-const CSV_HEADER = [
+const LEDGER_HEADER = [
   'Date',
   'Driver',
   'Vehicle',
@@ -195,12 +235,12 @@ export function AccountingLedgerPanel() {
       const totalAmount = all.reduce((sum, row) => sum + row.total_cost_ngn, 0);
       const totalLiters = all.reduce((sum, row) => sum + row.liters_declared, 0);
 
-      downloadCsv(`fuel-purchase-ledger-${new Date().toISOString().slice(0, 10)}.csv`, [
-        CSV_HEADER,
-        ...all.map(purchaseRow),
-        [],
-        ['', '', '', totalLiters.toFixed(2), '', String(totalAmount), '', '', 'TOTAL'],
-      ]);
+      await downloadXlsx(
+        `fuel-purchase-ledger-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        LEDGER_HEADER,
+        all.map(purchaseRow),
+        ['', '', '', Number(totalLiters.toFixed(2)), '', totalAmount, '', '', 'TOTAL']
+      );
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -250,7 +290,7 @@ export function AccountingLedgerPanel() {
             disabled={exporting}
             className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-panel-deep px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:border-brand/40 hover:text-brand disabled:opacity-50"
           >
-            <Download className="h-3.5 w-3.5" /> {exporting ? 'Exporting…' : 'Export to Excel'}
+            <ExcelIcon className="h-3.5 w-3.5" /> {exporting ? 'Exporting…' : 'Export to Excel'}
           </button>
         </div>
       </div>

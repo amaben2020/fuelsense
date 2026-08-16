@@ -1,5 +1,6 @@
 import { db, sql } from './db-helpers';
 import { effectivePriceAt } from './fuel-price';
+import { lookupPlace } from './place-lookup';
 
 const REPLAY_WINDOW_MINUTES = 30;
 const MAX_READINGS = 200;
@@ -62,7 +63,7 @@ interface RawRow {
   odometer_km?: unknown;
 }
 
-interface SerializedReading {
+export interface SerializedReading {
   recorded_at: unknown;
   fuel_level_liters: number | null;
   speed_kph: number;
@@ -126,24 +127,48 @@ function serializeReading(row: RawRow): SerializedReading {
   };
 }
 
-function findClosestIndex(
+/**
+ * The reading closest in time to `targetTime`, preferring one with a GPS fix.
+ *
+ * A manoeuvre matched to a fix-less reading can never be drawn — the track is
+ * a polyline of coordinates, and the frontend's index remap silently drops
+ * anything that lands on a point with no lat/lng (see `indexInPath` in
+ * EventReplayPanel.tsx). That produced a "harsh cornering" flag with a
+ * correct description and magnitude but no orange segment anywhere on the
+ * map: the event was real, only its position was unpaintable. Snapping to
+ * the nearest fixed reading instead keeps the claim visible, at the cost of
+ * being off by at most a reading or two.
+ */
+export function findClosestIndex(
   readings: SerializedReading[],
   targetTime: unknown,
 ): number {
   if (!readings.length) return 0;
   const target = new Date(targetTime as string).getTime();
-  let best = 0;
-  let bestDiff = Infinity;
-  readings.forEach((row, index) => {
-    const diff = Math.abs(
-      new Date(row.recorded_at as string).getTime() - target,
-    );
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = index;
-    }
-  });
-  return best;
+
+  const closest = (candidates: SerializedReading[]): { index: number; diff: number } => {
+    let best = 0;
+    let bestDiff = Infinity;
+    candidates.forEach((row, index) => {
+      const diff = Math.abs(new Date(row.recorded_at as string).getTime() - target);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = index;
+      }
+    });
+    return { index: best, diff: bestDiff };
+  };
+
+  const fixedIndices = readings
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.latitude != null && row.longitude != null);
+
+  if (fixedIndices.length) {
+    const { index } = closest(fixedIndices.map(({ row }) => row));
+    return fixedIndices[index].index;
+  }
+
+  return closest(readings).index;
 }
 
 function findSteepestDropIndex(readings: SerializedReading[]): number {
@@ -336,7 +361,10 @@ async function loadTrackManoeuvres({
     FROM device_events
     WHERE vehicle_id = ${vehicleId}
       AND customer_id = ${customerId}
-      AND event_type = ANY(${TRACK_MANOEUVRES as unknown as string[]})
+      AND event_type IN (${sql.join(
+        TRACK_MANOEUVRES.map((t) => sql`${t}`),
+        sql`, `
+      )})
       AND occurred_at BETWEEN ${start}::timestamp AND ${end}::timestamp
     ORDER BY occurred_at ASC
   `);
@@ -835,6 +863,34 @@ async function buildDailyReplay({
         : 'Review full-day telemetry for operational waste'
     );
 
+  // Where this actually happened, spelled out — a manager staring at a dashed
+  // pin on a map still has to work out what street that pin is on. Best
+  // effort: a resolver outage must never fail the replay itself.
+  //
+  // The anomaly row itself is picked for its fuel-drop, not its GPS quality,
+  // so it can land on a reading between fixes with no coordinate at all —
+  // the nearest reading either side that does have one is close enough for
+  // "roughly where this was" and beats showing nothing.
+  const fixNear = (index: number): { latitude: number; longitude: number } | null => {
+    for (let offset = 0; offset < rows.length; offset += 1) {
+      const before = rows[index - offset];
+      if (before?.latitude != null && before?.longitude != null) {
+        return { latitude: before.latitude, longitude: before.longitude };
+      }
+      const after = rows[index + offset];
+      if (after?.latitude != null && after?.longitude != null) {
+        return { latitude: after.latitude, longitude: after.longitude };
+      }
+    }
+    return null;
+  };
+  const anomalyFix = fixNear(anomalyIndex);
+  const locationName = anomalyFix
+    ? await lookupPlace(anomalyFix.latitude, anomalyFix.longitude)
+        .then((place) => place.formatted_address || place.place_name)
+        .catch(() => null)
+    : null;
+
   return attachMoments(
     {
       event_type: eventType,
@@ -845,7 +901,7 @@ async function buildDailyReplay({
       range_end: rows[rows.length - 1].recorded_at,
       anomaly_at: anomalyReading?.recorded_at ?? rows[0].recorded_at,
       anomaly_index: anomalyIndex,
-      location_name: null,
+      location_name: locationName,
       readings: rows,
       manoeuvres,
       // Lets the track shade its own overspeed stretches from the speeds it is

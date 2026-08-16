@@ -16,7 +16,9 @@ import {
   fetchGeofences,
   fetchStopPlace,
   formatOdometerMiles,
+  isInFuelReserve,
   placePhotoSrc,
+  usableFuelPercent,
 } from '@/lib/api';
 import {
   FLEET_MAPS_KEY,
@@ -1266,15 +1268,14 @@ export function LiveMonitoringMap({
               {(() => {
                 const meta = fleetMeta.get(selectedTrack.vehicleId);
                 const litres = meta?.fuel ?? null;
-                const pct =
-                  litres != null && meta?.tankCapacity
-                    ? Math.round((litres / meta.tankCapacity) * 100)
-                    : null;
+                const pct = usableFuelPercent(litres, meta?.tankCapacity ?? null);
+                const inReserve = isInFuelReserve(litres);
                 return (
                   <LiquidFuelGauge
                     percent={pct}
                     size={116}
                     className="mt-1"
+                    inReserve={inReserve}
                     primary={litres != null ? `${litres.toFixed(1)}L` : '—'}
                   />
                 );
@@ -1282,14 +1283,15 @@ export function LiveMonitoringMap({
               {(() => {
                 const meta = fleetMeta.get(selectedTrack.vehicleId);
                 const litres = meta?.fuel ?? null;
-                const pct =
-                  litres != null && meta?.tankCapacity
-                    ? Math.round((litres / meta.tankCapacity) * 100)
-                    : null;
+                const pct = usableFuelPercent(litres, meta?.tankCapacity ?? null);
+                const inReserve = isInFuelReserve(litres);
                 if (pct == null && meta?.tankConfidence == null) return null;
                 return (
-                  <p className="mt-0.5 text-[10px] leading-tight text-ink-dim">
-                    {pct != null && <span>{pct}% of tank</span>}
+                  <p
+                    className={`mt-0.5 text-[10px] leading-tight ${inReserve ? 'font-semibold text-bad-bright' : 'text-ink-dim'}`}
+                  >
+                    {inReserve && <span>In reserve</span>}
+                    {!inReserve && pct != null && <span>{pct}% usable</span>}
                     {pct != null && meta?.tankConfidence != null && ' · '}
                     {meta?.tankConfidence != null && (
                       <span

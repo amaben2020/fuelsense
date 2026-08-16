@@ -13,6 +13,12 @@ import { TRUST_COPY } from '@/lib/trust-language';
 const ALERT_TONE: Record<string, 'bad' | 'warn' | 'good' | 'neutral'> = {
   fuel_theft: 'bad',
   receipt_fraud: 'bad',
+  // The system losing visibility on a vehicle is at least as serious as a
+  // confirmed theft — it's the gap a dishonest driver can blame on "the app
+  // was down", so it gets the same severity, not a lesser one.
+  device_offline: 'bad',
+  immobilizer_engaged: 'bad',
+  immobilizer_released: 'good',
   unlogged_fill: 'warn',
   excessive_idle: 'warn',
   idle_fuel_waste: 'warn',
