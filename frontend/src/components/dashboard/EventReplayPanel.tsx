@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import {
   AlertTriangle,
@@ -12,6 +13,7 @@ import {
   Truck,
 } from 'lucide-react';
 import {
+  ApiError,
   EventReplayManoeuvre,
   EventReplayMoment,
   EventReplayResponse,
@@ -58,6 +60,15 @@ const PAUSE_MOMENT_TYPES = new Set<EventReplayMoment['type']>([
 ]);
 
 const replayMapStyle = fleetMapContainerStyle(REPLAY_MAP_MIN_HEIGHT_PX);
+
+/** `dateKey` minus one calendar day, for the "daily" retry — plain date math,
+ * not timezone-aware, but the input is already a `YYYY-MM-DD` key so there's
+ * no offset left to get wrong. */
+function previousDayKey(dateKey: string): string {
+  const d = new Date(`${dateKey}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-NG', {
@@ -534,7 +545,27 @@ export function EventReplayPanel({
     setLoading(true);
     setError(null);
     try {
-      const result = await api<EventReplayResponse>(path);
+      let result: EventReplayResponse;
+      try {
+        result = await api<EventReplayResponse>(path);
+      } catch (err) {
+        // A "daily" target's date comes from when an alert was written, not
+        // from the telemetry it describes — a fraud/route alert generated
+        // just after local midnight is filed a calendar day later than the
+        // stop it's reporting on. One retry against the previous day covers
+        // that lag without guessing at every alert type's message format.
+        if (
+          target.kind === 'daily' &&
+          err instanceof ApiError &&
+          err.status === 404
+        ) {
+          result = await api<EventReplayResponse>(
+            replayApiPath({ ...target, activityDate: previousDayKey(target.activityDate) })
+          );
+        } else {
+          throw err;
+        }
+      }
       setData(result);
 
       // Open on the run-up, not on the event itself. Landing the scrubber
@@ -551,7 +582,7 @@ export function EventReplayPanel({
     } finally {
       setLoading(false);
     }
-  }, [path]);
+  }, [path, target]);
 
   useEffect(() => {
     load();
@@ -609,7 +640,13 @@ export function EventReplayPanel({
     };
   }, [data, readings, moments, anomalyIndex, activeIndex]);
 
-  return (
+  // Portalled to the document body rather than left in the dashboard's own
+  // component tree. Nested inside the page's normal layout, this `fixed
+  // inset-0` overlay was consistently rendering short of the true viewport
+  // height, leaving a sliver at the bottom where the driving-behavior list
+  // underneath showed through — a portal removes it from that layout
+  // entirely instead of chasing why the containing block was off.
+  return createPortal(
     <div className="fixed inset-0 z-[60] flex flex-col bg-canvas">
       <header className="flex shrink-0 items-center justify-between border-b border-edge px-4 py-3 md:px-6">
         <div className="flex items-center gap-3">
@@ -1043,6 +1080,7 @@ export function EventReplayPanel({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

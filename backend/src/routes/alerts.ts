@@ -3,6 +3,7 @@ import { authenticateCustomer } from '../middleware/auth';
 import { db, alerts, vehicles, eq, and, desc } from '../lib/db-helpers';
 import { inArray } from 'drizzle-orm';
 import { withCache, invalidate, cacheKey } from '../lib/redis';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -135,7 +136,7 @@ router.get('/anomalies', async (req: Request, res: Response) => {
     });
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -171,7 +172,7 @@ router.get('/', async (req: Request, res: Response) => {
     );
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -199,7 +200,7 @@ router.patch('/:id/acknowledge', async (req: Request, res: Response) => {
     await invalidate(req.user.customerId, 'alerts', 'anomalies');
     res.json({ ok: true, id: updated.id });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

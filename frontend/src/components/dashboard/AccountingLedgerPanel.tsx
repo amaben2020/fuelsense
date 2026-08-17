@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, LayoutGrid, Table2 } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, LayoutGrid, Table2 } from 'lucide-react';
 import { api, formatNgn, FuelPurchase, FuelPurchasesResponse } from '@/lib/api';
+import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
+import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 
 const PAGE_SIZE = 25;
 // The on-screen table pages at 25; export pulls the whole history in as few
@@ -176,12 +178,13 @@ function SpendChart({ points }: { points: [string, number][] }) {
 }
 
 export function AccountingLedgerPanel() {
-  const [view, setView] = useState<'table' | 'graph'>('table');
+  const [view, setView] = useState<'table' | 'graph' | 'calendar'>('table');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<FuelPurchasesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [selectedPurchase, setSelectedPurchase] = useState<FuelPurchase | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -283,6 +286,16 @@ export function AccountingLedgerPanel() {
             >
               <LayoutGrid className="h-3.5 w-3.5" /> Graph
             </button>
+            <button
+              type="button"
+              onClick={() => setView('calendar')}
+              aria-pressed={view === 'calendar'}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                view === 'calendar' ? 'bg-brand text-canvas' : 'text-ink-dim hover:text-ink'
+              }`}
+            >
+              <Calendar className="h-3.5 w-3.5" /> Calendar
+            </button>
           </div>
           <button
             type="button"
@@ -315,11 +328,20 @@ export function AccountingLedgerPanel() {
         <div className="rounded-lg border border-bad/40 bg-bad-deep/20 p-3 text-sm text-bad">{error}</div>
       )}
 
+      {selectedPurchase && (
+        <ReceiptEventModal purchase={selectedPurchase} onClose={() => setSelectedPurchase(null)} />
+      )}
+
       <div className="rounded-lg border border-edge bg-panel p-5">
         {loading && !data ? (
           <p className="py-12 text-center text-sm text-ink-dim">Loading ledger…</p>
         ) : view === 'graph' ? (
           <SpendChart points={spendByDate} />
+        ) : view === 'calendar' ? (
+          <PurchaseCalendarView
+            purchases={data?.purchases ?? []}
+            onViewEvent={setSelectedPurchase}
+          />
         ) : (
           <>
             <div className="overflow-x-auto">

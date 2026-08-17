@@ -3,6 +3,7 @@ import { authenticateCustomer } from '../middleware/auth';
 import { db, sql, eq, and } from '../lib/db-helpers';
 import { maintenanceSchedules } from '../db/schema';
 import { round1 } from '../lib/fuel-metrics';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 router.use(authenticateCustomer);
@@ -126,7 +127,7 @@ router.get('/', async (req: Request, res: Response) => {
       items,
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -201,7 +202,7 @@ router.patch('/:id/complete', async (req: Request, res: Response) => {
     }
     res.json(row);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -223,7 +224,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
     res.status(204).end();
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

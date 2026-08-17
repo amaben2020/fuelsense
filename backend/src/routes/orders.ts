@@ -10,6 +10,7 @@ import {
   desc,
   sql,
 } from '../lib/db-helpers';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -37,7 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -100,7 +101,7 @@ router.post('/', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -145,7 +146,7 @@ router.patch('/:id/ship', async (req: Request, res: Response) => {
 
     res.json(order);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

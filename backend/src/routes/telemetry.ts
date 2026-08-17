@@ -39,6 +39,7 @@ import { googleUsageSnapshot } from '../lib/google-usage';
 import { getSerializedIoValue } from '../lib/avl-io';
 import { decodeSignal } from '../lib/avl-catalogue';
 import { serializeForApi } from '../lib/serialize';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -70,7 +71,7 @@ router.get('/latest', async (req: Request, res: Response) => {
 
     res.json(row || null);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -109,7 +110,7 @@ router.get('/history', async (req: Request, res: Response) => {
 
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -210,7 +211,7 @@ router.get('/tracks', async (req: Request, res: Response) => {
     res.setHeader('X-Track-Source', cached.source);
     res.json(cached.rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -495,7 +496,7 @@ router.get('/trips', async (req: Request, res: Response) => {
 
     res.json(cached);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -514,7 +515,7 @@ router.get('/stop-place', async (req: Request, res: Response) => {
   try {
     res.json(await lookupPlace(lat, lng));
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -544,7 +545,7 @@ router.get('/consumption-trend/:vehicleId', async (req: Request, res: Response) 
       history,
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -623,7 +624,7 @@ router.get('/purchase-reconciliation', async (req: Request, res: Response) => {
 
     res.json({ cards });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -927,7 +928,7 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
 
     res.json({ summary, vehicles: rows });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -1037,7 +1038,7 @@ router.get('/daily-activity', async (req: Request, res: Response) => {
       active_flags: activeFlags,
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -1067,7 +1068,7 @@ router.get('/daily-activity/replay', async (req: Request, res: Response) => {
     }
     res.json(replay);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -1283,7 +1284,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
       ...(summary ? { summary } : {}),
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -1397,7 +1398,7 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
           : 'Receipt saved. OBD timestamps will attach when a refuel event is detected nearby.',
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -1442,7 +1443,7 @@ router.get('/readings', async (req: Request, res: Response) => {
       rows: rows.rows,
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -1464,7 +1465,7 @@ router.get('/efficiency', async (req: Request, res: Response) => {
 
     res.json(result.rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -1574,7 +1575,7 @@ router.get('/vehicle-signals', async (req: Request, res: Response) => {
 
     res.json(serializeForApi(cached));
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

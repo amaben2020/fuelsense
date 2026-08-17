@@ -15,6 +15,7 @@ import {
   buildSiphonEventReplay,
   buildReceiptEventReplay,
 } from '../lib/event-replay';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -126,7 +127,7 @@ router.get('/', async (req: Request, res: Response) => {
       })),
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -142,7 +143,7 @@ router.get('/siphon-events/:id/replay', async (req: Request, res: Response) => {
     }
     res.json(replay);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -158,7 +159,7 @@ router.get('/receipts/:id/replay', async (req: Request, res: Response) => {
     }
     res.json(replay);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -183,7 +184,7 @@ router.patch(
       }
       res.json({ ok: true, id: updated.id });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      logAndRespond(res, req.path, error);
     }
   },
 );
@@ -207,7 +208,7 @@ router.patch('/receipts/:id/resolve', async (req: Request, res: Response) => {
     }
     res.json({ ok: true, id: updated.id });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

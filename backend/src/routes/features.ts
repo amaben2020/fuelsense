@@ -9,6 +9,7 @@ import {
 } from '../lib/fuel-metrics';
 import { ALERT_CATALOGUE } from '../lib/alert-catalogue';
 import { db, notificationPreferences, eq, and, sql } from '../lib/db-helpers';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -30,7 +31,7 @@ router.get('/', async (req: Request, res: Response) => {
       })),
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -113,7 +114,7 @@ router.get('/documentation', async (req: Request, res: Response) => {
       ],
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -166,7 +167,7 @@ router.get('/calibration-status', async (req: Request, res: Response) => {
 
     res.json({ calibration_min_purchases: CALIBRATION_MIN_PURCHASES, vehicles });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -215,7 +216,7 @@ router.patch('/notifications/:alertType', async (req: Request, res: Response) =>
 
     res.json({ success: true, alert_type: alertType, email_enabled: emailEnabled });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

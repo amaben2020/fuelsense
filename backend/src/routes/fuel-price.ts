@@ -11,6 +11,7 @@ import {
 } from '../lib/fuel-price';
 import { serializeForApi } from '../lib/serialize';
 import { invalidate } from '../lib/redis';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -39,7 +40,7 @@ router.get('/', async (req: Request, res: Response) => {
       })
     );
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -91,7 +92,7 @@ router.post('/', async (req: Request, res: Response) => {
       })
     );
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

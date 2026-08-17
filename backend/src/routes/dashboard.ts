@@ -20,6 +20,7 @@ import {
   IDLE_BURN_LITERS_PER_HOUR,
 } from '../lib/fuel-metrics';
 import { withCache, cacheKey } from '../lib/redis';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -118,7 +119,7 @@ router.get('/summary', async (req: Request, res: Response) => {
 
     res.json(cached);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -179,7 +180,7 @@ router.get('/utilisation', async (req: Request, res: Response) => {
         : null,
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -231,8 +232,15 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
           COALESCE(SUM(idle_delta_s), 0)::numeric AS idle_seconds
         FROM deltas d
         JOIN vehicles v ON v.id = d.vehicle_id
+        -- Grouping by the "activity_date" output alias rather than repeating
+        -- the localDate helper here: each interpolation of that helper binds
+        -- its own copy of the timezone constant as a separate parameter, so
+        -- the SELECT and GROUP BY copies reached Postgres as two textually
+        -- different (if equally-valued) parameters — "column d.recorded_at
+        -- must appear in the GROUP BY clause", on every request. The alias
+        -- sidesteps the duplicate parameter entirely.
         GROUP BY
-          ${localDate}, d.vehicle_id, d.license_plate, d.model, d.driver_name,
+          activity_date, d.vehicle_id, d.license_plate, d.model, d.driver_name,
           v.consumption_rate_l_per_100km, v.idle_burn_rate_l_per_hour
         ORDER BY activity_date DESC, d.license_plate ASC
       `);
@@ -393,7 +401,7 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
 
     res.json(cached);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, 'estimated-consumption', error);
   }
 });
 

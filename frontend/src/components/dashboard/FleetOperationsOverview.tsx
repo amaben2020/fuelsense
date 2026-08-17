@@ -53,6 +53,10 @@ import {
  */
 const FUEL_COVERAGE_FLOOR = 0.6;
 
+function activityDateKey(iso: string) {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
+}
+
 type AttentionItem = {
   id: string;
   severity: 'critical' | 'warning' | 'info';
@@ -394,6 +398,25 @@ export function FleetOperationsOverview({
         source: 'Live telemetry',
         lossNgn: a.amount_lost_ngn,
         vehicleId: a.vehicle_id ?? undefined,
+        // Without this, "Fill with no receipt" / "Off expected route" /
+        // "Excessive idling" rows — most of what actually lands in this list —
+        // had no way to open a replay at all, in the modal or from the tile's
+        // own "View evidence replay" CTA.
+        //
+        // No `at` here deliberately: `a.timestamp` is when this alert row was
+        // *written* by a sweep job, not when the incident happened — it can
+        // trail the real event by hours. The replay's SQL hard-filters to a
+        // ±5-minute window around `at`, so centering on the wrong moment
+        // doesn't just mis-scrub the timeline, it returns zero rows. Leaving
+        // `at` unset loads the whole day instead, same as `buildDailyReplay`
+        // already falls back to when a centred window comes up empty.
+        replayTarget: a.vehicle_id
+          ? {
+              kind: 'daily',
+              vehicleId: a.vehicle_id,
+              activityDate: activityDateKey(a.timestamp),
+            }
+          : undefined,
       });
     }
 
@@ -972,7 +995,20 @@ export function FleetOperationsOverview({
             <div className="mt-4 flex flex-col gap-2">
               <button
                 type="button"
-                onClick={onOpenAnomalies}
+                onClick={() => {
+                  // The tile promises "closes disputes with data" right next to
+                  // the day's actual flagged items — it used to instead navigate
+                  // to the unrelated siphon/receipt-flag list, which was almost
+                  // always empty even when the attention queue above had real
+                  // rows. Open the top item's own replay directly; only fall
+                  // back to the list when nothing here has one.
+                  const topReplayable = attentionItems.find((item) => item.replayTarget);
+                  if (topReplayable?.replayTarget) {
+                    setReplayTarget(topReplayable.replayTarget);
+                  } else {
+                    onOpenAnomalies();
+                  }
+                }}
                 className="flex items-center justify-center gap-2 rounded-lg bg-accent py-3 text-sm font-semibold text-accent-y-ink shadow-lg shadow-accent/25"
               >
                 <Play className="h-4 w-4" /> {TRUST_COPY.viewEvidenceCta} ▶
@@ -980,7 +1016,7 @@ export function FleetOperationsOverview({
               <button
                 type="button"
                 onClick={() => onOpenLive()}
-                className="rounded-lg border border-edge py-2.5 text-sm text-ink-mid"
+                className="rounded-lg border border-ink-mid/40 py-2.5 text-sm text-ink"
               >
                 Live monitoring map
               </button>

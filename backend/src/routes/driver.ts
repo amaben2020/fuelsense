@@ -26,6 +26,7 @@ import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
 import { creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase } from '../lib/fuel-calibration';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -93,7 +94,7 @@ router.post('/login', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -114,7 +115,7 @@ router.get('/me', async (req: Request, res: Response) => {
     const assignment = await getDriverAssignment(req.driver.driverId, req.driver.customerId);
     res.json({ ...driver, ...assignment });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -173,7 +174,7 @@ router.get('/vehicle/status', async (req: Request, res: Response) => {
       longitude: row?.longitude != null ? Number(row.longitude) : null,
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -248,7 +249,7 @@ router.get('/trips', async (req: Request, res: Response) => {
       }),
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -322,7 +323,7 @@ router.get('/receipts', async (req: Request, res: Response) => {
 
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -640,7 +641,7 @@ router.post('/receipts', async (req: Request, res: Response) => {
             : 'Receipt saved. Waiting on tracker data to verify it.',
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

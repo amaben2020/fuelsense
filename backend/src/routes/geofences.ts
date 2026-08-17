@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, sql, eq, and } from '../lib/db-helpers';
 import { geofences } from '../db/schema';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 router.use(authenticateCustomer);
@@ -17,7 +18,7 @@ router.get('/', async (req: Request, res: Response) => {
       .where(eq(geofences.customerId, req.user.customerId));
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -69,7 +70,7 @@ router.post('/', async (req: Request, res: Response) => {
       .returning();
     res.status(201).json(row);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -90,7 +91,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     }
     res.status(204).end();
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -194,7 +195,7 @@ router.get('/events', async (req: Request, res: Response) => {
       }),
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

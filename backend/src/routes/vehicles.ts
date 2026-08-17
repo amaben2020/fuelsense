@@ -27,6 +27,7 @@ import {
   l100kmToKmL,
   kmLToMpg,
 } from '../lib/fuel-metrics';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -38,7 +39,7 @@ router.get('/fleet', async (req: Request, res: Response) => {
     const rows = await withCache(key, 5, () => getFleetByCustomerId(db, req.user.customerId));
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -62,7 +63,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -103,7 +104,7 @@ router.get('/:id/virtual-tank', async (req: Request, res: Response) => {
     const tank = await getVirtualTank(vehicleId);
     res.json(tank ? serializeTank(tank) : null);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -134,7 +135,7 @@ router.post('/:id/virtual-tank/calibrate', async (req: Request, res: Response) =
     await invalidate(req.user.customerId, 'fleet', 'summary');
     res.json({ success: true, tank: serializeTank(tank) });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -230,7 +231,7 @@ router.post('/:id/economy', async (req: Request, res: Response) => {
       mpg_us: kmLToMpg(kmL),
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -284,7 +285,7 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
       device_km_at_baseline: row.baseline_device_km,
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -329,7 +330,7 @@ router.post('/:id/speed-limit', async (req: Request, res: Response) => {
     await invalidate(req.user.customerId, 'fleet', 'summary');
     res.json({ success: true, speed_limit_kph: limit === null ? null : Math.round(limit) });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -582,7 +583,7 @@ router.get('/:id/immobilizer', async (req: Request, res: Response) => {
     const status = await getImmobilizerStatus(String(req.params.id), req.user.customerId);
     res.json(status);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -599,7 +600,7 @@ router.post('/:id/immobilizer/engage', async (req: Request, res: Response) => {
     }
     res.json(result.status);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -616,7 +617,7 @@ router.post('/:id/immobilizer/release', async (req: Request, res: Response) => {
     }
     res.json(result.status);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

@@ -9,6 +9,7 @@ import {
 import { round1, round2 } from '../lib/fuel-metrics';
 import { localDate } from '../lib/telemetry-deltas-sql';
 import { withCache, cacheKey } from '../lib/redis';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 router.use(authenticateCustomer);
@@ -85,7 +86,7 @@ router.get('/security', async (req: Request, res: Response) => {
     );
     res.json(payload);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -163,7 +164,7 @@ router.get('/hours', async (req: Request, res: Response) => {
     );
     res.json(payload);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -226,7 +227,7 @@ router.get('/utilisation', async (req: Request, res: Response) => {
     );
     res.json(payload);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

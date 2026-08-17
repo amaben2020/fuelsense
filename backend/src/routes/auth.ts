@@ -8,6 +8,7 @@ import {
   eq,
 } from '../lib/db-helpers';
 import { signToken, authenticateCustomer } from '../middleware/auth';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -64,7 +65,7 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
     const token = signToken(customer as Parameters<typeof signToken>[0]);
     res.status(201).json({ token, customer });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -100,7 +101,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     const token = signToken(customerData as Parameters<typeof signToken>[0]);
     res.json({ token, customer: customerData });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -117,7 +118,7 @@ router.get('/me', authenticateCustomer, async (req: Request, res: Response) => {
     }
     res.json(customer);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -159,7 +160,7 @@ router.patch('/branding', authenticateCustomer, async (req: Request, res: Respon
 
     res.json(customer);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -173,7 +174,7 @@ router.patch('/onboarding', authenticateCustomer, async (req: Request, res: Resp
 
     res.json(customer);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

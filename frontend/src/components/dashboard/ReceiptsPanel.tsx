@@ -11,6 +11,8 @@ import {
   api,
 } from '@/lib/api';
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
+import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
+import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
 
 
 function formatReceiptDate(iso: string) {
@@ -122,6 +124,7 @@ export function ReceiptsPanel({
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedPurchase, setSelectedPurchase] = useState<FuelPurchase | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
   const groupedByDate = useMemo(() => {
     const groups = new Map<string, FuelPurchase[]>();
@@ -246,13 +249,16 @@ export function ReceiptsPanel({
               What each driver logged at the pump, and what the tracker can confirm about it
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowForm((v) => !v)}
-            className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-y-ink"
-          >
-            Manual entry
-          </button>
+          <div className="flex items-center gap-3">
+            <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+            <button
+              type="button"
+              onClick={() => setShowForm((v) => !v)}
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-y-ink"
+            >
+              Manual entry
+            </button>
+          </div>
         </div>
 
         {showForm && (
@@ -339,6 +345,8 @@ export function ReceiptsPanel({
             <code className="text-brand">npm run seed-fuel-purchases</code> or log a receipt
             above.
           </p>
+        ) : viewMode === 'calendar' ? (
+          <PurchaseCalendarView purchases={purchases} onViewEvent={setSelectedPurchase} />
         ) : (
           <ReconciledReceiptsTable
             groupedByDate={groupedByDate}
@@ -348,7 +356,7 @@ export function ReceiptsPanel({
           />
         )}
 
-        {data && data.total_pages > 0 && (
+        {viewMode === 'list' && data && data.total_pages > 0 && (
           <Pagination page={page} totalPages={data.total_pages} onPage={onPageChange} />
         )}
       </div>

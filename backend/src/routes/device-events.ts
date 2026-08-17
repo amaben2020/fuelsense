@@ -3,6 +3,7 @@ import { authenticateCustomer } from '../middleware/auth';
 import { db, sql } from '../lib/db-helpers';
 import { distanceDeltasCte } from '../lib/telemetry-deltas-sql';
 import { IDLE_BURN_LITERS_PER_HOUR, round1 } from '../lib/fuel-metrics';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -88,7 +89,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json({ period_days: days, events: result.rows });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -214,7 +215,7 @@ router.get('/summary', async (req: Request, res: Response) => {
       vehicles,
     });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

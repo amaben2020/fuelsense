@@ -11,6 +11,7 @@ import {
 import { round1, round2, baselineEfficiencyKmL, kmLToMpg } from '../lib/fuel-metrics';
 import { localDate } from '../lib/telemetry-deltas-sql';
 import { withCache, cacheKey } from '../lib/redis';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -142,7 +143,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     res.status(201).json({ ...driver, has_pin: Boolean(creds.pin) });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -194,7 +195,7 @@ router.patch('/:id/credentials', async (req: Request, res: Response) => {
 
     res.json({ ...updated, has_pin: true });
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -224,7 +225,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json(rows);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -279,7 +280,7 @@ router.patch('/assign', async (req: Request, res: Response) => {
 
     res.json(vehicle);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -498,7 +499,7 @@ router.get('/reports', async (req: Request, res: Response) => {
 
     res.json(payload);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 

@@ -14,6 +14,7 @@ import {
 } from '../lib/place-lookup';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../middleware/auth';
+import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 
@@ -55,7 +56,7 @@ router.get('/photo', async (req: Request, res: Response) => {
     res.setHeader('X-Image-Cache', photo.cached ? 'HIT' : 'MISS');
     res.send(photo.body);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -87,7 +88,7 @@ router.get('/staticmap', async (req: Request, res: Response) => {
     res.setHeader('X-Image-Cache', img.cached ? 'HIT' : 'MISS');
     res.send(img.body);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
@@ -115,7 +116,7 @@ router.get('/streetview', async (req: Request, res: Response) => {
     res.setHeader('X-Image-Cache', img.cached ? 'HIT' : 'MISS');
     res.send(img.body);
   } catch (error) {
-    res.status(500).json({ error: (error as Error).message });
+    logAndRespond(res, req.path, error);
   }
 });
 
