@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { History } from 'lucide-react';
 import { api, TelemetryReadingsResponse, formatOdometerMiles } from '@/lib/api';
+import { TableSkeleton } from '@/components/ui/chrome';
 
 function Pagination({
   page,
@@ -82,7 +83,18 @@ export function TelemetryHistoryTable() {
       {error && <p className="px-6 py-3 text-sm text-bad">{error}</p>}
 
       {loading && rows.length === 0 ? (
-        <p className="p-6 text-sm text-ink-dim">Loading history…</p>
+        <TableSkeleton
+          columns={[
+            { width: 130 },
+            { width: 80 },
+            { width: 80 },
+            { width: 60 },
+            { width: 60 },
+            { width: 80 },
+            { width: 60 },
+            { width: 120 },
+          ]}
+        />
       ) : rows.length === 0 ? (
         <p className="p-6 text-sm text-ink-dim">
           No telemetry yet. Ensure your FMC150 devices are powered on and connected.

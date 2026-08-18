@@ -13,6 +13,7 @@ import {
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
 import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
+import { TableSkeleton } from '@/components/ui/chrome';
 
 
 function formatReceiptDate(iso: string) {
@@ -331,14 +332,21 @@ export function ReceiptsPanel({
         {message && <p className="px-6 py-2 text-xs text-brand">{message}</p>}
 
         {data === null ? (
-          <div className="min-h-[18rem] animate-pulse px-6 py-8">
-            <div className="mb-4 h-4 w-40 rounded bg-divider" />
-            <div className="space-y-3">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <div key={index} className="h-10 rounded bg-divider/70" />
-              ))}
-            </div>
-          </div>
+          <TableSkeleton
+            columns={[
+              { width: 60 },
+              { width: 70 },
+              { width: 80 },
+              { width: 70 },
+              { width: 90 },
+              { width: 60, align: 'right' },
+              { width: 90 },
+              { width: 80 },
+              { width: 60, align: 'right' },
+              { width: 70 },
+              { width: 16 },
+            ]}
+          />
         ) : purchases.length === 0 ? (
           <p className="p-6 text-sm text-ink-dim">
             No receipts yet. Run{' '}

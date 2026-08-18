@@ -396,6 +396,12 @@ export type RailItem<T extends string> = {
   tag?: string;
 };
 
+/** A labelled section of the rail — "Fleet", "Fuel", "Security". */
+export type RailGroup<T extends string> = {
+  label: string;
+  items: RailItem<T>[];
+};
+
 /**
  * How long the pointer must rest inside the rail before it expands.
  *
@@ -420,7 +426,7 @@ const RAIL_EXPAND_DELAY_MS = 350;
 export function IconRail<T extends string>({
   brand,
   brandLabel,
-  items,
+  groups,
   active,
   onSelect,
   footer,
@@ -428,7 +434,7 @@ export function IconRail<T extends string>({
 }: {
   brand?: React.ReactNode;
   brandLabel?: React.ReactNode;
-  items: RailItem<T>[];
+  groups: RailGroup<T>[];
   active: T;
   onSelect: (id: T) => void;
   footer?: React.ReactNode;
@@ -471,7 +477,7 @@ export function IconRail<T extends string>({
     const ro = new ResizeObserver(measureEdges);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [measureEdges, items.length, expanded]);
+  }, [measureEdges, groups, expanded]);
 
   const clearDwell = useCallback(() => {
     if (dwell.current) {
@@ -530,9 +536,10 @@ export function IconRail<T extends string>({
       )}
       <div className="mb-3 h-px w-full shrink-0 bg-divider" />
 
-      {/* Eleven destinations can overflow a short laptop viewport, so the list
-          scrolls — but the fade is applied per-edge and only when that edge
-          actually has content past it, so a list that fits is never dimmed. */}
+      {/* Seventeen destinations across five groups can overflow a short laptop
+          viewport, so the list scrolls — but the fade is applied per-edge and
+          only when that edge actually has content past it, so a list that
+          fits is never dimmed. */}
       <nav
         ref={navRef}
         onScroll={measureEdges}
@@ -540,7 +547,7 @@ export function IconRail<T extends string>({
            the buttons. Badges overhang their button by 2px, and a scroll
            container clips anything outside its content box — which is what was
            slicing the count badges down the middle. */
-        className="-mx-2 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="-mx-2 flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={
           edges.top || edges.bottom
             ? {
@@ -554,65 +561,78 @@ export function IconRail<T extends string>({
             : undefined
         }
       >
-        {items.map((item) => {
-          const isActive = item.id === active;
-          const Icon = item.icon;
-          const badge =
-            item.badge != null && item.badge > 0
-              ? item.badge > 99
-                ? '99+'
-                : String(item.badge)
-              : null;
+        {groups.map((group, gi) => (
+          <div key={group.label} className={gi > 0 ? 'mt-4 shrink-0' : 'shrink-0'}>
+            {/* Collapsed: a hairline between groups. Expanded: the label
+                itself is the separator, so the line would be redundant. */}
+            {gi > 0 && !expanded && (
+              <div className="mx-1 mb-2 h-px shrink-0 bg-divider" aria-hidden />
+            )}
+            <p className={expanded ? 'px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-dim' : 'sr-only'}>
+              {group.label}
+            </p>
+            <div className="flex flex-col gap-1">
+              {group.items.map((item) => {
+                const isActive = item.id === active;
+                const Icon = item.icon;
+                const badge =
+                  item.badge != null && item.badge > 0
+                    ? item.badge > 99
+                      ? '99+'
+                      : String(item.badge)
+                    : null;
 
-          return (
-            <div key={item.id} className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => onSelect(item.id)}
-                onMouseEnter={(e) => {
-                  if (expanded) return;
-                  const r = e.currentTarget.getBoundingClientRect();
-                  setTip({ label: item.label, top: r.top + r.height / 2, left: r.right + 12 });
-                }}
-                onMouseLeave={() => setTip(null)}
-                aria-label={item.label}
-                aria-current={isActive ? 'page' : undefined}
-                className={`relative flex h-11 w-full items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent-y focus-visible:ring-offset-2 focus-visible:ring-offset-panel ${
-                  isActive
-                    ? 'bg-accent-y text-accent-y-ink'
-                    : 'bg-panel-deep text-ink-dim hover:bg-panel-hover hover:text-ink'
-                }`}
-              >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center">
-                  <Icon className="h-[1.15rem] w-[1.15rem]" />
-                </span>
-                <span
-                  className={`flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium transition-opacity duration-150 ${
-                    expanded ? 'flex-1 opacity-100' : 'w-0 opacity-0'
-                  }`}
-                >
-                  <span className="truncate">{item.label}</span>
-                  {item.tag && (
-                    <span className="shrink-0 rounded-full bg-accent-y/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-accent-y">
-                      {item.tag}
-                    </span>
-                  )}
-                </span>
-                {badge &&
-                  (expanded ? (
-                    <span className="mr-3 inline-flex min-w-[1.1rem] shrink-0 justify-center rounded-full bg-bad-bright px-1 text-[10px] font-bold leading-[1.1rem] text-white">
-                      {badge}
-                    </span>
-                  ) : (
-                    <span className="absolute -right-0.5 -top-0.5 inline-flex min-w-[1.1rem] justify-center rounded-full bg-bad-bright px-1 text-[10px] font-bold leading-[1.1rem] text-white">
-                      {badge}
-                    </span>
-                  ))}
-              </button>
-
+                return (
+                  <div key={item.id} className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onSelect(item.id)}
+                      onMouseEnter={(e) => {
+                        if (expanded) return;
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setTip({ label: item.label, top: r.top + r.height / 2, left: r.right + 12 });
+                      }}
+                      onMouseLeave={() => setTip(null)}
+                      aria-label={item.label}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`relative flex h-11 w-full items-center rounded-xl outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent-y focus-visible:ring-offset-2 focus-visible:ring-offset-panel ${
+                        isActive
+                          ? 'bg-accent-y text-accent-y-ink'
+                          : 'bg-panel-deep text-ink-dim hover:bg-panel-hover hover:text-ink'
+                      }`}
+                    >
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center">
+                        <Icon className="h-[1.15rem] w-[1.15rem]" />
+                      </span>
+                      <span
+                        className={`flex min-w-0 items-center gap-1.5 truncate text-left text-sm font-medium transition-opacity duration-150 ${
+                          expanded ? 'flex-1 opacity-100' : 'w-0 opacity-0'
+                        }`}
+                      >
+                        <span className="truncate">{item.label}</span>
+                        {item.tag && (
+                          <span className="shrink-0 rounded-full bg-accent-y/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-accent-y">
+                            {item.tag}
+                          </span>
+                        )}
+                      </span>
+                      {badge &&
+                        (expanded ? (
+                          <span className="mr-3 inline-flex min-w-[1.1rem] shrink-0 justify-center rounded-full bg-bad-bright px-1 text-[10px] font-bold leading-[1.1rem] text-white">
+                            {badge}
+                          </span>
+                        ) : (
+                          <span className="absolute -right-0.5 -top-0.5 inline-flex min-w-[1.1rem] justify-center rounded-full bg-bad-bright px-1 text-[10px] font-bold leading-[1.1rem] text-white">
+                            {badge}
+                          </span>
+                        ))}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </nav>
 
       {/* Suppressed once expanded: the label is already on screen, so a tooltip
@@ -745,6 +765,50 @@ export function HatchBar({
           style={{ width: `${pct}%` }}
         />
       </div>
+    </div>
+  );
+}
+
+export type SkeletonColumn = { width: number; align?: 'left' | 'right' };
+
+/**
+ * Table skeleton. `columns` should mirror the real `<thead>` — same widths,
+ * same alignment — because the point isn't a nicer spinner, it's that the
+ * header, row height, and cell padding are already final: swapping the
+ * shimmer bars for real cells doesn't move anything else on the page.
+ */
+export function TableSkeleton({
+  columns,
+  rows = 6,
+  className = '',
+}: {
+  columns: SkeletonColumn[];
+  rows?: number;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`overflow-hidden ${className}`}
+      role="status"
+      aria-live="polite"
+      aria-label="Loading table data"
+    >
+      <table className="w-full border-collapse text-sm">
+        <tbody>
+          {Array.from({ length: rows }).map((_, ri) => (
+            <tr key={ri} className="border-b border-divider last:border-0">
+              {columns.map((col, ci) => (
+                <td key={ci} className={`px-4 py-3 ${col.align === 'right' ? 'text-right' : ''}`}>
+                  <span
+                    className="skeleton-shimmer inline-block h-3 rounded-full align-middle"
+                    style={{ width: col.width, maxWidth: '100%' }}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

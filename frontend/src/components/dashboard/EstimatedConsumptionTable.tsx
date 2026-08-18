@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Gauge } from 'lucide-react';
+import { TableSkeleton } from '@/components/ui/chrome';
 import {
   api,
   EstimatedConsumptionDay,
@@ -156,7 +157,17 @@ export function EstimatedConsumptionTableView({
       {error && <p className="px-6 py-3 text-sm text-bad">{error}</p>}
 
       {loading && rows.length === 0 ? (
-        <p className="p-6 text-sm text-ink-dim">Estimating consumption…</p>
+        <TableSkeleton
+          columns={[
+            { width: 90 },
+            { width: 80 },
+            { width: 60, align: 'right' },
+            { width: 60, align: 'right' },
+            { width: 50, align: 'right' },
+            { width: 60, align: 'right' },
+            { width: 70, align: 'right' },
+          ]}
+        />
       ) : rows.length === 0 ? (
         <p className="p-6 text-sm text-ink-dim">
           No distance recorded in this period yet.

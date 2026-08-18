@@ -1,16 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="180" height="180" role="img" aria-label="FuelSense">
-  <!-- A satellite, not a fuel nozzle: nothing in this product touches the
-       tank, and every litre it reports is derived from a GNSS fix.
-       Transparent ground so it sits on any surface. -->
-  <g fill="none" stroke="#00e599" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-    <!-- body -->
-    <rect x="26" y="26" width="12" height="12" rx="2.5"/>
-    <!-- solar panels -->
-    <path d="M26 32H12M12 27v10M38 32h14M52 27v10"/>
-    <!-- downlink -->
-    <path d="M32 38v8"/>
-    <!-- signal arcs -->
-    <path d="M22.5 51.5a13 13 0 0 0 19 0" opacity="0.85"/>
-    <path d="M16 57a22 22 0 0 0 32 0" opacity="0.5"/>
+  <!-- Orbit Node: a tracked asset (the solid centre) with a satellite pass
+       around it. The one filled shape against an otherwise all-stroke mark
+       is the "live" accent — everything else here is geometry, this alone
+       is a signal. Transparent ground so it sits on any surface. -->
+  <g fill="none" stroke="#cde04a" stroke-width="5">
+    <ellipse cx="32" cy="32" rx="22" ry="10" transform="rotate(-24 32 32)"/>
   </g>
+  <circle cx="32" cy="32" r="6" fill="#cde04a"/>
+  <circle cx="49" cy="18" r="4" fill="#cde04a"/>
 </svg>

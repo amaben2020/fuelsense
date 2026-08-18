@@ -5,6 +5,7 @@ import { Calendar, ChevronLeft, ChevronRight, LayoutGrid, Table2 } from 'lucide-
 import { api, formatNgn, FuelPurchase, FuelPurchasesResponse } from '@/lib/api';
 import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
+import { TableSkeleton } from '@/components/ui/chrome';
 
 const PAGE_SIZE = 25;
 // The on-screen table pages at 25; export pulls the whole history in as few
@@ -334,7 +335,19 @@ export function AccountingLedgerPanel() {
 
       <div className="rounded-lg border border-edge bg-panel p-5">
         {loading && !data ? (
-          <p className="py-12 text-center text-sm text-ink-dim">Loading ledger…</p>
+          <TableSkeleton
+            columns={[
+              { width: 70 },
+              { width: 80 },
+              { width: 70 },
+              { width: 50, align: 'right' },
+              { width: 50, align: 'right' },
+              { width: 70, align: 'right' },
+              { width: 60, align: 'right' },
+              { width: 90 },
+              { width: 60 },
+            ]}
+          />
         ) : view === 'graph' ? (
           <SpendChart points={spendByDate} />
         ) : view === 'calendar' ? (

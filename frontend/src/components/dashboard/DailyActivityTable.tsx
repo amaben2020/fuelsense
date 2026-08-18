@@ -17,6 +17,7 @@ import {
 } from '@/lib/api';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
+import { TableSkeleton } from '@/components/ui/chrome';
 
 const PAGE_SIZE = 20;
 
@@ -148,7 +149,20 @@ export function DailyActivityTable({
         {error && <p className="px-6 py-3 text-sm text-bad">{error}</p>}
 
         {loading ? (
-          <p className="p-6 text-sm text-ink-dim">Loading daily activity…</p>
+          <TableSkeleton
+            columns={[
+              { width: 16 },
+              { width: 70 },
+              { width: 90 },
+              { width: 80 },
+              { width: 60 },
+              { width: 60 },
+              { width: 50 },
+              { width: 50 },
+              { width: 70 },
+              { width: 140 },
+            ]}
+          />
         ) : (data?.rows.length ?? 0) === 0 ? (
           <p className="p-6 text-sm text-ink-dim">No daily activity in this period.</p>
         ) : (

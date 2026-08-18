@@ -475,10 +475,22 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
               value={fleetTotals.fuel > 0 ? `${fleetTotals.fuel.toFixed(1)} L` : null}
             />
           </div>
+        ) : loading ? (
+          <div
+            className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+            role="status"
+            aria-live="polite"
+            aria-label="Loading driver activity"
+          >
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="min-w-0 rounded-xl bg-panel-deep px-3.5 py-3">
+                <span className="skeleton-shimmer block h-2.5 w-16 rounded-full" />
+                <span className="skeleton-shimmer mt-2 block h-5 w-12 rounded" />
+              </div>
+            ))}
+          </div>
         ) : (
-          <p className="text-sm text-ink-dim">
-            {loading ? 'Loading driver activity…' : 'No driver activity recorded yet.'}
-          </p>
+          <p className="text-sm text-ink-dim">No driver activity recorded yet.</p>
         )}
 
         {/* Stated plainly: the tracker cannot identify who was behind the wheel. */}

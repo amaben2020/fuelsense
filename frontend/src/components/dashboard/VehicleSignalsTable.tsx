@@ -17,6 +17,7 @@ import {
   VehicleSignalsResponse,
   getVehicleSignals,
 } from '@/lib/api';
+import { TableSkeleton } from '@/components/ui/chrome';
 
 const RANGES = [
   { days: 1, label: 'Today' },
@@ -232,7 +233,20 @@ export function VehicleSignalsTable({
       </div>
 
       {loading && !data ? (
-        <p className="mt-4 text-sm text-ink-dim">Loading vehicle data…</p>
+        <div role="status" aria-live="polite" aria-label="Loading vehicle data">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="rounded-lg border border-edge bg-panel-deep p-3">
+                <span className="skeleton-shimmer block h-2.5 w-16 rounded-full" />
+                <span className="skeleton-shimmer mt-2 block h-5 w-14 rounded" />
+                <span className="skeleton-shimmer mt-1.5 block h-2.5 w-20 rounded-full" />
+              </div>
+            ))}
+          </div>
+          <div className="mt-5">
+            <TableSkeleton columns={[{ width: 100 }, { width: 60, align: 'right' }, { width: 40, align: 'right' }]} rows={5} />
+          </div>
+        </div>
       ) : !data || (!activity?.records && !data.signals.length) ? (
         <p className="mt-4 text-sm text-ink-dim">
           No telemetry from this vehicle in the selected window.

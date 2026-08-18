@@ -1,5 +1,7 @@
 'use client';
 
+import { BrandMark } from '@/components/BrandMark';
+
 /**
  * The wait before the dashboard has its data.
  *
@@ -29,24 +31,7 @@ export function FleetCommandLoader({
       aria-live="polite"
     >
       <div className="flex w-full max-w-[280px] flex-col items-center">
-        {/* The product mark — a satellite, because nothing here touches the
-            tank and every litre is derived from a GNSS fix. */}
-        <svg
-          viewBox="0 0 64 64"
-          className="h-9 w-9"
-          aria-hidden="true"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={4}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ color: 'var(--brand)' }}
-        >
-          <rect x="26" y="26" width="12" height="12" rx="2.5" />
-          <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
-          <path d="M32 38v8" />
-          <path d="M22.5 51.5a13 13 0 0 0 19 0" opacity="0.85" />
-        </svg>
+        <BrandMark className="h-9 w-9 text-brand" strokeWidth={4} />
 
         <p className="mt-4 text-sm font-semibold tracking-tight text-ink">FuelSense</p>
 

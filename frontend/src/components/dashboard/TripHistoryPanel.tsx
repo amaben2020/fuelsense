@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, Fuel, MapPin, Route, Timer } from 'lucide-react';
 import { api, formatNgn, ServerTrip, TripsResponse, TripsVehicle } from '@/lib/api';
 import { tripColor } from '@/lib/map-utils';
+import { TableSkeleton } from '@/components/ui/chrome';
 
 const PERIODS = [
   { label: 'Today', minutes: 1440 },
@@ -353,7 +354,20 @@ export function TripHistoryPanel({
         {error && <p className="px-6 py-3 text-sm text-bad">{error}</p>}
 
         {loading && byDay.length === 0 ? (
-          <p className="p-6 text-sm text-ink-dim">Loading trips…</p>
+          <TableSkeleton
+            columns={[
+              { width: 70 },
+              { width: 80 },
+              { width: 100 },
+              { width: 60 },
+              { width: 60 },
+              { width: 90 },
+              { width: 50 },
+              { width: 60 },
+              { width: 70 },
+              { width: 16 },
+            ]}
+          />
         ) : byDay.length === 0 ? (
           <p className="p-6 text-sm text-ink-dim">No trips in this period.</p>
         ) : (

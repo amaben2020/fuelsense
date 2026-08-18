@@ -35,6 +35,104 @@ If key permission is wrong:
 chmod 600 ~/.ssh/fuelsense.pem
 ```
 
+## Local dev against production data (SSH tunnel)
+
+Your laptop's `backend/.env` cannot reach EC2's Postgres directly — it's bound
+to `localhost:5432` on the EC2 box itself, not exposed to the internet. To run
+`npm run dev` locally against the **real** production data (not a local Docker
+DB with fake seeded rows), tunnel a local port through SSH to that box.
+
+### 1. Open the tunnel
+
+```bash
+ssh -i ~/.ssh/fuelsense.pem \
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes \
+  -N -L 15432:localhost:5432 \
+  ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
+```
+
+This blocks the terminal (that's `-N`, no remote command — just the forward).
+Leave it running in its own terminal tab, or background it with `-f` instead
+of `-N`'s foreground block if you'd rather not dedicate a tab to it:
+
+```bash
+ssh -i ~/.ssh/fuelsense.pem \
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes \
+  -f -N -L 15432:localhost:5432 \
+  ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
+```
+
+### 2. Point `backend/.env` at the tunnel
+
+Get the real `DATABASE_URL` once (username/password) from the EC2 box:
+
+```bash
+ssh -i ~/.ssh/fuelsense.pem ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com \
+  "grep '^DATABASE_URL=' /home/ec2-user/backend/.env"
+```
+
+It'll look like `postgresql://fuelsense:<password>@localhost:5432/neondb`.
+Copy it into your local `backend/.env`, but change the port from `5432` to
+`15432` (the tunnel's local end):
+
+```bash
+DATABASE_URL=postgresql://fuelsense:<password>@localhost:15432/neondb
+```
+
+Comment out whatever `DATABASE_URL` was there before (Neon, local Docker,
+whatever) rather than deleting it — you'll likely want it back later.
+
+### 3. Start the backend
+
+```bash
+npm run dev
+```
+
+Login with the real account: `demo@fuelsense.local` / `demo1234` (this is a
+different customer record than the one seeded in the local Docker DB, even
+though the email matches — don't confuse the two).
+
+### Troubleshooting: "Something went wrong" / random 500s
+
+This almost always means **the tunnel dropped**. It's been observed dropping
+within an hour even with the keepalive flags above — most likely your
+laptop's network interface sleeping or switching (wifi ↔ ethernet, VPN
+toggling), not an EC2-side timeout. Symptoms:
+
+- Login fails with a generic error
+- Dashboard panels stay stuck on "Loading…"
+- `/api/health` still returns `200` (it doesn't touch the DB — don't trust it
+  alone as a sign everything's fine)
+
+Check and fix:
+
+```bash
+# Is the tunnel actually up?
+nc -z -w2 localhost 15432 && echo up || echo down
+
+# If down, just re-run the ssh command from step 1.
+```
+
+The backend itself doesn't need restarting when the tunnel comes back — it
+retries the connection on the next request.
+
+### Switching back to the local Docker DB
+
+If you don't need real data (pure UI work, or the tunnel is being unreliable):
+
+```bash
+docker compose up -d db   # from the repo root, if not already running
+```
+
+Then in `backend/.env`, swap `DATABASE_URL` to:
+
+```bash
+DATABASE_URL=postgresql://user:password@localhost:5434/fuelguard
+```
+
+Same demo login (`demo@fuelsense.local` / `demo1234`), but seeded fake data —
+safe to hammer without touching production.
+
 ## Where app is on server
 
 ```bash

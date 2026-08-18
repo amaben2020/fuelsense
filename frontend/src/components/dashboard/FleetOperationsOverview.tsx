@@ -514,11 +514,39 @@ export function FleetOperationsOverview({
     }>;
   }, [efficiency, fleet]);
 
+  // Mirrors the real snapshot grid below — same tile spans, same row height —
+  // so nothing reflows once `summary` lands and this swaps for the real cards.
   if (!summary) {
     return (
-      <div className="rounded-xl border border-edge bg-panel p-8 text-center text-sm text-ink-dim">
-        Loading operational snapshot…
-      </div>
+      <section role="status" aria-live="polite" aria-label="Loading operational snapshot">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-ink-dim">
+            Operational snapshot
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
+          <div className="flex flex-col rounded-xl border border-edge bg-panel-deep p-5 sm:col-span-2 sm:p-6 lg:col-span-6 lg:row-span-2">
+            <span className="skeleton-shimmer h-3 w-40 rounded-full" />
+            <span className="skeleton-shimmer mt-4 h-12 w-56 rounded-lg" />
+            <span className="skeleton-shimmer mt-3 h-3 w-64 rounded-full" />
+            <span className="skeleton-shimmer mt-2 h-3 w-72 rounded-full" />
+            <div className="mt-6 grid grid-cols-2 gap-4 border-t border-edge pt-5">
+              <span className="skeleton-shimmer h-8 w-20 rounded-lg" />
+              <span className="skeleton-shimmer h-8 w-20 rounded-lg" />
+            </div>
+          </div>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-edge bg-panel p-5 lg:col-span-3">
+              <div className="flex items-start gap-2.5">
+                <span className="skeleton-shimmer h-11 w-11 shrink-0 rounded-2xl" />
+                <span className="skeleton-shimmer mt-1 h-3 w-20 rounded-full" />
+              </div>
+              <span className="skeleton-shimmer mt-4 block h-8 w-16 rounded-lg" />
+              <span className="skeleton-shimmer mt-3 block h-3 w-full rounded-full" />
+            </div>
+          ))}
+        </div>
+      </section>
     );
   }
 

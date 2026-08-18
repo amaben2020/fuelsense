@@ -51,6 +51,7 @@ import {
 } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { buildVehicleTracks } from '@/lib/map-utils';
+import { BrandMark } from '@/components/BrandMark';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { FleetOperationsOverview } from '@/components/dashboard/FleetOperationsOverview';
@@ -89,6 +90,7 @@ import {
   Panel,
   RoundButton,
   StatPills,
+  type RailGroup,
   type RailItem,
   type StatPill,
 } from '@/components/ui/chrome';
@@ -211,6 +213,20 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
   { id: 'calibration', label: 'Calibration', hash: 'calibration' },
   { id: 'settings', label: 'Settings', hash: 'settings' },
+];
+
+/**
+ * The rail groups seventeen destinations into five sections, matching what a
+ * fleet manager is actually trying to do — get the daily picture, watch the
+ * fleet, manage fuel spend, handle security, or configure the account —
+ * rather than one undifferentiated list from Overview through Settings.
+ */
+const NAV_GROUPS: { label: string; views: DashboardView[] }[] = [
+  { label: 'Overview', views: ['overview', 'live'] },
+  { label: 'Fleet', views: ['vehicle', 'trips', 'behavior', 'drivers', 'intel', 'geofences'] },
+  { label: 'Fuel', views: ['fuel', 'estimate', 'receipts', 'accounting', 'anomalies'] },
+  { label: 'Security', views: ['theft', 'alerts'] },
+  { label: 'System', views: ['calibration', 'settings'] },
 ];
 
 export default function DashboardPage() {
@@ -655,6 +671,17 @@ export default function DashboardPage() {
     tag: v.id === 'theft' ? 'Beta' : undefined,
   }));
 
+  // Same items, sectioned per NAV_GROUPS. Built off `navItems` rather than
+  // VIEWS directly so a view a feature flag has hidden drops out of its group
+  // instead of leaving a labelled section with nothing under it; a group that
+  // ends up empty (every view in it flagged off) is dropped entirely.
+  const navGroups: RailGroup<DashboardView>[] = NAV_GROUPS.map((g) => ({
+    label: g.label,
+    items: g.views
+      .map((id) => navItems.find((item) => item.id === id))
+      .filter((item): item is RailItem<DashboardView> => item != null),
+  })).filter((g) => g.items.length > 0);
+
   /** The Haulix metric strip. Values stay terse — the row has to stay one line. */
   const statPills: StatPill[] = [
     {
@@ -697,7 +724,7 @@ export default function DashboardPage() {
     return <FleetCommandLoader />;
   }
 
-  /* The rail mark. Falls back to the FuelSense satellite when a white-label
+  /* The rail mark. Falls back to the FuelSense Orbit Node when a white-label
      customer has not supplied their own logo. */
   const brandMark = customer?.logo_url ? (
     // eslint-disable-next-line @next/next/no-img-element
@@ -708,22 +735,7 @@ export default function DashboardPage() {
     />
   ) : (
     <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-y text-accent-y-ink">
-      <svg
-        viewBox="0 0 64 64"
-        className="h-6 w-6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={4}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        role="img"
-        aria-label={customer?.company_name || 'FuelSense'}
-      >
-        <rect x="26" y="26" width="12" height="12" rx="2.5" />
-        <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
-        <path d="M32 38v8" />
-        <path d="M24 52a11 11 0 0 1 16 0" />
-      </svg>
+      <BrandMark className="h-6 w-6" strokeWidth={4} ariaLabel={customer?.company_name || 'FuelSense'} />
     </div>
   );
 
@@ -731,7 +743,7 @@ export default function DashboardPage() {
     <IconRail
       brand={brandMark}
       brandLabel={customer?.company_name || customer?.name || 'FuelSense'}
-      items={navItems}
+      groups={navGroups}
       active={activeView}
       onSelect={switchView}
       footer={
@@ -746,9 +758,6 @@ export default function DashboardPage() {
   const sidebar = (
     <>
       <div className="px-6 pb-6 pt-8">
-        {/* The mark is the satellite from public/icon.svg — the same one in the
-            browser tab — because nothing in this product touches a tank and a
-            fuel-nozzle logo would promise a sensor that isn't there. */}
         {/* White-label: a customer's own mark and name replace ours wherever
             they have supplied one. Everything falls back to FuelSense branding,
             so an account that has set nothing still looks finished. */}
@@ -761,22 +770,7 @@ export default function DashboardPage() {
               className="h-7 w-7 shrink-0 rounded object-contain"
             />
           ) : (
-            <svg
-              viewBox="0 0 64 64"
-              className="h-7 w-7 shrink-0 text-brand"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={4}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              role="img"
-              aria-label="FuelSense"
-            >
-              <rect x="26" y="26" width="12" height="12" rx="2.5" />
-              <path d="M26 32H12M12 27v10M38 32h14M52 27v10" />
-              <path d="M32 38v8" />
-              <path d="M24 52a11 11 0 0 1 16 0" />
-            </svg>
+            <BrandMark className="h-7 w-7 shrink-0 text-brand" strokeWidth={4} ariaLabel="FuelSense" />
           )}
           <p
             className={`text-2xl font-bold ${customer?.brand_color ? '' : 'neon-text'}`}
@@ -793,16 +787,25 @@ export default function DashboardPage() {
           {lastUpdated ? ` · ${lastUpdated.toLocaleTimeString()}` : ''}
         </p>
       </div>
-      <nav className="space-y-1 px-3">
-        {navItems.map((item) => (
-          <NavItem
-            key={item.id}
-            icon={item.icon}
-            label={item.label}
-            badge={item.badge}
-            active={activeView === item.id}
-            onClick={() => switchView(item.id)}
-          />
+      <nav className="px-3">
+        {navGroups.map((group, gi) => (
+          <div key={group.label} className={gi > 0 ? 'mt-4' : undefined}>
+            <p className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+              {group.label}
+            </p>
+            <div className="space-y-1">
+              {group.items.map((item) => (
+                <NavItem
+                  key={item.id}
+                  icon={item.icon}
+                  label={item.label}
+                  badge={item.badge}
+                  active={activeView === item.id}
+                  onClick={() => switchView(item.id)}
+                />
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
     </>
