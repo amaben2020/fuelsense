@@ -471,7 +471,7 @@ function CorrelationGrid({
             row.tone === 'alert'
               ? 'border-bad/40 bg-bad-deep/15'
               : row.tone === 'warn'
-                ? 'border-warn/30 bg-warn-deep/10'
+                ? 'border-flag/50 bg-panel-deep'
                 : 'border-edge bg-canvas'
           }`}
         >

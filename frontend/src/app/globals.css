@@ -27,6 +27,11 @@
   --bad: #ffb4ab;
   --bad-bright: #ff6b6b;
   --bad-ink: #690005;
+  /* Driving-behavior flags (harsh accel/braking/cornering) get their own tone
+     rather than reusing --warn. A flat saturated orange card on near-black is
+     the single most recognisable "AI-generated dashboard" tell — this is a
+     warmer, duller copper, and it is used as a thin accent, not a full wash. */
+  --flag: #d68a5c;
 
   /* Chrome accent, unified onto the same lemon as --brand. Keeping a separate
      pale yellow here would have sat a hair away from the new brand colour and
@@ -67,6 +72,7 @@
   --bad: #c22f2f;
   --bad-bright: #d32f2f;
   --bad-ink: #ffffff;
+  --flag: #a85f34;
 
   /* The fill stays saturated for solid surfaces (a lemon button with dark ink
      reads fine on white); only text-weight uses drop to the olive. */
@@ -117,6 +123,8 @@
   --color-good: var(--good);
   --color-warn: var(--warn);
   --color-warn-deep: #996100;
+  --color-flag: var(--flag);
+  --color-flag-deep: #3d2a1f;
   --color-traffic: var(--traffic);
   --color-bad: var(--bad);
   --color-bad-bright: var(--bad-bright);

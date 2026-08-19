@@ -5,7 +5,7 @@
 // because we shipped at 6am would stop opening any of them.
 import { db, sql } from './db-helpers';
 import { sendMail, mailerReady } from './mailer';
-import { buildDailyReport, DailyReport } from './daily-report';
+import { atAGlanceSummary, buildDailyReport, DailyReport } from './daily-report';
 import { renderDailyReportPdf, dailyReportFilename } from './daily-report-pdf';
 
 /** Hour in Lagos time to send yesterday's report. */
@@ -32,6 +32,7 @@ export function reportEmailHtml(report: DailyReport): string {
   });
 
   const t = report.totals;
+  const summary = atAGlanceSummary(report);
 
   const driverRows = report.drivers
     .map(
@@ -54,7 +55,8 @@ export function reportEmailHtml(report: DailyReport): string {
   return `
   <div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;background:#ffffff;">
     <h1 style="margin:0;font-size:20px;color:#101419;">${escapeHtml(report.customerName)}</h1>
-    <p style="margin:4px 0 20px;color:#6b7280;font-size:14px;">Daily fleet report · ${day}</p>
+    <p style="margin:4px 0 4px;color:#6b7280;font-size:14px;">Daily fleet report · ${day}</p>
+    <p style="margin:0 0 20px;color:#101419;font-size:14px;font-weight:600;">${escapeHtml(summary)}</p>
 
     <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
       <tr>
@@ -69,6 +71,13 @@ export function reportEmailHtml(report: DailyReport): string {
         </td>
         <td style="width:12px;"></td>
         <td style="padding:12px;background:#f5f7f8;border-radius:6px;">
+          <div style="font-size:12px;color:#6b7280;">Fuel purchased</div>
+          <div style="font-size:20px;font-weight:600;color:#101419;">${
+            t.litersBought > 0 ? `${t.litersBought} L` : '—'
+          }</div>
+        </td>
+        <td style="width:12px;"></td>
+        <td style="padding:12px;background:#f5f7f8;border-radius:6px;">
           <div style="font-size:12px;color:#6b7280;">Spent at pumps</div>
           <div style="font-size:20px;font-weight:600;color:#101419;">${
             t.spendNgn > 0 ? naira(t.spendNgn) : '—'
@@ -76,6 +85,24 @@ export function reportEmailHtml(report: DailyReport): string {
         </td>
       </tr>
     </table>
+
+    ${
+      report.worstDriver
+        ? `<table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+      <tr>
+        <td style="padding:12px 14px;background:#fef3f2;border-radius:6px;border-left:3px solid #dc6b58;">
+          <div style="font-size:12px;color:#8a4a3d;">Worst driving behavior today</div>
+          <div style="font-size:15px;font-weight:600;color:#101419;">
+            ${escapeHtml(report.worstDriver.driverName)} (${escapeHtml(report.worstDriver.licensePlate)})
+            — ${report.worstDriver.harshEventCount} flagged event${
+              report.worstDriver.harshEventCount === 1 ? '' : 's'
+            }
+          </div>
+        </td>
+      </tr>
+    </table>`
+        : ''
+    }
 
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
@@ -108,9 +135,15 @@ export function reportEmailText(report: DailyReport): string {
   const t = report.totals;
   const lines = [
     `${report.customerName} — daily fleet report`,
+    atAGlanceSummary(report),
     `${t.distanceKm} km · ${t.tripCount} trips · ${t.fuelLiters} L burned · ${
-      t.spendNgn > 0 ? naira(t.spendNgn) : 'no fuel bought'
-    }`,
+      t.litersBought > 0 ? `${t.litersBought} L bought` : 'no fuel bought'
+    } · ${t.spendNgn > 0 ? naira(t.spendNgn) : '₦0 spent'}`,
+    ...(report.worstDriver
+      ? [
+          `Worst driving behavior: ${report.worstDriver.driverName} (${report.worstDriver.licensePlate}) — ${report.worstDriver.harshEventCount} flagged event${report.worstDriver.harshEventCount === 1 ? '' : 's'}`,
+        ]
+      : []),
     '',
   ];
 

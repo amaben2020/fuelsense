@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Receipt, Shield } from 'lucide-react';
+import { AlertTriangle, Clock, Droplet, Receipt, Shield, Wallet } from 'lucide-react';
 import {
   FleetVehicle,
   FuelPurchase,
@@ -13,7 +13,7 @@ import {
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
 import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
-import { TableSkeleton } from '@/components/ui/chrome';
+import { IconTile, TableSkeleton } from '@/components/ui/chrome';
 
 
 function formatReceiptDate(iso: string) {
@@ -192,8 +192,11 @@ export function ReceiptsPanel({
       {summary ? (
           <div className="grid min-h-[7.5rem] gap-4 sm:grid-cols-3">
             <div className="rounded-lg border border-edge bg-panel p-4">
-              <p className="text-xs text-ink-dim">Grand total (receipt cost)</p>
-              <p className="mt-1 text-2xl font-bold text-ink">
+              <div className="flex items-center gap-2.5">
+                <IconTile icon={Wallet} tone="neutral" size={36} />
+                <p className="text-xs text-ink-dim">Grand total (receipt cost)</p>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
               </p>
               <p className="mt-1 text-xs text-ink-dim">
@@ -201,8 +204,11 @@ export function ReceiptsPanel({
               </p>
             </div>
             <div className="rounded-lg border border-edge bg-panel p-4">
-              <p className="text-xs text-ink-dim">Receipt liters (manual)</p>
-              <p className="mt-1 font-mono text-2xl font-bold text-brand">
+              <div className="flex items-center gap-2.5">
+                <IconTile icon={Droplet} tone="accent" size={36} />
+                <p className="text-xs text-ink-dim">Receipt liters (manual)</p>
+              </div>
+              <p className="mt-2 font-mono text-2xl font-bold text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </p>
               <p className="mt-1 text-xs text-ink-dim">Driver-entered at fuel station</p>
@@ -214,9 +220,12 @@ export function ReceiptsPanel({
                 seen a matching tank rise than because anything is suspicious,
                 and the card now says which. */}
             <div className="rounded-lg border border-edge bg-panel p-4">
-              <p className="text-xs text-ink-dim">Corroborated by the tracker</p>
+              <div className="flex items-center gap-2.5">
+                <IconTile icon={Shield} tone={theftCount > 0 ? 'warn' : 'good'} size={36} />
+                <p className="text-xs text-ink-dim">Corroborated by the tracker</p>
+              </div>
               <p
-                className={`mt-1 font-mono text-2xl font-bold ${
+                className={`mt-2 font-mono text-2xl font-bold ${
                   theftCount > 0 ? 'text-warn' : 'text-good'
                 }`}
               >
@@ -396,10 +405,10 @@ function ReconciledReceiptsTable({
             <th className="px-6 py-3">Vehicle</th>
             <th className="px-6 py-3">Driver</th>
             <th className="px-6 py-3">Merchant</th>
-            <th className="px-6 py-3">Receipt (L)</th>
+            <th className="px-6 py-3 text-right">Receipt (L)</th>
             <th className="px-6 py-3">Tracker check</th>
-            <th className="px-6 py-3">Could not fit</th>
-            <th className="px-6 py-3">Cost</th>
+            <th className="px-6 py-3 text-right">Could not fit</th>
+            <th className="px-6 py-3 text-right">Cost</th>
             <th className="px-6 py-3">Status</th>
             <th className="px-6 py-3" />
           </tr>
@@ -431,15 +440,15 @@ function ReconciledReceiptsTable({
               <td colSpan={5} className="px-6 py-4 font-semibold text-ink">
                 Grand total (logged by drivers)
               </td>
-              <td className="px-6 py-4 font-mono font-semibold text-brand">
+              <td className="px-6 py-4 text-right font-mono font-semibold tabular-nums text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </td>
               {/* No measured-litres total to sum: the check is per receipt,
                   and a fleet-wide "missing litres" figure derived from a tank
                   sensor this vehicle does not have would be fiction. */}
               <td className="px-6 py-4 text-xs text-ink-dim">Per receipt</td>
-              <td className="px-6 py-4 text-xs text-ink-dim">—</td>
-              <td className="px-6 py-4 font-mono font-bold text-ink">
+              <td className="px-6 py-4 text-right text-xs text-ink-dim">—</td>
+              <td className="px-6 py-4 text-right font-mono font-bold tabular-nums text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
               </td>
               <td colSpan={2} className="px-6 py-4 text-xs text-ink-dim">
@@ -489,6 +498,31 @@ function TrackerCheckCell({
     <span className="text-xs text-good" title={verification.summary}>
       At station · volume fits
       {verification.distanceMeters != null ? ` (${verification.distanceMeters} m)` : ''}
+    </span>
+  );
+}
+
+/** Matches the pill treatment across all three receipt statuses — Pending
+ *  previously rendered as bare amber text, which read as an error rather than
+ *  "not checked yet" next to the Theft/Verified pills either side of it. */
+function ReceiptStatusBadge({ status }: { status: FuelPurchase['status'] }) {
+  if (status === 'flagged_theft') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-bad-deep/20 px-2 py-1 text-xs text-bad">
+        <AlertTriangle className="h-3 w-3" /> Review
+      </span>
+    );
+  }
+  if (status === 'pending_receipt') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-warn-deep/20 px-2 py-1 text-xs text-warn">
+        <Clock className="h-3 w-3" /> Pending
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-good/20 px-2 py-1 text-xs text-good">
+      <Shield className="h-3 w-3" /> Verified
     </span>
   );
 }
@@ -544,16 +578,16 @@ function ReconciledDateGroup({
           <td colSpan={5} className="px-6 py-2 text-xs text-ink-dim">
             Daily total · {row.driver_name}
           </td>
-          <td className="px-6 py-2 font-mono text-xs text-brand">
+          <td className="px-6 py-2 text-right font-mono text-xs tabular-nums text-brand">
             {row.total_receipt_liters.toFixed(1)} L
           </td>
-          <td className="px-6 py-2 font-mono text-xs text-good">
+          <td className="px-6 py-2 text-right font-mono text-xs text-good">
             —
           </td>
-          <td className="px-6 py-2 font-mono text-xs text-bad">
+          <td className="px-6 py-2 text-right font-mono text-xs text-bad">
             —
           </td>
-          <td className="px-6 py-2 font-mono text-xs font-semibold text-ink">
+          <td className="px-6 py-2 text-right font-mono text-xs font-semibold tabular-nums text-ink">
             {formatNgn(row.total_cost_ngn)}
           </td>
           <td colSpan={2} />
@@ -582,31 +616,21 @@ function ReconciledReceiptRow({
 
   if (compact) {
     return (
-      <tr className={isTheft ? 'bg-bad-deep/5' : undefined}>
+      <tr className={`transition-colors hover:bg-panel-hover/40 ${isTheft ? 'bg-bad-deep/5' : ''}`}>
         <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
         <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
-        <td className="px-6 py-3 font-mono">{purchase.liters_declared} L</td>
+        <td className="px-6 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
         <td className="px-6 py-3">
           <TrackerCheckCell verification={purchase.verification} />
         </td>
         <td
-          className={`px-6 py-3 font-mono ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
+          className={`px-6 py-3 text-right font-mono tabular-nums ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
         >
           {overclaimed ? `${overclaimed} L` : '—'}
         </td>
-        <td className="px-6 py-3 font-mono">{formatNgn(purchase.total_cost_ngn)}</td>
+        <td className="px-6 py-3 text-right font-mono tabular-nums">{formatNgn(purchase.total_cost_ngn)}</td>
         <td className="px-6 py-3">
-          {isTheft ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-bad-deep/20 px-2 py-1 text-xs text-bad">
-              <AlertTriangle className="h-3 w-3" /> Review
-            </span>
-          ) : isPending ? (
-            <span className="text-xs text-warn">Pending</span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-good/20 px-2 py-1 text-xs text-good">
-              <Shield className="h-3 w-3" /> Verified
-            </span>
-          )}
+          <ReceiptStatusBadge status={purchase.status} />
         </td>
         <td className="px-6 py-3">
           <ViewEventButton onClick={() => onViewEvent(purchase)} />
@@ -616,34 +640,24 @@ function ReconciledReceiptRow({
   }
 
   return (
-    <tr className={isTheft ? 'bg-bad-deep/5' : undefined}>
+    <tr className={`transition-colors hover:bg-panel-hover/40 ${isTheft ? 'bg-bad-deep/5' : ''}`}>
       <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
       <td className="px-6 py-3 font-mono text-xs text-brand">{formatReceiptTime(purchaseTime)}</td>
       <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
       <td className="px-6 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
       <td className="px-6 py-3">{purchase.merchant}</td>
-      <td className="px-6 py-3 font-mono">{purchase.liters_declared} L</td>
+      <td className="px-6 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
       <td className="px-6 py-3">
         <TrackerCheckCell verification={purchase.verification} />
       </td>
       <td
-        className={`px-6 py-3 font-mono ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
+        className={`px-6 py-3 text-right font-mono tabular-nums ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
       >
         {overclaimed ? `${overclaimed} L` : '—'}
       </td>
-      <td className="px-6 py-3 font-mono">{formatNgn(purchase.total_cost_ngn)}</td>
+      <td className="px-6 py-3 text-right font-mono tabular-nums">{formatNgn(purchase.total_cost_ngn)}</td>
       <td className="px-6 py-3">
-        {isTheft ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-bad-deep/20 px-2 py-1 text-xs text-bad">
-            <AlertTriangle className="h-3 w-3" /> Theft
-          </span>
-        ) : isPending ? (
-          <span className="text-xs text-warn">Pending</span>
-        ) : (
-          <span className="inline-flex items-center gap-1 rounded-full bg-good/20 px-2 py-1 text-xs text-good">
-            <Shield className="h-3 w-3" /> Verified
-          </span>
-        )}
+        <ReceiptStatusBadge status={purchase.status} />
       </td>
       <td className="px-6 py-3">
         <ViewEventButton onClick={() => onViewEvent(purchase)} />

@@ -43,6 +43,8 @@ export interface ReportDriver {
   spendNgn: number;
   litersBought: number;
   receiptCount: number;
+  /** Harsh accel/braking/cornering + overspeeding events logged that day. */
+  harshEventCount: number;
 }
 
 export interface DailyReport {
@@ -57,8 +59,30 @@ export interface DailyReport {
     spendNgn: number;
     litersBought: number;
     tripCount: number;
+    harshEventCount: number;
   };
   pricePerLiter: number | null;
+  /** The driver with the most harsh-driving events today, if any occurred. */
+  worstDriver: { driverName: string; licensePlate: string; harshEventCount: number } | null;
+}
+
+/**
+ * One sentence answering "does today need me?" — shared by the email and the
+ * PDF so the two can never say something different about the same day.
+ */
+export function atAGlanceSummary(report: DailyReport): string {
+  const t = report.totals;
+  if (t.tripCount === 0) return 'Quiet day — no vehicle moved.';
+
+  const parts = [`${t.tripCount} trip${t.tripCount === 1 ? '' : 's'}`, `${t.distanceKm} km covered`];
+  parts.push(
+    report.worstDriver
+      ? `${report.worstDriver.driverName} had the most flagged driving events (${report.worstDriver.harshEventCount})`
+      : 'no harsh-driving events'
+  );
+  if (t.litersBought > 0) parts.push(`${t.litersBought} L bought at the pump`);
+
+  return parts.join(' · ') + '.';
 }
 
 /** Lagos day boundaries for a given date, as UTC instants. */
@@ -175,9 +199,24 @@ export async function buildDailyReport(
       `)
     ).rows[0] as Record<string, unknown>;
 
+    // Same event types the driving-behavior page flags — harsh accel/braking/
+    // cornering plus overspeeding. This is the only figure in the report that
+    // is not a distance/fuel number, which is exactly why a manager reading
+    // only the top of the email needs it named, not buried in the PDF.
+    const harshEvents = (
+      await db.execute(sql`
+        SELECT COUNT(*) AS n
+        FROM device_events
+        WHERE vehicle_id = ${vehicle.id}
+          AND occurred_at >= ${from} AND occurred_at < ${to}
+          AND event_type IN ('harsh_acceleration', 'harsh_braking', 'harsh_cornering', 'overspeeding')
+      `)
+    ).rows[0] as Record<string, unknown>;
+
     const distanceKm = round1(trips.reduce((s, t) => s + t.distanceKm, 0));
     const idleMinutes = Math.round(trips.reduce((s, t) => s + t.idleMinutes, 0));
     const fuelLiters = round1(trips.reduce((s, t) => s + t.fuelLiters, 0));
+    const harshEventCount = Number(harshEvents.n);
 
     // A vehicle that never moved and bought nothing is not worth a section.
     if (trips.length === 0 && Number(receipts.n) === 0) continue;
@@ -193,6 +232,7 @@ export async function buildDailyReport(
       spendNgn: Math.round(Number(receipts.spend)),
       litersBought: round1(Number(receipts.liters)),
       receiptCount: Number(receipts.n),
+      harshEventCount,
     });
   }
 
@@ -207,7 +247,25 @@ export async function buildDailyReport(
     spendNgn: drivers.reduce((s, d) => s + d.spendNgn, 0),
     litersBought: round1(drivers.reduce((s, d) => s + d.litersBought, 0)),
     tripCount: drivers.reduce((s, d) => s + d.trips.length, 0),
+    harshEventCount: drivers.reduce((s, d) => s + d.harshEventCount, 0),
   };
 
-  return { customerName: customer.name, date, drivers, totals, pricePerLiter };
+  const worstDriver = drivers
+    .filter((d) => d.harshEventCount > 0)
+    .sort((a, b) => b.harshEventCount - a.harshEventCount)[0];
+
+  return {
+    customerName: customer.name,
+    date,
+    drivers,
+    totals,
+    pricePerLiter,
+    worstDriver: worstDriver
+      ? {
+          driverName: worstDriver.driverName,
+          licensePlate: worstDriver.licensePlate,
+          harshEventCount: worstDriver.harshEventCount,
+        }
+      : null,
+  };
 }

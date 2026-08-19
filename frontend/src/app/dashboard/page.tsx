@@ -986,13 +986,29 @@ export default function DashboardPage() {
                   {followVehicle ? 'Following vehicle' : 'Free map'}
                 </button>
               )}
-              <div className="flex items-center gap-2 rounded-full border border-edge bg-panel px-4 py-2 text-sm">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-good opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-good" />
-                </span>
-                <span className="text-good">{onlineCount} live</span>
-              </div>
+              {/* A bare "0 live" reads as "the system is broken" before the
+                  user has seen anything else — especially on a small fleet
+                  where zero is the normal resting state between trips. A
+                  neutral last-seen time says the same thing without the
+                  alarm. */}
+              {onlineCount > 0 ? (
+                <div className="flex items-center gap-2 rounded-full border border-edge bg-panel px-4 py-2 text-sm">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-good opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-good" />
+                  </span>
+                  <span className="text-good">{onlineCount} live</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 rounded-full border border-edge bg-panel px-4 py-2 text-sm text-ink-dim">
+                  <span className="h-2 w-2 rounded-full bg-ink-dim/50" />
+                  <span>
+                    {lastUpdated
+                      ? `Last seen ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                      : 'No vehicles online'}
+                  </span>
+                </div>
+              )}
               <Link
                 href="/dashboard/orders/new"
                 className="rounded-full border border-edge bg-panel px-4 py-2 text-sm text-ink-mid transition-colors hover:bg-panel-hover"

@@ -4,11 +4,33 @@
 // block per driver, each with its trips in the order they happened. No colour
 // coding that a monochrome print would lose, and no figure without its unit.
 import PDFDocument from 'pdfkit';
-import { DailyReport, ReportDriver } from './daily-report';
+import { atAGlanceSummary, DailyReport, ReportDriver } from './daily-report';
 
 const INK = '#101419';
 const MUTED = '#6b7280';
 const RULE = '#d8dee4';
+const BRAND = '#9aa832'; // --accent-y-dim — readable on white, still reads as the brand lemon
+const BAD_BG = '#fef3f2';
+const BAD_INK = '#8a4a3d';
+
+/** The Orbit Node mark, drawn as vectors rather than an embedded image — it
+ *  stays crisp at any print resolution and needs no asset file shipped with
+ *  the backend. Same geometry as BrandMark.tsx, one filled centre against an
+ *  all-stroke ellipse. */
+function drawBrandMark(doc: PDFKit.PDFDocument, x: number, y: number, size: number): void {
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+  const rx = size * 0.44;
+  const ry = size * 0.2;
+
+  doc.save();
+  doc.translate(cx, cy).rotate(-24);
+  doc.ellipse(0, 0, rx, ry).lineWidth(size * 0.09).strokeColor(BRAND).stroke();
+  doc.restore();
+
+  doc.circle(cx, cy, size * 0.12).fillColor(BRAND).fill();
+  doc.circle(cx + size * 0.34, cy - size * 0.28, size * 0.08).fillColor(BRAND).fill();
+}
 
 const naira = (n: number): string => `NGN ${Math.round(n).toLocaleString('en-NG')}`;
 const clock = (d: Date): string =>
@@ -45,12 +67,32 @@ export function renderDailyReportPdf(report: DailyReport): Promise<Buffer> {
     });
 
     // --- header ------------------------------------------------------------
+    const markSize = 16;
+    const markX = doc.page.margins.left;
+    const markY = doc.y + 2;
+    drawBrandMark(doc, markX, markY, markSize);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(10)
+      .fillColor(BRAND)
+      .text('FuelSense', markX + markSize + 8, markY + 2);
+    doc.moveDown(0.9);
+
     doc.fillColor(INK).font('Helvetica-Bold').fontSize(18).text(report.customerName);
     doc
       .font('Helvetica')
       .fontSize(11)
       .fillColor(MUTED)
       .text(`Daily fleet report · ${dayLabel}`);
+    doc.moveDown(0.4);
+
+    // At-a-glance: the one line a manager reads before deciding whether to
+    // open the rest at all.
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(10.5)
+      .fillColor(INK)
+      .text(atAGlanceSummary(report));
     doc.moveDown(1);
 
     // --- fleet totals ------------------------------------------------------
@@ -73,6 +115,24 @@ export function renderDailyReportPdf(report: DailyReport): Promise<Buffer> {
       );
     } else {
       doc.fillColor(MUTED).text('• No fuel purchased today').fillColor(INK);
+    }
+
+    if (report.worstDriver) {
+      doc.moveDown(0.4);
+      const boxY = doc.y;
+      const boxW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      doc.rect(doc.page.margins.left, boxY, boxW, 24).fillColor(BAD_BG).fill();
+      doc
+        .fillColor(BAD_INK)
+        .font('Helvetica-Bold')
+        .fontSize(9.5)
+        .text(
+          `Worst driving behavior: ${report.worstDriver.driverName} (${report.worstDriver.licensePlate}) — ${report.worstDriver.harshEventCount} flagged event${report.worstDriver.harshEventCount === 1 ? '' : 's'}`,
+          doc.page.margins.left + 8,
+          boxY + 7
+        );
+      doc.y = boxY + 24;
+      doc.fillColor(INK);
     }
 
     // Burned and bought are different quantities and the gap confuses people

@@ -11,7 +11,21 @@ import {
 } from '@/lib/api';
 import { Panel, StatusChip } from '@/components/ui/chrome';
 
-function metresLabel(m: number | null): string {
+/**
+ * How big the zone is, in the terms its own shape is defined by.
+ *
+ * This used to read the radius unconditionally, so every polygon zone showed a
+ * bare "—" and looked broken — the shape carries the size for those, not a
+ * radius that was never set.
+ */
+function sizeLabel(z: Geofence): string {
+  if (z.shape === 'polygon') {
+    const corners = Array.isArray(z.polygon) ? z.polygon.length : 0;
+    // Four corners is how a rectangle is stored, so it is named as one.
+    if (corners === 4) return 'Rectangle';
+    return corners >= 3 ? `Polygon · ${corners} corners` : 'Polygon (incomplete)';
+  }
+  const m = z.radius_m;
   if (m == null) return '—';
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km radius` : `${m} m radius`;
 }
@@ -90,7 +104,8 @@ export function GeofencesPanel({ onDrawZone }: { onDrawZone?: () => void }) {
             <MapPin className="mx-auto mb-2 h-5 w-5 text-ink-dim" />
             <p className="text-sm text-ink-mid">No zones yet</p>
             <p className="mt-1 text-xs text-ink-dim">
-              Draw one on the live map — click the zone tool, then click where it belongs.
+              Draw one on the live map — click the zone tool, then pick a circle,
+              rectangle or polygon.
             </p>
           </div>
         ) : (
@@ -108,7 +123,7 @@ export function GeofencesPanel({ onDrawZone }: { onDrawZone?: () => void }) {
                     </StatusChip>
                   </div>
                   <p className="mt-0.5 text-xs text-ink-dim tabular-nums">
-                    {z.vehicle_id ? 'One vehicle' : 'All vehicles'} · {metresLabel(z.radius_m)}
+                    {z.vehicle_id ? 'One vehicle' : 'All vehicles'} · {sizeLabel(z)}
                     {z.center_lat && z.center_lng
                       ? ` · ${Number(z.center_lat).toFixed(4)}, ${Number(z.center_lng).toFixed(4)}`
                       : ''}

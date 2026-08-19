@@ -33,12 +33,17 @@ import {
   TripBadgeMarker,
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
-import { Crosshair, Minus, Pentagon, Plus } from 'lucide-react';
+import { Circle as CircleIcon, Crosshair, Minus, Pentagon, Plus, Square } from 'lucide-react';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { TripDetailModal } from './TripDetailModal';
 import { StopDetailModal } from './StopDetailModal';
 
 const ANIMATION_MS = 1800;
+
+/** How the next zone is being drawn. Rectangles are saved as polygons. */
+type ZoneShapeMode = 'circle' | 'rectangle' | 'polygon';
+/** [latitude, longitude] — the order the API stores rings in. */
+type ZonePoint = [number, number];
 
 // 12h and 18h cover the shapes 6h and 24h miss: a full shift, and a shift plus
 // the run home. Without them a manager checking "what happened today" had to
@@ -129,63 +134,144 @@ function clockTime(iso: string): string {
     : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Rectangles are stored as polygons; these are the four corners of one. */
+function rectangleRing(a: ZonePoint, b: ZonePoint): ZonePoint[] {
+  const [lat1, lng1] = a;
+  const [lat2, lng2] = b;
+  return [
+    [lat1, lng1],
+    [lat1, lng2],
+    [lat2, lng2],
+    [lat2, lng1],
+  ];
+}
+
+/** The ring a draft would be saved as, or null while it is still too short. */
+function draftRing(mode: ZoneShapeMode, points: ZonePoint[]): ZonePoint[] | null {
+  if (mode === 'rectangle') {
+    return points.length === 2 ? rectangleRing(points[0], points[1]) : null;
+  }
+  if (mode === 'polygon') return points.length >= 3 ? points : null;
+  return null;
+}
+
+const toLatLng = (p: ZonePoint) => ({ lat: p[0], lng: p[1] });
+
 /**
- * Draws saved zones onto the map.
+ * Draws saved zones and the in-progress draft onto the map.
  *
- * google.maps.Circle rather than an SVG overlay: a circle in screen pixels
+ * google.maps geometry rather than an SVG overlay: a shape in screen pixels
  * would keep its size as the user zooms, which is exactly wrong — a 400 m
  * depot has to stay 400 m of ground however far out you are.
+ *
+ * Saved polygons used to be invisible here because only circles were drawn,
+ * even though the live monitor has always alerted on them — a zone that fires
+ * alerts but cannot be seen is worse than one that does not exist.
  */
-function GeofenceCircles({
+function GeofenceShapes({
   zones,
-  pending,
+  draftMode,
+  draftPoints,
+  draftRadius,
 }: {
   zones: Geofence[];
-  pending: { lat: number; lng: number; radius: number } | null;
+  draftMode: ZoneShapeMode;
+  draftPoints: ZonePoint[];
+  draftRadius: number;
 }) {
   const map = useMap();
 
   useEffect(() => {
     if (!map) return;
-    const drawn: google.maps.Circle[] = [];
+    const drawn: Array<{ setMap: (m: google.maps.Map | null) => void }> = [];
+
+    const circle = (
+      center: google.maps.LatLngLiteral,
+      radius: number,
+      pending: boolean
+    ) =>
+      new google.maps.Circle({
+        map,
+        center,
+        radius,
+        strokeColor: pending ? ROUTE_ACTIVE : ROUTE_PRIMARY,
+        strokeOpacity: pending ? 1 : 0.9,
+        strokeWeight: 2,
+        // Dashed would be ideal; the API has no dash option for circles, so
+        // the unsaved zone is distinguished by a brighter stroke and fill.
+        fillColor: pending ? ROUTE_ACTIVE : ROUTE_PRIMARY,
+        fillOpacity: pending ? 0.2 : 0.1,
+        clickable: false,
+      });
+
+    const polygon = (ring: ZonePoint[], pending: boolean) =>
+      new google.maps.Polygon({
+        map,
+        paths: ring.map(toLatLng),
+        strokeColor: pending ? ROUTE_ACTIVE : ROUTE_PRIMARY,
+        strokeOpacity: pending ? 1 : 0.9,
+        strokeWeight: 2,
+        fillColor: pending ? ROUTE_ACTIVE : ROUTE_PRIMARY,
+        fillOpacity: pending ? 0.2 : 0.1,
+        clickable: false,
+      });
 
     for (const z of zones) {
+      if (z.shape === 'polygon') {
+        const ring = z.polygon;
+        if (Array.isArray(ring) && ring.length >= 3) drawn.push(polygon(ring, false));
+        continue;
+      }
       if (z.center_lat == null || z.center_lng == null || !z.radius_m) continue;
       drawn.push(
-        new google.maps.Circle({
-          map,
-          center: { lat: Number(z.center_lat), lng: Number(z.center_lng) },
-          radius: z.radius_m,
-          strokeColor: ROUTE_PRIMARY,
-          strokeOpacity: 0.9,
-          strokeWeight: 2,
-          fillColor: ROUTE_PRIMARY,
-          fillOpacity: 0.1,
-          clickable: false,
-        })
+        circle({ lat: Number(z.center_lat), lng: Number(z.center_lng) }, z.radius_m, false)
       );
     }
 
-    if (pending) {
-      drawn.push(
-        new google.maps.Circle({
-          map,
-          center: { lat: pending.lat, lng: pending.lng },
-          radius: pending.radius,
-          strokeColor: ROUTE_ACTIVE,
-          strokeOpacity: 1,
-          strokeWeight: 2,
-          // Dashed would be ideal; the API has no dash option for circles, so
-          // the unsaved zone is distinguished by a brighter stroke and fill.
-          fillColor: ROUTE_ACTIVE,
-          fillOpacity: 0.2,
-          clickable: false,
-        })
-      );
+    // The draft. Circles need a single centre; the other two are rings once
+    // they have enough points, and before that they show as the vertices the
+    // user has actually clicked so a half-drawn zone still reads as progress.
+    if (draftMode === 'circle' && draftPoints.length === 1) {
+      drawn.push(circle(toLatLng(draftPoints[0]), draftRadius, true));
+    } else {
+      const ring = draftRing(draftMode, draftPoints);
+      if (ring) {
+        drawn.push(polygon(ring, true));
+      } else if (draftPoints.length > 0) {
+        if (draftPoints.length > 1) {
+          drawn.push(
+            new google.maps.Polyline({
+              map,
+              path: draftPoints.map(toLatLng),
+              strokeColor: ROUTE_ACTIVE,
+              strokeOpacity: 1,
+              strokeWeight: 2,
+              clickable: false,
+            })
+          );
+        }
+        for (const p of draftPoints) {
+          drawn.push(
+            new google.maps.Marker({
+              map,
+              position: toLatLng(p),
+              clickable: false,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 5,
+                fillColor: ROUTE_ACTIVE,
+                fillOpacity: 1,
+                strokeColor: '#000',
+                strokeWeight: 1.5,
+              },
+            })
+          );
+        }
+      }
     }
 
-    return () => drawn.forEach((c) => c.setMap(null));
-  }, [map, zones, pending]);
+    return () => drawn.forEach((s) => s.setMap(null));
+  }, [map, zones, draftMode, draftPoints, draftRadius]);
 
   return null;
 }
@@ -598,9 +684,14 @@ export function LiveMonitoringMap({
   // application state — leaving the view should discard it, not persist it.
   const [zones, setZones] = useState<Geofence[]>([]);
   const [drawing, setDrawing] = useState(false);
-  const [pendingZone, setPendingZone] = useState<
-    { lat: number; lng: number; radius: number } | null
-  >(null);
+  const [shapeMode, setShapeMode] = useState<ZoneShapeMode>('circle');
+  // The clicks placed so far. One point for a circle, two opposite corners for
+  // a rectangle, three or more vertices for a polygon.
+  const [draftPoints, setDraftPoints] = useState<ZonePoint[]>([]);
+  const [draftRadius, setDraftRadius] = useState(400);
+  // A polygon has no natural end — unlike the other two shapes there is no
+  // click count that means "finished", so the user says when.
+  const [polygonClosed, setPolygonClosed] = useState(false);
   const [zoneName, setZoneName] = useState('');
   // '' = whole fleet. A depot is not per-vehicle, but a customer site
   // assigned to one driver is, and only the vehicle scope can express that.
@@ -628,22 +719,47 @@ export function LiveMonitoringMap({
     loadZones();
   }, [loadZones]);
 
+  const resetDraft = useCallback(() => {
+    setDraftPoints([]);
+    setPolygonClosed(false);
+    setZoneName('');
+    setZoneError(null);
+  }, []);
+
+  // A draft is only nameable once it describes a real area. Until then the
+  // form stays out of the way and the map keeps taking clicks.
+  const draftComplete =
+    shapeMode === 'circle'
+      ? draftPoints.length === 1
+      : shapeMode === 'rectangle'
+        ? draftPoints.length === 2
+        : polygonClosed && draftPoints.length >= 3;
+
   const saveZone = async () => {
-    if (!pendingZone || !zoneName.trim()) return;
+    if (!draftComplete || !zoneName.trim()) return;
     setSavingZone(true);
     setZoneError(null);
     try {
-      await createGeofence({
+      const shared = {
         name: zoneName.trim(),
-        center_lat: pendingZone.lat,
-        center_lng: pendingZone.lng,
-        radius_m: Math.round(pendingZone.radius),
         purpose: zonePurpose,
         notify_on: zoneNotifyOn,
         vehicle_id: zoneVehicleId || null,
-      });
-      setPendingZone(null);
-      setZoneName('');
+      };
+      if (shapeMode === 'circle') {
+        await createGeofence({
+          ...shared,
+          shape: 'circle',
+          center_lat: draftPoints[0][0],
+          center_lng: draftPoints[0][1],
+          radius_m: Math.round(draftRadius),
+        });
+      } else {
+        const ring = draftRing(shapeMode, draftPoints);
+        if (!ring) throw new Error('That shape needs at least three points');
+        await createGeofence({ ...shared, shape: 'polygon', polygon: ring });
+      }
+      resetDraft();
       setZoneVehicleId('');
       setDrawing(false);
       loadZones();
@@ -724,15 +840,30 @@ export function LiveMonitoringMap({
             style={{ width: '100%', height: '100%' }}
             onClick={(e) => {
               if (!drawing || !e.detail.latLng) return;
-              setPendingZone({
-                lat: e.detail.latLng.lat,
-                lng: e.detail.latLng.lng,
-                radius: pendingZone?.radius ?? 400,
-              });
+              const point: ZonePoint = [e.detail.latLng.lat, e.detail.latLng.lng];
+              setZoneError(null);
+              if (shapeMode === 'circle') {
+                // A second click moves the centre rather than starting over.
+                setDraftPoints([point]);
+                return;
+              }
+              if (shapeMode === 'rectangle') {
+                // Two opposite corners. Once both are down, the next click
+                // starts a fresh rectangle instead of silently doing nothing.
+                setDraftPoints((prev) => (prev.length >= 2 ? [point] : [...prev, point]));
+                return;
+              }
+              if (polygonClosed) return;
+              setDraftPoints((prev) => [...prev, point]);
             }}
           >
             <MapResizeFix />
-            <GeofenceCircles zones={zones} pending={pendingZone} />
+            <GeofenceShapes
+              zones={zones}
+              draftMode={shapeMode}
+              draftPoints={draftPoints}
+              draftRadius={draftRadius}
+            />
             <MapInitialRecenter
               target={
                 selectedTrack
@@ -850,8 +981,7 @@ export function LiveMonitoringMap({
                 label={drawing ? 'Cancel zone' : 'Draw a zone'}
                 onClick={() => {
                   setDrawing((d) => !d);
-                  setPendingZone(null);
-                  setZoneError(null);
+                  resetDraft();
                 }}
               />
             </div>
@@ -877,18 +1007,81 @@ export function LiveMonitoringMap({
                 ))}
               </ul>
             </div>
-            {drawing && !pendingZone && (
-              <div className="pointer-events-none absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-full border border-accent-y/40 bg-panel/95 px-4 py-2 text-xs font-medium text-ink shadow-xl backdrop-blur">
-                Click the map to place the centre of the zone
+            {/* Shape picker plus the instruction for the chosen shape. The
+                flow used to offer only a circle and said so in a fixed line of
+                text; each shape now explains its own gesture, because "click
+                the map" means something different for each of the three. */}
+            {drawing && !draftComplete && (
+              <div className="absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-2xl border border-edge bg-panel/95 px-3 py-2.5 shadow-xl backdrop-blur">
+                <div className="flex items-center gap-1">
+                  {(
+                    [
+                      { mode: 'circle', icon: CircleIcon, label: 'Circle' },
+                      { mode: 'rectangle', icon: Square, label: 'Rectangle' },
+                      { mode: 'polygon', icon: Pentagon, label: 'Polygon' },
+                    ] as const
+                  ).map(({ mode, icon: Icon, label }) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => {
+                        setShapeMode(mode);
+                        resetDraft();
+                      }}
+                      aria-pressed={shapeMode === mode}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                        shapeMode === mode
+                          ? 'bg-accent-y text-accent-y-ink'
+                          : 'text-ink-mid hover:bg-panel-hover'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-center text-[11px] text-ink-dim">
+                  {shapeMode === 'circle'
+                    ? 'Click the map to place the centre'
+                    : shapeMode === 'rectangle'
+                      ? draftPoints.length === 0
+                        ? 'Click one corner, then the opposite corner'
+                        : 'Now click the opposite corner'
+                      : draftPoints.length < 3
+                        ? `Click each corner — ${3 - draftPoints.length} more needed`
+                        : 'Keep clicking, or finish the shape'}
+                </p>
+                {shapeMode === 'polygon' && draftPoints.length > 0 && (
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPolygonClosed(true)}
+                      disabled={draftPoints.length < 3}
+                      className="flex-1 rounded-lg bg-accent-y px-3 py-1.5 text-[11px] font-semibold text-accent-y-ink transition-opacity hover:opacity-90 disabled:opacity-40"
+                    >
+                      Finish shape
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraftPoints((p) => p.slice(0, -1))}
+                      className="rounded-lg border border-edge px-3 py-1.5 text-[11px] font-medium text-ink-mid hover:bg-panel-hover"
+                    >
+                      Undo point
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
-            {pendingZone && (
+            {draftComplete && (
               <div className="absolute left-1/2 top-4 z-30 w-[19rem] -translate-x-1/2 rounded-2xl border border-edge bg-panel/95 p-4 shadow-2xl backdrop-blur">
-                <p className="text-sm font-bold text-ink">New zone</p>
+                <p className="text-sm font-bold text-ink">
+                  New {shapeMode} zone
+                </p>
                 <p className="mt-0.5 text-[11px] text-ink-dim">
-                  {pendingZone.lat.toFixed(5)}, {pendingZone.lng.toFixed(5)} — click again to
-                  move it
+                  {shapeMode === 'circle'
+                    ? `${draftPoints[0][0].toFixed(5)}, ${draftPoints[0][1].toFixed(5)} — click again to move it`
+                    : `${draftRing(shapeMode, draftPoints)?.length ?? 0} corners`}
                 </p>
                 <input
                   autoFocus
@@ -897,25 +1090,25 @@ export function LiveMonitoringMap({
                   placeholder="Zone name (e.g. Ado depot)"
                   className="mt-3 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-dim focus:border-accent-y focus:outline-none"
                 />
-                <label className="mt-3 block">
-                  <span className="flex items-center justify-between text-[11px] text-ink-dim">
-                    Radius
-                    <span className="font-semibold tabular-nums text-ink">
-                      {Math.round(pendingZone.radius)} m
+                {shapeMode === 'circle' && (
+                  <label className="mt-3 block">
+                    <span className="flex items-center justify-between text-[11px] text-ink-dim">
+                      Radius
+                      <span className="font-semibold tabular-nums text-ink">
+                        {Math.round(draftRadius)} m
+                      </span>
                     </span>
-                  </span>
-                  <input
-                    type="range"
-                    min={50}
-                    max={5000}
-                    step={50}
-                    value={pendingZone.radius}
-                    onChange={(e) =>
-                      setPendingZone({ ...pendingZone, radius: Number(e.target.value) })
-                    }
-                    className="mt-1.5 w-full accent-[var(--accent-y)]"
-                  />
-                </label>
+                    <input
+                      type="range"
+                      min={50}
+                      max={5000}
+                      step={50}
+                      value={draftRadius}
+                      onChange={(e) => setDraftRadius(Number(e.target.value))}
+                      className="mt-1.5 w-full accent-[var(--accent-y)]"
+                    />
+                  </label>
+                )}
                 <label className="mt-3 block">
                   <span className="text-[11px] text-ink-dim">Applies to</span>
                   <select
@@ -970,11 +1163,7 @@ export function LiveMonitoringMap({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setPendingZone(null);
-                      setZoneName('');
-                      setZoneError(null);
-                    }}
+                    onClick={resetDraft}
                     className="rounded-lg border border-edge px-3 py-2 text-xs font-medium text-ink-mid hover:bg-panel-hover"
                   >
                     Cancel

@@ -10,13 +10,43 @@ router.use(authenticateCustomer);
 const clampDays = (raw: unknown, fallback: number) =>
   Math.min(Math.max(Number(raw) || fallback, 1), 90);
 
+type GeofenceRow = typeof geofences.$inferSelect;
+
+/**
+ * Zones go out in snake_case, like every other payload this API serves.
+ *
+ * Returning Drizzle's rows straight sent camelCase (`centerLat`, `radiusM`),
+ * which no caller expected: the POST body on this same route already speaks
+ * snake_case, /geofences/events does too, and the frontend's Geofence type
+ * declares it. The mismatch meant `center_lat` and `radius_m` read as
+ * undefined in the client, so saved circle zones silently failed the
+ * "has a centre" check and were never drawn on the map at all.
+ */
+function serialize(row: GeofenceRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    shape: row.shape,
+    center_lat: row.centerLat,
+    center_lng: row.centerLng,
+    radius_m: row.radiusM,
+    polygon: row.polygon,
+    purpose: row.purpose,
+    notify_on: row.notifyOn,
+    vehicle_id: row.vehicleId,
+    driver_id: row.driverId,
+    active: row.active,
+    created_at: row.createdAt,
+  };
+}
+
 router.get('/', async (req: Request, res: Response) => {
   try {
     const rows = await db
       .select()
       .from(geofences)
       .where(eq(geofences.customerId, req.user.customerId));
-    res.json(rows);
+    res.json(rows.map(serialize));
   } catch (error) {
     logAndRespond(res, req.path, error);
   }
@@ -68,7 +98,7 @@ router.post('/', async (req: Request, res: Response) => {
         driverId: driverId || null,
       })
       .returning();
-    res.status(201).json(row);
+    res.status(201).json(serialize(row));
   } catch (error) {
     logAndRespond(res, req.path, error);
   }
@@ -105,6 +135,12 @@ router.delete('/:id', async (req: Request, res: Response) => {
  * Circles use the haversine distance rather than a bounding box: at Nigerian
  * latitudes a naive degree box is noticeably wider than it is tall, which
  * silently enlarges every zone on its east-west axis.
+ *
+ * Polygons (which is also how rectangles are stored) are tested with Postgres'
+ * native polygon containment on a plane, matching the ray casting the live
+ * monitor does in JS. The planar approximation is what both sides already
+ * assume and is accurate at the scale of a depot; it would only break for a
+ * zone spanning the antimeridian.
  */
 router.get('/events', async (req: Request, res: Response) => {
   const days = clampDays(req.query.days, 7);
@@ -113,12 +149,31 @@ router.get('/events', async (req: Request, res: Response) => {
 
     const rows = await db.execute(sql`
       WITH zones AS (
-        SELECT id, name, purpose, notify_on, shape,
-               center_lat::double precision AS clat,
-               center_lng::double precision AS clng,
-               radius_m
-        FROM geofences
-        WHERE customer_id = ${customerId} AND active AND shape = 'circle'
+        SELECT g.id, g.name, g.purpose, g.notify_on, g.shape,
+               g.center_lat::double precision AS clat,
+               g.center_lng::double precision AS clng,
+               g.radius_m,
+               -- Rings are stored [[lat, lng], ...]; Postgres points are (x, y),
+               -- so longitude becomes x. That matches pointInPolygon() in
+               -- geofence-monitor.ts, which also treats longitude as x — the
+               -- live alert and this history view must not disagree about
+               -- whether a given fix was inside a zone.
+               CASE
+                 WHEN g.shape = 'polygon'
+                   AND jsonb_typeof(g.polygon) = 'array'
+                   AND jsonb_array_length(g.polygon) >= 3
+                 THEN (
+                   SELECT ('(' || string_agg(
+                             '(' || (p->>1) || ',' || (p->>0) || ')', ',' ORDER BY o
+                           ) || ')')::polygon
+                   FROM jsonb_array_elements(g.polygon) WITH ORDINALITY AS t(p, o)
+                 )
+                 ELSE NULL
+               END AS poly
+        FROM geofences g
+        WHERE g.customer_id = ${customerId}
+          AND g.active
+          AND g.shape IN ('circle', 'polygon')
       ),
       fixes AS (
         SELECT
@@ -143,13 +198,17 @@ router.get('/events', async (req: Request, res: Response) => {
           z.name AS zone_name,
           z.purpose,
           z.notify_on,
-          (
-            6371000 * 2 * ASIN(SQRT(
-              POWER(SIN(RADIANS(f.lat - z.clat) / 2), 2)
-              + COS(RADIANS(z.clat)) * COS(RADIANS(f.lat))
-                * POWER(SIN(RADIANS(f.lng - z.clng) / 2), 2)
-            ))
-          ) <= z.radius_m AS inside
+          CASE
+            WHEN z.shape = 'circle' AND z.clat IS NOT NULL AND z.radius_m IS NOT NULL THEN (
+              6371000 * 2 * ASIN(SQRT(
+                POWER(SIN(RADIANS(f.lat - z.clat) / 2), 2)
+                + COS(RADIANS(z.clat)) * COS(RADIANS(f.lat))
+                  * POWER(SIN(RADIANS(f.lng - z.clng) / 2), 2)
+              ))
+            ) <= z.radius_m
+            WHEN z.poly IS NOT NULL THEN z.poly @> point(f.lng, f.lat)
+            ELSE NULL
+          END AS inside
         FROM fixes f
         CROSS JOIN zones z
       ),
@@ -175,9 +234,9 @@ router.get('/events', async (req: Request, res: Response) => {
 
     res.json({
       period_days: days,
-      // Polygon zones are stored but not yet evaluated here; saying so beats
-      // silently returning nothing for them.
-      evaluates: 'circle' as const,
+      // Both shapes are evaluated now. Rectangles are stored as four-point
+      // polygons, so they need no separate case here or in the live monitor.
+      evaluates: 'circle+polygon' as const,
       events: rows.rows.map((r) => {
         const row = r as Record<string, unknown>;
         return {

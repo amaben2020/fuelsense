@@ -123,6 +123,84 @@ router.get('/summary', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Daily alert load for the last 7 local calendar days, for the Fleet health
+ * sparkline. Reconstructed from `alerts.created_at`/`resolved_at` rather than
+ * a running counter, so a day's figure reflects what was actually open at the
+ * end of that day, not today's count applied backwards.
+ *
+ * Deliberately alerts-only: the efficiency component of the score comes from
+ * `fleetEfficiencyAggSql`, which aggregates over a trailing window rather
+ * than a specific calendar date, so it has no honest per-day value to plot.
+ * The frontend holds it constant across the trend and says so in the card's
+ * footnote rather than implying a daily figure that doesn't exist.
+ */
+router.get('/health-trend', async (req: Request, res: Response) => {
+  try {
+    const customerId = req.user.customerId;
+    const key = cacheKey(customerId, 'health-trend', '7');
+
+    const cached = await withCache(key, 60, async () => {
+      const result = await db.execute(sql`
+        WITH days AS (
+          SELECT gs::date AS day
+          FROM generate_series(
+            DATE(NOW() AT TIME ZONE ${FLEET_TZ}) - INTERVAL '6 days',
+            DATE(NOW() AT TIME ZONE ${FLEET_TZ}),
+            INTERVAL '1 day'
+          ) AS gs
+        ),
+        bounds AS (
+          SELECT
+            day,
+            -- The instant this local day ends, i.e. midnight opening the next
+            -- one. The ::timestamp cast is load-bearing: AT TIME ZONE applied
+            -- to a bare date casts it to timestamptz and converts the other
+            -- way, landing two hours late and filing boundary-hour alerts
+            -- under the wrong day. Casting to a naive timestamp first makes
+            -- AT TIME ZONE read it as Lagos wall-clock, which is what is meant.
+            ((day + 1)::timestamp AT TIME ZONE ${FLEET_TZ}) AS day_end
+          FROM days
+        )
+        SELECT
+          to_char(b.day, 'YYYY-MM-DD') AS day,
+          COUNT(*) FILTER (
+            WHERE a.alert_type <> 'fuel_theft'
+              AND a.created_at < b.day_end
+              AND (a.resolved_at IS NULL OR a.resolved_at >= b.day_end)
+          ) AS concerning_alerts,
+          COUNT(*) FILTER (
+            WHERE a.alert_type = 'fuel_theft'
+              AND a.created_at < b.day_end
+              AND (a.resolved_at IS NULL OR a.resolved_at >= b.day_end)
+          ) AS theft_alerts
+        FROM bounds b
+        LEFT JOIN alerts a ON a.customer_id = ${customerId}
+        GROUP BY b.day
+        ORDER BY b.day
+      `);
+
+      return result.rows.map((row) => {
+        const r = row as Record<string, unknown>;
+        return {
+          // Already 'YYYY-MM-DD' from to_char. Deliberately not routed through
+          // a JS Date: the driver hands `date` columns back as strings here,
+          // but plain `pg` hands back a Date at local midnight, and
+          // `.toISOString()` on that reports the previous day anywhere east of
+          // UTC. Formatting in SQL keeps the calendar date the query meant.
+          date: String(r.day),
+          concerning_alerts: Number(r.concerning_alerts) || 0,
+          theft_alerts: Number(r.theft_alerts) || 0,
+        };
+      });
+    });
+
+    res.json({ days: cached });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
 // Fuel estimate from distance ÷ baseline efficiency — no fuel-level sensor required.
 // Which vehicles are actually carrying the work. Ranked on the same distance
 // deltas the efficiency report uses, so utilisation and cost never disagree.

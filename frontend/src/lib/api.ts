@@ -433,6 +433,16 @@ export interface DashboardSummary {
   estimated_theft_loss_ngn: number;
 }
 
+export interface HealthTrendDay {
+  date: string;
+  concerning_alerts: number;
+  theft_alerts: number;
+}
+
+export interface HealthTrendResponse {
+  days: HealthTrendDay[];
+}
+
 export interface EstimatedConsumptionRow {
   vehicle_id: string;
   license_plate: string;
@@ -1413,12 +1423,18 @@ export function formatOdometerMiles(km: number | string | null | undefined): str
   return `${Math.round(Number(km) * KM_TO_MILES).toLocaleString()} mi`;
 }
 
+/**
+ * NGN prefix rather than the ₦ glyph. Confirmed on this machine (and every
+ * font tested — Inter, system-ui, Arial, monospace all show the same thing)
+ * that U+20A6 NAIRA SIGN renders as a single diagonal slash through the N in
+ * this environment, not the real double-bar Naira sign — reading as a
+ * struck-through, invalidated number at headline sizes. "NGN" sidesteps the
+ * glyph entirely and is what most Nigerian fintech UIs use for exactly this
+ * reason.
+ */
 export function formatNgn(amount: number) {
-  return new Intl.NumberFormat('en-NG', {
-    style: 'currency',
-    currency: 'NGN',
-    maximumFractionDigits: 0,
-  }).format(amount);
+  const n = new Intl.NumberFormat('en-NG', { maximumFractionDigits: 0 }).format(amount);
+  return `NGN ${n}`;
 }
 
 /** Always NGN — never use $ or other currencies in the UI */
@@ -1575,13 +1591,18 @@ export interface UtilisationResponse {
   vehicles: UtilisationVehicle[];
 }
 
+/** A polygon ring point, stored [latitude, longitude]. */
+export type GeofencePoint = [number, number];
+
 export interface Geofence {
   id: string;
   name: string;
+  /** 'circle' | 'polygon'. Rectangles are stored as four-point polygons. */
   shape: string;
   center_lat: string | null;
   center_lng: string | null;
   radius_m: number | null;
+  polygon: GeofencePoint[] | null;
   purpose: string;
   notify_on: string;
   vehicle_id: string | null;
@@ -1617,9 +1638,13 @@ export const fetchGeofenceEvents = (days = 30) =>
 
 export function createGeofence(input: {
   name: string;
-  center_lat: number;
-  center_lng: number;
-  radius_m: number;
+  /** Omit for polygon zones; required for circles. */
+  shape?: 'circle' | 'polygon';
+  center_lat?: number;
+  center_lng?: number;
+  radius_m?: number;
+  /** [[lat, lng], ...] ring. Rectangles send their four corners. */
+  polygon?: GeofencePoint[];
   purpose?: string;
   notify_on?: string;
   vehicle_id?: string | null;

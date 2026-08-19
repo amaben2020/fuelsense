@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MapPin, Play } from 'lucide-react';
+import { MapPin, Play, X } from 'lucide-react';
 import { Alert, formatNgn } from '@/lib/api';
 import { TRUST_COPY } from '@/lib/trust-language';
 
@@ -128,17 +128,30 @@ export function AlertsList({
                 )}
               </p>
             </div>
-            {onViewOnMap &&
-              alert.alert_type === 'fuel_theft' &&
-              alert.vehicle_id && (
+            <div className="flex shrink-0 items-center gap-2">
+              {onViewOnMap &&
+                alert.alert_type === 'fuel_theft' &&
+                alert.vehicle_id && (
+                  <button
+                    type="button"
+                    onClick={() => onViewOnMap(alert)}
+                    className="rounded-lg border border-bad/40 bg-bad-deep/30 px-3 py-1.5 text-xs font-medium text-bad hover:bg-bad-deep/50"
+                  >
+                    View on map
+                  </button>
+                )}
+              {onDismiss && (
                 <button
                   type="button"
-                  onClick={() => onViewOnMap(alert)}
-                  className="shrink-0 rounded-lg border border-bad/40 bg-bad-deep/30 px-3 py-1.5 text-xs font-medium text-bad hover:bg-bad-deep/50"
+                  onClick={() => dismiss(alert)}
+                  aria-label="Mark as read"
+                  title="Mark as read"
+                  className="rounded-full p-1 text-ink-dim transition-colors hover:bg-panel-hover hover:text-ink"
                 >
-                  View on map
+                  <X className="h-3.5 w-3.5" />
                 </button>
               )}
+            </div>
           </div>
         </li>
       ))}

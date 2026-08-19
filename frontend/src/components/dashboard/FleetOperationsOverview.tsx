@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Droplet,
   Fuel,
-  Gauge,
   MapPin,
   Play,
   Truck,
@@ -24,9 +23,9 @@ import {
   FuelAnomaly,
   FuelEventsResponse,
   formatNgn,
-  kmLToMpg,
 } from '@/lib/api';
 import { DistanceBreakdownCard } from '@/components/dashboard/DistanceBreakdownCard';
+import { FleetHealthCard } from '@/components/dashboard/FleetHealthCard';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { IconTile } from '@/components/ui/chrome';
 import { ReplayTarget } from '@/lib/replay-target';
@@ -87,18 +86,22 @@ type AttentionItem = {
  * driven and fuelled well) were being answered with one number.
  */
 function fleetHealthScore(summary: DashboardSummary, efficiency: FleetEfficiency[]) {
-  let score = 100;
   // Only alerts that actually indicate a driving/fuel problem count here —
   // reuses the same bad/warn severity classification the alerts feed itself
   // uses, so a receipt upload or a routine trip-start note never touches
   // this score. Weighted lighter than before: one open alert is a thing to
   // look at, not a tenth of the fleet's health gone.
-  const concerning = summary.active_alerts - summary.theft_alerts;
-  score -= concerning * 2;
-  score -= summary.theft_alerts * 10;
-  const under = efficiency.filter((e) => e.status !== 'verified').length;
-  score -= under * 7;
-  return Math.max(0, Math.min(100, Math.round(score)));
+  const concerningAlerts = summary.active_alerts - summary.theft_alerts;
+  const theftAlerts = summary.theft_alerts;
+  const underperforming = efficiency.filter((e) => e.status !== 'verified').length;
+  const score =
+    100 - concerningAlerts * 2 - theftAlerts * 10 - underperforming * 7;
+  return {
+    score: Math.max(0, Math.min(100, Math.round(score))),
+    concerningAlerts,
+    theftAlerts,
+    underperforming,
+  };
 }
 
 /** Vehicles reachable right now — the connectivity half of "is this fleet
@@ -312,7 +315,8 @@ export function FleetOperationsOverview({
     [efficiencySummary]
   );
 
-  const healthScore = summary ? fleetHealthScore(summary, efficiency) : null;
+  const health = summary ? fleetHealthScore(summary, efficiency) : null;
+  const healthScore = health?.score ?? null;
   const healthTone =
     healthScore == null ? 'default' : healthScore >= 75 ? 'good' : healthScore >= 50 ? 'warn' : 'bad';
   const connScore = summary ? connectivityScore(summary) : null;
@@ -753,15 +757,13 @@ export function FleetOperationsOverview({
                     />
                     {/* What idling is costing, rather than an economy figure
                         that only ever restates the vehicle's own settings.
-                        Shown in mpg because that is what is on the dash of
-                        most imports here. */}
+                        Shown in km/L — every other rate on this dashboard is
+                        metric, and mpg was the one imperial figure in the app. */}
                     {fuelContext.idleDragKmPerLiter != null &&
                     fuelContext.ratedKmPerLiter != null ? (
                       <Rate
                         label="Idle drag"
-                        value={`${kmLToMpg(fuelContext.ratedKmPerLiter)?.toFixed(1) ?? '—'} → ${
-                          kmLToMpg(fuelContext.kmPerLiter)?.toFixed(1) ?? '—'
-                        } mpg`}
+                        value={`${fuelContext.ratedKmPerLiter.toFixed(1)} → ${fuelContext.kmPerLiter.toFixed(1)} km/L`}
                         benchmark={`${fuelContext.idleLiters.toFixed(1)} L idling · ${formatNgn(
                           fuelContext.idleCost
                         )}`}
@@ -908,26 +910,14 @@ export function FleetOperationsOverview({
               week of preventable loss by 52 produces a large, alarming number
               that no evidence supports — a single bad week is not a year, and
               the figure reads as a forecast however it is captioned. */}
-          {/* Fleet health used to stretch the full width of row two purely to
-              fill the hole the removed projection left. One score does not
-              need six columns, so the slack now carries a breakdown of the
-              distance behind every other figure on this screen. */}
-          <StatTile
-            icon={Gauge}
-            label="Fleet health"
-            value={healthScore != null ? `${healthScore}/100` : '—'}
-            // Connectivity used to be folded into this number, so one
-            // disconnected tracker could floor it regardless of how well the
-            // fleet was actually driven — a different problem (needs a
-            // technician) answered with the same number as a driving one
-            // (needs a word with the driver). It now shows separately, right
-            // in this tile's hint, rather than inventing a sixth grid tile.
-            hint={
-              connScore != null
-                ? `Driving & fuel only · connectivity ${connScore}%${offlineCount > 0 ? ` (${offlineCount} offline)` : ''}`
-                : 'Theft flags, efficiency, open issues'
-            }
+          <FleetHealthCard
+            score={healthScore}
             tone={healthTone}
+            concerningAlerts={health?.concerningAlerts ?? 0}
+            theftAlerts={health?.theftAlerts ?? 0}
+            underperforming={health?.underperforming ?? 0}
+            connScore={connScore}
+            offlineCount={offlineCount}
             className="lg:col-span-3"
           />
           <DistanceBreakdownCard

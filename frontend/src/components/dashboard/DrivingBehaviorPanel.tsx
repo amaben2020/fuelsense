@@ -104,7 +104,10 @@ const eventLabel = (type: string) =>
 
 const SEVERITY_STYLES: Record<string, string> = {
   info: 'border-l-edge bg-canvas',
-  warning: 'border-l-warn bg-warn-deep/15',
+  // A flat saturated orange card is the single most recognisable
+  // "AI-generated dashboard" tell — flag events get a duller, warmer copper
+  // and a thin border only, not a full tinted wash.
+  warning: 'border-l-flag bg-canvas',
   critical: 'border-l-bad bg-bad-deep/20',
 };
 
@@ -561,9 +564,11 @@ export function DrivingBehaviorPanel({
               const tone =
                 item.severity === 'critical'
                   ? 'text-bad'
-                  : item.severity === 'warning' || item.eventType === 'idling'
+                  : item.eventType === 'idling'
                     ? 'text-warn'
-                    : 'text-ink-dim';
+                    : item.severity === 'warning'
+                      ? 'text-flag'
+                      : 'text-ink-dim';
               return (
                 <li
                   key={item.id}
