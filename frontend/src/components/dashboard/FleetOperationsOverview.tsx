@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
-  Droplet,
   Fuel,
   MapPin,
   Play,
@@ -25,20 +24,17 @@ import {
   formatNgn,
 } from '@/lib/api';
 import { DistanceBreakdownCard } from '@/components/dashboard/DistanceBreakdownCard';
-import { FleetHealthCard } from '@/components/dashboard/FleetHealthCard';
+import { DetailSection } from '@/components/dashboard/DetailSection';
+import { FleetStatusCard } from '@/components/dashboard/FleetStatusCard';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
-import { IconTile } from '@/components/ui/chrome';
 import { ReplayTarget } from '@/lib/replay-target';
 import {
   TRUST_COPY,
-  anomalyConfidence,
   anomalyContextLines,
   lossReasonLines,
   lossReasonSummary,
-  receiptMismatchConfidence,
   receiptMismatchContextLines,
-  severityLabel,
-  siphonConfidence,
+  severityRank,
   siphonContextLines,
 } from '@/lib/trust-language';
 
@@ -52,6 +48,14 @@ import {
  */
 const FUEL_COVERAGE_FLOOR = 0.6;
 
+/** "2h 48m" — the unit a manager already thinks in for engine-on time. */
+function formatHoursMins(hours: number): string {
+  const total = Math.round((hours ?? 0) * 60);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+
 function activityDateKey(iso: string) {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
 }
@@ -63,7 +67,6 @@ type AttentionItem = {
   vehicle: string;
   detail: string;
   reasons: string[];
-  confidence: number;
   severityLevel: 'HIGH' | 'MEDIUM' | 'LOW';
   source: string;
   lossNgn?: number;
@@ -163,11 +166,6 @@ export function FleetOperationsOverview({
 }) {
   const [expandedVehicle, setExpandedVehicle] = useState<string | null>(null);
   const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
-  // The naira-per-km figure and the litre-by-litre reconciliation below it are
-  // the two things a manager actually budgets and argues against — starting
-  // collapsed buried the best evidence on the page behind a click nobody knew
-  // to make.
-  const [financialDetailsOpen, setFinancialDetailsOpen] = useState(true);
   /** The row whose full evidence is open. Null = queue view. */
   const [detailItem, setDetailItem] = useState<AttentionItem | null>(null);
 
@@ -310,6 +308,27 @@ export function FleetOperationsOverview({
     };
   }, [efficiencySummary, efficiency, periodDays]);
 
+  // One-line cause for the headline card. Built from the same `loss_reason`
+  // the breakdown section itemises, so the sentence at the top and the numbers
+  // underneath can never describe different things.
+  // Costed, not just named. "idle time, stop-start driving and harsh events"
+  // told a manager what the loss was about but not what any of it was worth,
+  // so the headline figure still had to be taken on trust until they opened
+  // the breakdown. Each cause now carries its own naira amount, and the parts
+  // are ordered biggest-first so the one worth acting on leads.
+  const lossCauseParts = useMemo(() => {
+    const r = efficiencySummary?.loss_reason;
+    if (!r) return [];
+    const parts: Array<{ label: string; ngn: number }> = [];
+    if (r.idle_liters > 0) parts.push({ label: 'idling', ngn: r.idle_cost_ngn });
+    if (r.unexplained_liters > 0) {
+      parts.push({ label: 'stop-start driving', ngn: r.unexplained_cost_ngn });
+    }
+    return parts.filter((p) => p.ngn > 0).sort((a, b) => b.ngn - a.ngn);
+  }, [efficiencySummary]);
+
+  const harshEventCount = efficiencySummary?.loss_reason?.harsh_event_count ?? 0;
+
   const lossLines = useMemo(
     () => lossReasonLines(efficiencySummary?.loss_reason),
     [efficiencySummary]
@@ -317,8 +336,6 @@ export function FleetOperationsOverview({
 
   const health = summary ? fleetHealthScore(summary, efficiency) : null;
   const healthScore = health?.score ?? null;
-  const healthTone =
-    healthScore == null ? 'default' : healthScore >= 75 ? 'good' : healthScore >= 50 ? 'warn' : 'bad';
   const connScore = summary ? connectivityScore(summary) : null;
   const offlineCount = summary ? summary.total_vehicles - summary.online_vehicles : 0;
 
@@ -327,7 +344,6 @@ export function FleetOperationsOverview({
 
     for (const event of fuelEvents?.siphon_events ?? []) {
       if (event.status === 'resolved' || event.status === 'false_alarm') continue;
-      const confidence = siphonConfidence(event);
       items.push({
         id: `siphon-${event.id}`,
         severity: 'critical',
@@ -335,8 +351,7 @@ export function FleetOperationsOverview({
         vehicle: event.vehicle_plate,
         detail: `Fuel level fell ${event.liters_stolen.toFixed(1)}L while parked`,
         reasons: siphonContextLines(event),
-        confidence,
-        severityLevel: severityLabel(confidence),
+        severityLevel: severityRank('critical'),
         source: 'OBD + idle correlation',
         lossNgn: event.estimated_loss_ngn,
         replayTarget: { kind: 'siphon', id: event.id },
@@ -346,7 +361,6 @@ export function FleetOperationsOverview({
 
     for (const flag of fuelEvents?.receipt_flags ?? []) {
       if (flag.status !== 'flagged') continue;
-      const confidence = receiptMismatchConfidence(flag);
       const obd = flag.obd_actual_liters;
       items.push({
         id: `receipt-${flag.id}`,
@@ -358,8 +372,7 @@ export function FleetOperationsOverview({
             ? `Receipt ${flag.declared_liters}L · measured ${obd}L`
             : `${flag.merchant_name ?? 'Station'} · OBD match pending`,
         reasons: receiptMismatchContextLines(flag),
-        confidence,
-        severityLevel: severityLabel(confidence),
+        severityLevel: severityRank('warning'),
         source: 'Receipt + FMC150 OBD',
         lossNgn: flag.estimated_loss_ngn,
         replayTarget: { kind: 'receipt', id: flag.id },
@@ -369,7 +382,6 @@ export function FleetOperationsOverview({
     for (const alert of alerts
       .filter((a) => a.alert_type === 'fuel_theft' || a.alert_type === 'receipt_fraud')
       .slice(0, 3)) {
-      const confidence = 76;
       items.push({
         id: `alert-${alert.id}`,
         severity: 'critical',
@@ -380,8 +392,7 @@ export function FleetOperationsOverview({
         vehicle: alert.license_plate ?? 'Unknown',
         detail: alert.message,
         reasons: [],
-        confidence,
-        severityLevel: severityLabel(confidence),
+        severityLevel: severityRank('critical'),
         source: 'FMC150 telemetry',
         lossNgn: alert.estimated_loss_ngn ?? undefined,
         vehicleId: alert.vehicle_id,
@@ -389,7 +400,6 @@ export function FleetOperationsOverview({
     }
 
     for (const a of anomalies.filter((x) => !x.acknowledged)) {
-      const confidence = anomalyConfidence(a);
       items.push({
         id: `anomaly-${a.id}`,
         severity: a.severity === 'critical' ? 'critical' : 'warning',
@@ -397,8 +407,7 @@ export function FleetOperationsOverview({
         vehicle: a.vehicle_plate ?? 'Unknown',
         detail: a.details,
         reasons: anomalyContextLines(a),
-        confidence,
-        severityLevel: severityLabel(confidence),
+        severityLevel: severityRank(a.severity),
         source: 'Live telemetry',
         lossNgn: a.amount_lost_ngn,
         vehicleId: a.vehicle_id ?? undefined,
@@ -433,8 +442,7 @@ export function FleetOperationsOverview({
         detail: `${row.efficiency_km_l?.toFixed(1) ?? '—'} km/L vs ${row.expected_efficiency_km_l.toFixed(1)} km/L baseline`,
         // Measured causes, not guesses about route or load.
         reasons: lossReasonLines(row.loss_reason),
-        confidence: 62,
-        severityLevel: 'MEDIUM',
+        severityLevel: severityRank('warning'),
         source: 'OBD efficiency model',
         lossNgn: row.efficiency_loss_ngn,
         vehicleId: row.vehicle_id,
@@ -449,8 +457,7 @@ export function FleetOperationsOverview({
         vehicle: row.license_plate,
         detail: `Possible loss ${formatNgn(row.theft_loss_ngn)}, verify with replay`,
         reasons: [],
-        confidence: 70,
-        severityLevel: 'MEDIUM',
+        severityLevel: severityRank('warning'),
         source: 'OBD + receipts',
         lossNgn: row.theft_loss_ngn,
         vehicleId: row.vehicle_id,
@@ -529,7 +536,7 @@ export function FleetOperationsOverview({
           </h2>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
-          <div className="flex flex-col rounded-xl border border-edge bg-panel-deep p-5 sm:col-span-2 sm:p-6 lg:col-span-6 lg:row-span-2">
+          <div className="flex flex-col rounded-xl border border-edge bg-panel-deep p-5 sm:col-span-2 sm:p-6 lg:col-span-6">
             <span className="skeleton-shimmer h-3 w-40 rounded-full" />
             <span className="skeleton-shimmer mt-4 h-12 w-56 rounded-lg" />
             <span className="skeleton-shimmer mt-3 h-3 w-64 rounded-full" />
@@ -593,7 +600,6 @@ export function FleetOperationsOverview({
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-bold tracking-tight text-ink">{detailItem.title}</h3>
                   <ConfidenceBadge
-                    confidence={detailItem.confidence}
                     severity={detailItem.severityLevel}
                   />
                 </div>
@@ -698,10 +704,28 @@ export function FleetOperationsOverview({
           <p className="text-xs text-ink-dim">{TRUST_COPY.notVerdict}</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
+        {/* Level 1 — the single verdict. Everything it absorbs (health score,
+            preventable loss, active alerts) used to sit in the grid below at
+            the same weight as everything else, so the page opened with six
+            peer numbers and no answer to "is my fleet okay". */}
+        <FleetStatusCard
+          score={healthScore}
+          concerningAlerts={health?.concerningAlerts ?? 0}
+          theftAlerts={health?.theftAlerts ?? 0}
+          preventableLossNgn={preventableLoss}
+          periodDays={periodDays}
+          causeParts={lossCauseParts}
+          harshEventCount={harshEventCount}
+        />
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
           <Tile
             tone="hero"
-            className="flex flex-col p-5 sm:col-span-2 sm:p-6 lg:col-span-6 lg:row-span-2"
+            // `lg:row-span-2` here dated from when two stat tiles stacked in
+            // the column beside this one. Those moved into the headline card
+            // and the detail sections, so the span left the fuel tile a row
+            // taller than its only neighbour with nothing to fill the gap.
+            className="flex flex-col p-5 sm:col-span-2 sm:p-6 lg:col-span-6"
           >
             <div className="flex items-center gap-2.5 text-ink-dim">
               <Fuel className="h-5 w-5" strokeWidth={1.75} />
@@ -750,7 +774,13 @@ export function FleetOperationsOverview({
                       value={formatNgn(fuelContext.costPerKm)}
                       benchmark={
                         fuelContext.benchmarkCostPerKm != null
-                          ? `vs ${formatNgn(fuelContext.benchmarkCostPerKm)} typical`
+                          // Names what the comparison is against. "typical"
+                          // alone left the manager guessing whether it meant
+                          // this fleet, this vehicle class, or an industry
+                          // figure — and the three would justify very
+                          // different reactions. It is the distance-weighted
+                          // rate of each vehicle's own configured baseline.
+                          ? `vs ${formatNgn(fuelContext.benchmarkCostPerKm)} at each vehicle's configured baseline`
                           : null
                       }
                       emphasis
@@ -762,15 +792,19 @@ export function FleetOperationsOverview({
                     {fuelContext.idleDragKmPerLiter != null &&
                     fuelContext.ratedKmPerLiter != null ? (
                       <Rate
-                        label="Idle drag"
-                        value={`${fuelContext.ratedKmPerLiter.toFixed(1)} → ${fuelContext.kmPerLiter.toFixed(1)} km/L`}
-                        benchmark={`${fuelContext.idleLiters.toFixed(1)} L idling · ${formatNgn(
-                          fuelContext.idleCost
-                        )}`}
+                        // "Idle drag  5.7 → 5.1 km/L" named neither number and
+                        // explained neither the arrow nor the units, so the one
+                        // figure a manager can act on — what idling costs —
+                        // was the hardest thing on the card to extract. Lead
+                        // with the money and the hours, and state the economy
+                        // comparison underneath in a full sentence.
+                        label="Idling cost"
+                        value={formatNgn(fuelContext.idleCost)}
+                        benchmark={`${formatHoursMins(fuelContext.idleHours)} parked with the engine on · ${fuelContext.idleLiters.toFixed(1)} L. Economy ${fuelContext.ratedKmPerLiter.toFixed(1)} km/L moving, ${fuelContext.kmPerLiter.toFixed(1)} km/L once idling is counted.`}
                       />
                     ) : (
                       <Rate
-                        label="Idle drag"
+                        label="Idling cost"
                         value="—"
                         benchmark="no idling recorded this period"
                       />
@@ -782,7 +816,7 @@ export function FleetOperationsOverview({
                      flattering number with nothing behind it. */
                   <div className="grid grid-cols-2 gap-4">
                     <Rate label="Cost per km" value="—" benchmark="not enough fuel data" />
-                    <Rate label="Idle drag" value="—" benchmark="not enough fuel data" />
+                    <Rate label="Idling cost" value="—" benchmark="not enough fuel data" />
                   </div>
                 )}
                 {/* Stated once, plainly, wherever litres appear as money: this
@@ -805,128 +839,224 @@ export function FleetOperationsOverview({
               </div>
             )}
 
-            {/* Same coverage gate: "under benchmark by ₦499" is only a saving
-                if the litres it is measured against are real. Under-measured
-                burn would otherwise be reported to a manager as money kept. */}
-            {fuelContext &&
-              fuelContext.fuelComplete &&
-              fuelContext.savedNgn != null &&
-              fuelContext.benchmarkCost != null && (
-              <div className="mt-5 rounded-lg border border-edge bg-canvas p-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="text-xs font-medium uppercase tracking-[0.1em] text-ink-dim">
-                    {fuelContext.savedNgn >= 0 ? 'Under benchmark' : 'Over benchmark'} ·{' '}
-                    {periodDays}d
-                  </p>
-                  <p
-                    className={`font-mono text-xl font-semibold tabular-nums ${
-                      // Green means one thing only: money genuinely kept.
-                      fuelContext.savedNgn > 0 ? 'text-good' : 'text-ink'
-                    }`}
-                  >
-                    {formatNgn(Math.abs(fuelContext.savedNgn))}
-                  </p>
-                </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-ink-dim">
-                  {Math.round(fuelContext.distanceKm)} km at the{' '}
-                  {fuelContext.benchmarkKmPerLiter?.toFixed(1)} km/L baseline should burn{' '}
-                  {fuelContext.benchmarkLiters?.toFixed(1)} L ({formatNgn(fuelContext.benchmarkCost)}
-                  ). The model charges {fuelContext.liters.toFixed(1)} L (
-                  {formatNgn(fuelContext.burnedCost)}) —{' '}
-                  {Math.abs(fuelContext.savedLiters ?? 0).toFixed(1)} L{' '}
-                  {fuelContext.savedNgn >= 0 ? 'less' : 'more'} than expected.
-                </p>
-                {/* Never show a loss without saying what caused it. */}
-                {lossLines.length > 0 && (
-                  <ul className="mt-3 space-y-1.5 border-t border-edge pt-3">
-                    {lossLines.map((line) => (
-                      <li key={line} className="flex gap-2 text-xs leading-relaxed text-ink-mid">
-                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-warn" />
-                        {line}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
+            {/* The benchmark comparison moved into the loss breakdown section.
+                It rendered the same naira figure as the headline "preventable
+                loss" whenever theft was zero — two labels, one number, on one
+                screen — which is the duplicate this redesign exists to remove.
+                Its arithmetic survives intact where the figure is itemised. */}
+            {/* The loss breakdown that used to expand here now has its own
+                section further down, so the figure is itemised in exactly one
+                place instead of twice on the same screen. */}
+          </Tile>
 
-            <button
-              type="button"
-              onClick={() => setFinancialDetailsOpen((v) => !v)}
-              className="mt-auto flex w-full items-center justify-between gap-2 pt-4 text-xs text-accent"
-            >
-              <span>{financialDetailsOpen ? 'Hide' : 'Show'} loss breakdown</span>
-              {financialDetailsOpen ? (
-                <ChevronDown className="h-4 w-4" />
+          {/* "Preventable loss" and "Active alerts" were removed from this
+              row, not relocated arbitrarily: preventable loss is stated once in
+              the headline above and itemised once in the loss breakdown below,
+              and the alert count now leads the alert detail section that can
+              actually enumerate it. The annualised projection went earlier, for
+              its own reason — one period's loss × 52 is a forecast nothing
+              supports. Fleet health likewise moved up into the verdict. */}
+          <DistanceBreakdownCard
+            periodDays={periodDays}
+            idleHours={fuelContext?.idleHours}
+            idleCostNgn={fuelContext?.idleCost}
+            className="sm:col-span-2 lg:col-span-6"
+          />
+        </div>
+      </section>
+
+      {/* Level 3 — detail, collapsed by default and independently openable.
+          Each section is its own disclosure rather than one accordion, so
+          opening "Alert detail" does not also render the loss breakdown. */}
+      <section aria-label="Detail" className="space-y-3">
+        <DetailSection
+          title="Loss breakdown"
+          summary={`How the ${formatNgn(preventableLoss)} preventable loss is made up`}
+        >
+          {efficiencySummary ? (
+            <div className="space-y-3">
+              {/* The subtraction the total comes from, stated before it is
+                  broken down — so the reader can check the figure rather than
+                  take it on trust. Gated on fuel coverage for the same reason
+                  it always was: a comparison against under-measured litres
+                  would report a gap that is really missing data. */}
+              {fuelContext &&
+                fuelContext.fuelComplete &&
+                fuelContext.savedNgn != null &&
+                fuelContext.benchmarkCost != null && (
+                  <p className="text-xs leading-relaxed text-ink-mid">
+                    {Math.round(fuelContext.distanceKm)} km at the{' '}
+                    {fuelContext.benchmarkKmPerLiter?.toFixed(1)} km/L baseline should burn{' '}
+                    {fuelContext.benchmarkLiters?.toFixed(1)} L (
+                    {formatNgn(fuelContext.benchmarkCost)}). The model charges{' '}
+                    {fuelContext.liters.toFixed(1)} L ({formatNgn(fuelContext.burnedCost)}) —{' '}
+                    {Math.abs(fuelContext.savedLiters ?? 0).toFixed(1)} L{' '}
+                    {fuelContext.savedNgn >= 0 ? 'less' : 'more'} than expected.
+                  </p>
+                )}
+              {lossLines.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {lossLines.map((line) => (
+                    <li key={line} className="flex gap-2 text-xs leading-relaxed text-ink-mid">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-warn" />
+                      {line}
+                    </li>
+                  ))}
+                </ul>
               ) : (
-                <ChevronRight className="h-4 w-4" />
+                <p className="text-xs text-ink-dim">
+                  Nothing above the benchmark this period.
+                </p>
               )}
-            </button>
-            {financialDetailsOpen && efficiencySummary && (
-              <div className="mt-3 grid gap-x-6 gap-y-3 border-t border-edge pt-3 text-[11px] sm:grid-cols-3">
+              <div className="grid gap-x-6 gap-y-3 border-t border-edge pt-3 text-[11px] sm:grid-cols-2">
                 <div>
-                  <p className="text-ink-dim">Suspicious fuel patterns</p>
+                  <p className="text-ink-dim">Tied to a flagged event</p>
                   <p className="font-mono text-sm text-bad">
                     {formatNgn(efficiencySummary.total_theft_loss_ngn)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-ink-dim">Efficiency gap</p>
+                  <p className="text-ink-dim">Above benchmark (estimate)</p>
                   <p className="font-mono text-sm text-warn">
                     {formatNgn(efficiencySummary.total_efficiency_loss_ngn)}
                   </p>
                 </div>
-                <div>
-                  <p className="text-ink-dim">Recoverable ({periodDays}d)</p>
-                  <p className="font-mono text-sm text-ink">
-                    {formatNgn(efficiencySummary.recoverable_ngn)}
-                  </p>
-                </div>
               </div>
-            )}
-          </Tile>
+              <p className="border-t border-edge pt-3 text-[11px] leading-relaxed text-ink-dim">
+                These two are the whole of the {formatNgn(preventableLoss)} shown at the top of
+                the page — it appears there and here, and nowhere else. Litres are modelled from
+                distance and idle time, not read from a fuel sensor.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-ink-dim">No efficiency data for this period.</p>
+          )}
+        </DetailSection>
 
-          <StatTile
-            icon={Droplet}
-            label={`Preventable loss · ${periodDays}d`}
-            value={formatNgn(preventableLoss)}
-            hint="Anomalies plus the efficiency gap"
-            tone={preventableLoss > 0 ? 'bad' : 'good'}
-            className="lg:col-span-3"
-          />
-          <StatTile
-            icon={AlertTriangle}
-            label="Active alerts"
-            value={String(summary.active_alerts)}
-            hint={
-              offlineCount > 0
-                ? `${summary.online_vehicles}/${summary.total_vehicles} online — offline vehicles show their last known state, not live data`
-                : `${summary.online_vehicles}/${summary.total_vehicles} vehicles online`
-            }
-            tone={summary.active_alerts > 0 ? 'warn' : 'good'}
-            className="lg:col-span-3"
-          />
-          {/* The annualised projection was removed deliberately. Multiplying one
-              week of preventable loss by 52 produces a large, alarming number
-              that no evidence supports — a single bad week is not a year, and
-              the figure reads as a forecast however it is captioned. */}
-          <FleetHealthCard
-            score={healthScore}
-            tone={healthTone}
-            concerningAlerts={health?.concerningAlerts ?? 0}
-            theftAlerts={health?.theftAlerts ?? 0}
-            underperforming={health?.underperforming ?? 0}
-            connScore={connScore}
-            offlineCount={offlineCount}
-            className="lg:col-span-3"
-          />
-          <DistanceBreakdownCard
-            periodDays={periodDays}
-            idleHours={fuelContext?.idleHours}
-            idleCostNgn={fuelContext?.idleCost}
-            className="sm:col-span-2 lg:col-span-3"
-          />
-        </div>
+        <DetailSection
+          title="Alert detail"
+          summary={`All ${summary.active_alerts} open alert${summary.active_alerts === 1 ? '' : 's'}`}
+        >
+          {/* Every open alert, not a sample. The queue above is deliberately a
+              shortlist; a headline count of 22 that opened onto six rows was
+              a count the detail could not account for. */}
+          {alerts.length === 0 ? (
+            <p className="text-xs text-ink-dim">No open alerts.</p>
+          ) : (
+            <ul className="divide-y divide-edge">
+              {alerts.map((a) => (
+                <li key={a.id} className="flex items-start justify-between gap-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-ink">{a.message}</p>
+                    <p className="mt-0.5 text-[11px] text-ink-dim">
+                      {a.license_plate ?? 'Unassigned vehicle'} ·{' '}
+                      {new Date(a.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  {a.estimated_loss_ngn ? (
+                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-warn">
+                      {formatNgn(a.estimated_loss_ngn)}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          {alerts.length !== summary.active_alerts && (
+            <p className="mt-3 border-t border-edge pt-3 text-[11px] text-ink-dim">
+              Showing {alerts.length} of {summary.active_alerts} counted open alerts. The
+              difference is alerts the feed has not loaded for this window — the count comes
+              from the summary, the list from the alerts feed.
+            </p>
+          )}
+        </DetailSection>
+
+        <DetailSection
+          title="Fleet health scoring"
+          summary={healthScore != null ? `${healthScore}/100, and what moved it` : 'Not scored yet'}
+        >
+          {/* The subtraction written out, rather than deductions scattered in a
+              side list for the reader to total themselves. */}
+          <ol className="space-y-1.5 font-mono text-xs tabular-nums">
+            <li className="flex justify-between gap-3">
+              <span className="text-ink-dim">Starting score</span>
+              <span className="text-ink">100</span>
+            </li>
+            <li className="flex justify-between gap-3">
+              <span className="text-ink-dim">
+                {health?.concerningAlerts ?? 0} concerning alert
+                {(health?.concerningAlerts ?? 0) === 1 ? '' : 's'} × 2
+              </span>
+              {/* A zero line still earns its row — it says the detector ran
+                  and found nothing — but "−0" reads like a typo. */}
+              <span className={(health?.concerningAlerts ?? 0) > 0 ? 'text-warn' : 'text-ink-dim'}>
+                {(health?.concerningAlerts ?? 0) > 0 ? `−${(health?.concerningAlerts ?? 0) * 2}` : '0'}
+              </span>
+            </li>
+            <li className="flex justify-between gap-3">
+              <span className="text-ink-dim">
+                {health?.theftAlerts ?? 0} theft flag
+                {(health?.theftAlerts ?? 0) === 1 ? '' : 's'} × 10
+              </span>
+              {/* A zero line still earns its row — it says the detector ran
+                  and found nothing — but "−0" reads like a typo. */}
+              <span className={(health?.theftAlerts ?? 0) > 0 ? 'text-warn' : 'text-ink-dim'}>
+                {(health?.theftAlerts ?? 0) > 0 ? `−${(health?.theftAlerts ?? 0) * 10}` : '0'}
+              </span>
+            </li>
+            <li className="flex justify-between gap-3">
+              <span className="text-ink-dim">
+                {health?.underperforming ?? 0} underperforming vehicle
+                {(health?.underperforming ?? 0) === 1 ? '' : 's'} × 7
+              </span>
+              {/* A zero line still earns its row — it says the detector ran
+                  and found nothing — but "−0" reads like a typo. */}
+              <span className={(health?.underperforming ?? 0) > 0 ? 'text-warn' : 'text-ink-dim'}>
+                {(health?.underperforming ?? 0) > 0 ? `−${(health?.underperforming ?? 0) * 7}` : '0'}
+              </span>
+            </li>
+            <li className="flex justify-between gap-3 border-t border-edge pt-1.5 font-semibold">
+              <span className="text-ink">Score</span>
+              <span className="text-ink">{healthScore ?? '—'}</span>
+            </li>
+          </ol>
+          <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
+            0 = severe driving/fuel issues, 100 = none detected. Floored at 0, so a fleet with
+            enough deductions to go negative still reads 0.
+          </p>
+        </DetailSection>
+
+        <DetailSection
+          title="Connectivity"
+          summary={
+            connScore != null
+              ? `${connScore}% reachable${offlineCount > 0 ? ` · ${offlineCount} offline` : ''}`
+              : 'No devices'
+          }
+        >
+          <dl className="space-y-1.5 text-xs">
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-dim">Vehicles online</dt>
+              <dd className="font-mono tabular-nums text-ink">
+                {summary.online_vehicles}/{summary.total_vehicles}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-dim">Reachable</dt>
+              <dd className="font-mono tabular-nums text-ink">
+                {connScore != null ? `${connScore}%` : '—'}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
+            Deliberately not scored. A disconnected tracker needs a technician; a badly driven
+            vehicle needs a word with the driver. Folding both into one number meant one
+            unplugged device could floor a fleet that was being driven perfectly.
+            {offlineCount > 0
+              ? ' Offline vehicles show their last known state, not live data.'
+              : ''}
+          </p>
+        </DetailSection>
       </section>
 
       {/* 2. Work bento — the queue dominates, the rail is deliberately quieter */}
@@ -973,7 +1103,6 @@ export function FleetOperationsOverview({
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="font-medium text-ink">{item.title}</span>
                           <ConfidenceBadge
-                            confidence={item.confidence}
                             severity={item.severityLevel}
                           />
                         </span>
@@ -1279,66 +1408,6 @@ function Tile({
   return <div className={`rounded-xl border ${toneCls} ${className}`}>{children}</div>;
 }
 
-function StatTile({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone = 'default',
-  className = '',
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: 'default' | 'good' | 'warn' | 'bad';
-  className?: string;
-}) {
-  const valueColor = {
-    default: 'text-ink',
-    good: 'text-good',
-    warn: 'text-warn',
-    bad: 'text-bad',
-  }[tone];
-
-  // A full-card diagonal wash tinted the whole surface and fought the panel
-  // colour, so the tone is now carried by the icon tile alone — a contained
-  // glow behind the glyph rather than a gradient across the card.
-  const tileTone = {
-    default: 'neutral',
-    good: 'good',
-    warn: 'warn',
-    bad: 'bad',
-  }[tone] as 'neutral' | 'good' | 'warn' | 'bad';
-
-  /*
-   * These tiles are grid-stretched to the tallest cell in the row, so the old
-   * `justify-between` dumped the inherited height into a hole between label and
-   * value. The value block now takes the slack with `flex-1`, and the hint is
-   * pinned to the bottom edge — the card fills instead of leaving a void.
-   *
-   * Deliberately no sparkline: none of these figures arrives with a time series
-   * behind it, and drawing one would mean inventing history.
-   */
-  return (
-    <Tile className={`relative flex flex-col overflow-hidden p-5 ${className}`}>
-      <div className="relative flex items-start gap-2.5">
-        <IconTile icon={Icon} tone={tileTone} size={44} float className="mt-0.5" />
-        <span className="text-xs font-semibold uppercase leading-tight tracking-[0.1em] text-ink-dim">
-          {label}
-        </span>
-      </div>
-      <div className="relative mt-4 flex flex-1 flex-col justify-center">
-        <p
-          className={`text-4xl font-bold leading-none tracking-tight tabular-nums ${valueColor}`}
-        >
-          {value}
-        </p>
-      </div>
-      {hint && <p className="relative mt-3 text-xs leading-snug text-ink-dim">{hint}</p>}
-    </Tile>
-  );
-}
 
 function Rate({
   label,
@@ -1385,11 +1454,15 @@ function StatusChip({
   );
 }
 
+/**
+ * Severity only. This used to render "MEDIUM · 68%", where the percentage was
+ * produced by mapping this very severity through a fixed table — so the badge
+ * stated one classification twice and the second copy looked like a
+ * measurement backing the first.
+ */
 function ConfidenceBadge({
-  confidence,
   severity,
 }: {
-  confidence: number;
   severity: 'HIGH' | 'MEDIUM' | 'LOW';
 }) {
   const severityCls = {
@@ -1401,7 +1474,7 @@ function ConfidenceBadge({
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${severityCls}`}
     >
-      {severity} · {confidence}%
+      {severity}
     </span>
   );
 }

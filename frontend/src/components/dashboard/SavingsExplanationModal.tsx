@@ -93,17 +93,15 @@ export function SavingsExplanationModal({
         </div>
 
         <div className="mt-6 rounded-lg border border-accent/30 bg-accent/10 p-4">
+          {/* The "Recoverable (~90%)" figure beside this one was total loss ×
+              0.9. The label stated the invention outright and still put it on
+              screen to the naira, which is exactly the kind of number that
+              teaches a manager to discount everything next to it. */}
           <div className="flex flex-wrap justify-between gap-4">
             <div>
               <p className="text-xs text-ink-dim">{summary.period_days}-day loss</p>
               <p className="text-xl font-bold text-bad">
                 {formatNgn(summary.total_loss_ngn)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-ink-dim">Recoverable (~90%)</p>
-              <p className="text-xl font-bold text-good">
-                {formatNgn(summary.recoverable_ngn)}
               </p>
             </div>
           </div>

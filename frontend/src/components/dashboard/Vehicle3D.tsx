@@ -4,11 +4,16 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const BODY = 0x2a323f;
-const ROOF = 0x232a35;
-const CLAD = 0x161c25;
-const GLASS = 0x0d1218;
-const DARK = 0x151b24;
+// Matte near-black, to match the studio render this view is modelled on. The
+// old palette was a blue-grey (0x2a323f) lit by a strong green rim, which read
+// as a teal toy rather than a vehicle. Form here comes from soft shading
+// across large panels, not from colour — so the values sit close together and
+// the lighting below does the separating.
+const BODY = 0x1b1e23;
+const ROOF = 0x16191d;
+const CLAD = 0x0e1013;
+const GLASS = 0x090c10;
+const DARK = 0x121519;
 const TIRE = 0x0b0f15;
 const HUB = 0x39424f;
 const GREEN = 0x00e599;
@@ -33,8 +38,10 @@ function addBox(
 ) {
   const mat = new THREE.MeshStandardMaterial({
     color: opts.color,
-    metalness: opts.metalness ?? 0.3,
-    roughness: opts.roughness ?? 0.6,
+    // Matte by default: a near-black body at 0.6 roughness picks up hard
+    // specular streaks that fight the soft studio look being aimed for.
+    metalness: opts.metalness ?? 0.08,
+    roughness: opts.roughness ?? 0.85,
     emissive: opts.emissive ?? 0x000000,
     emissiveIntensity: opts.emissive ? (opts.emissiveIntensity ?? 1) : 0,
   });
@@ -114,8 +121,12 @@ function buildSuv(plate: string, model: string | null): THREE.Group {
   for (const z of [0.6, -0.6]) addBox(car, [2.2, 0.05, 0.06], [-0.25, 2.33, z], { color: DARK, roughness: 0.4 });
   addBox(car, [0.22, 0.09, 0.06], [-1.15, 2.34, 0], { color: DARK });
   for (const z of [0.98, -0.98]) addBox(car, [0.12, 0.12, 0.18], [0.95, 1.62, z], { color: BODY });
+  // Sill line. Emissive at 1.6 this was effectively a strip light running the
+  // length of the vehicle, bouncing green onto every panel above it and giving
+  // the whole body the teal cast the reference render does not have. Kept as a
+  // brand cue, dimmed to a trim highlight rather than a lamp.
   for (const z of [0.94, -0.94])
-    addBox(car, [4.3, 0.04, 0.02], [0, 0.5, z], { color: GREEN, emissive: GREEN, emissiveIntensity: 1.6 });
+    addBox(car, [4.3, 0.03, 0.02], [0, 0.5, z], { color: GREEN, emissive: GREEN, emissiveIntensity: 0.35 });
 
   for (const z of [0.83, -0.83]) {
     addWheel(car, 1.45, z);
@@ -189,18 +200,40 @@ export function Vehicle3D({
 
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    // Filmic rolloff rather than linear clipping. On a near-black body the
+    // difference is most of the look: highlights bend off instead of blowing
+    // to flat white at the panel edges.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     camera.position.set(6.2, 3.2, 6.2);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const key = new THREE.DirectionalLight(0xffffff, 1.7);
-    key.position.set(6, 9, 5);
+    // Soft three-point studio rig.
+    //
+    // Previously: flat ambient plus one hard key and a bright green rim, which
+    // flattened the panels and tinted the whole body teal. A hemisphere light
+    // gives sky-above/ground-below falloff so horizontal surfaces separate
+    // from vertical ones on their own, the key is softened and pulled round,
+    // and the brand rim is kept but dropped to a glint that defines the roof
+    // edge instead of colouring the vehicle.
+    scene.add(new THREE.HemisphereLight(0xaebacb, 0x0a0c0f, 1.15));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+
+    const key = new THREE.DirectionalLight(0xfff4e6, 1.05);
+    key.position.set(5, 8.5, 6.5);
     scene.add(key);
-    const rim = new THREE.DirectionalLight(0x7df5c8, 0.5);
-    rim.position.set(-7, 4, -6);
+
+    // Opposite-side fill at a fraction of the key, so the shadow side keeps
+    // its shape rather than going to solid black on a body this dark.
+    const fill = new THREE.DirectionalLight(0xc8d4e4, 0.42);
+    fill.position.set(-6, 3.5, 4);
+    scene.add(fill);
+
+    const rim = new THREE.DirectionalLight(0xcfe3ff, 0.34);
+    rim.position.set(-5, 5.5, -7);
     scene.add(rim);
 
     const stage = new THREE.Group();
@@ -243,7 +276,9 @@ export function Vehicle3D({
 
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(3.5, 3.58, 72),
-      new THREE.MeshBasicMaterial({ color: GREEN, transparent: true, opacity: 0.16, side: THREE.DoubleSide })
+      // Neutral rather than brand green: a coloured floor ring tints the whole
+      // stage on a dark body, and the reference floor is plain grey.
+      new THREE.MeshBasicMaterial({ color: 0x8b93a1, transparent: true, opacity: 0.13, side: THREE.DoubleSide })
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.005;

@@ -4,7 +4,14 @@ import Link from 'next/link';
 
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { AlertTriangle, Fuel, Gauge as GaugeIcon, MapPin, Radio, User } from 'lucide-react';
+import {
+  AlertTriangle,
+  Fuel,
+  Gauge as GaugeIcon,
+  MapPin,
+  Radio,
+  User,
+} from 'lucide-react';
 import {
   FleetVehicle,
   formatNgn,
@@ -23,14 +30,17 @@ import { getVehicleSignals } from '@/lib/api';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { HatchBar, Panel, StatusChip } from '@/components/ui/chrome';
 
-const Vehicle3D = dynamic(() => import('./Vehicle3D').then((m) => m.Vehicle3D), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-[420px] items-center justify-center text-sm text-ink-dim">
-      Loading 3D vehicle…
-    </div>
-  ),
-});
+const Vehicle3D = dynamic(
+  () => import('./Vehicle3D').then((m) => m.Vehicle3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-[420px] items-center justify-center text-sm text-ink-dim">
+        Loading 3D vehicle…
+      </div>
+    ),
+  },
+);
 
 const SPEED_MAX_KPH = 160;
 
@@ -51,8 +61,24 @@ function SpeedPanel({ speedKph, live }: { speedKph: number; live: boolean }) {
     <Panel
       title="Speed"
       chip={
-        <StatusChip tone={!live ? 'neutral' : clamped > 100 ? 'bad' : clamped > 0 ? 'good' : 'neutral'}>
-          {!live ? 'No signal' : clamped > 100 ? 'High' : clamped > 0 ? 'Moving' : 'Stopped'}
+        <StatusChip
+          tone={
+            !live
+              ? 'neutral'
+              : clamped > 100
+                ? 'bad'
+                : clamped > 0
+                  ? 'good'
+                  : 'neutral'
+          }
+        >
+          {!live
+            ? 'No signal'
+            : clamped > 100
+              ? 'High'
+              : clamped > 0
+                ? 'Moving'
+                : 'Stopped'}
         </StatusChip>
       }
       className="bg-panel-deep"
@@ -60,7 +86,13 @@ function SpeedPanel({ speedKph, live }: { speedKph: number; live: boolean }) {
       {/* A stale dial is parked at zero, not frozen at the last speed: the
           needle is the most glanceable thing on the card and must not imply
           live movement. The figure itself stays available in the caption. */}
-      <SpeedGauge value={live ? clamped : 0} max={SPEED_MAX_KPH} unit="km/h" label="Speed" size={210} />
+      <SpeedGauge
+        value={live ? clamped : 0}
+        max={SPEED_MAX_KPH}
+        unit="km/h"
+        label="Speed"
+        size={210}
+      />
       {!live && (
         <p className="mt-2 text-center text-[11px] text-ink-dim">
           Tracker offline — last reading was {clamped} km/h
@@ -126,7 +158,9 @@ function FuelPanel({
               : '—'
         }
         secondary={
-          <span className={`text-[10px] ${inReserve ? 'font-semibold text-bad-bright' : 'text-ink-dim'}`}>
+          <span
+            className={`text-[10px] ${inReserve ? 'font-semibold text-bad-bright' : 'text-ink-dim'}`}
+          >
             {hasSensor
               ? inReserve
                 ? 'In reserve — refuel soon'
@@ -154,7 +188,7 @@ export function VehicleShowcase({
 }) {
   const vehicle = useMemo(
     () => fleet.find((v) => v.id === selectedVehicleId) ?? fleet[0] ?? null,
-    [fleet, selectedVehicleId]
+    [fleet, selectedVehicleId],
   );
   const { data: estimate } = useEstimatedConsumption(7);
   const [openPart, setOpenPart] = useState<HotspotId | null>(null);
@@ -173,7 +207,8 @@ export function VehicleShowcase({
     getVehicleSignals(vehicleId, 1)
       .then((res) => {
         if (cancelled) return;
-        const pick = (id: number) => res.signals.find((x) => x.avl_id === id)?.value ?? null;
+        const pick = (id: number) =>
+          res.signals.find((x) => x.avl_id === id)?.value ?? null;
         setVolts({ external: pick(66), backup: pick(67), percent: pick(113) });
       })
       .catch(() => {});
@@ -190,7 +225,8 @@ export function VehicleShowcase({
     );
   }
 
-  const estimateRow = estimate?.vehicles.find((v) => v.vehicle_id === vehicle.id) ?? null;
+  const estimateRow =
+    estimate?.vehicles.find((v) => v.vehicle_id === vehicle.id) ?? null;
   const todayRow =
     estimate?.daily
       .find((d) => d.date === new Date().toISOString().slice(0, 10))
@@ -230,70 +266,34 @@ export function VehicleShowcase({
       <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
         {/* metrics column */}
         <div className="space-y-4">
-          <div className="rounded-lg border border-edge bg-panel p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="font-mono text-xl font-bold text-ink">{vehicle.license_plate}</h2>
-                  {/* A dot, not a sentence. The old amber banner repeated
-                      what this already says and cost a whole row. */}
-                  <span
-                    title={
-                      vehicle.last_telemetry_at
-                        ? `Last reading ${new Date(vehicle.last_telemetry_at).toLocaleString()}`
-                        : 'No telemetry yet'
-                    }
-                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ink-dim"
-                  >
-                    <span
-                      className={`h-2 w-2 rounded-full ${online ? 'bg-good' : 'bg-bad'}`}
-                    />
-                    {statusLabel}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-ink-dim">
-                  {[vehicle.make, vehicle.model, vehicle.year].filter(Boolean).join(' · ') ||
-                    'Unknown model'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onOpenLive(vehicle.id)}
-                className="rounded-lg border border-edge p-2 text-ink-mid hover:bg-panel-hover"
-                aria-label="View on live map"
-              >
-                <MapPin className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Distance and week's-fuel removed: both were derived from the
-                estimate endpoint's daily rows, which reported 35 km on a day
-                with 0 km of telemetry and 58.2 km for a week the driver did not
-                drive. Restore once those rows are verified against odometer
-                deltas — a wrong number here is worse than no number. */}
-          </div>
-
           <PowerDiagnostics
             vehicleId={vehicle.id}
             refreshKey={vehicle.last_telemetry_at ?? 0}
           />
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <SpeedPanel speedKph={Number(vehicle.speed_kph ?? 0)} live={online} />
-            {vehicle.fuel_source === 'virtual' || vehicle.virtual_tank_liters != null ? (
+            <SpeedPanel
+              speedKph={Number(vehicle.speed_kph ?? 0)}
+              live={online}
+            />
+            {vehicle.fuel_source === 'virtual' ||
+            vehicle.virtual_tank_liters != null ? (
               <Panel title="Fuel level" className="bg-panel-deep">
                 <VirtualFuelGauge vehicle={vehicle} />
               </Panel>
             ) : (
               <FuelPanel
-                fuelLiters={vehicle.fuel_level_liters != null ? Number(vehicle.fuel_level_liters) : null}
+                fuelLiters={
+                  vehicle.fuel_level_liters != null
+                    ? Number(vehicle.fuel_level_liters)
+                    : null
+                }
                 tankLiters={vehicle.tank_capacity_liters}
                 estimatedUsedLiters={estimateRow?.estimated_fuel_liters ?? null}
                 estimatedCostNgn={estimateRow?.estimated_cost_ngn ?? null}
               />
             )}
           </div>
-
         </div>
 
         {/* 3D stage */}
@@ -308,6 +308,92 @@ export function VehicleShowcase({
               model={vehicle.model}
               onSelectHotspot={setOpenPart}
             />
+
+            {/* Vitals read over the render rather than under it.
+                
+                The stage previously carried the model alone, with the vehicle's
+                state in a bar below the canvas — so the two were never in view
+                together on a laptop, and the 420px of render was decoration
+                rather than a readout. Floating the panel keeps the identity,
+                the state and the fuel level against the vehicle they describe.
+                
+                Anchored left and narrow: the model sits centre-right in the
+                default camera, and a panel across the middle would cover the
+                thing it annotates. `pointer-events-none` so it never steals a
+                drag from the orbit controls underneath it. */}
+            <div className="pointer-events-none absolute left-4 top-4 z-10 w-[13.5rem] rounded-xl border border-edge/80 bg-canvas/85 p-3.5 backdrop-blur-md">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-mono text-sm font-bold tracking-tight text-ink">
+                  {vehicle.license_plate}
+                </p>
+                <span
+                  className={`mt-0.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                    statusLabel === 'Driving'
+                      ? 'bg-good/20 text-good'
+                      : statusLabel === 'Idle'
+                        ? 'bg-warn/20 text-warn'
+                        : 'bg-ink-dim/20 text-ink-mid'
+                  }`}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                  {statusLabel}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-ink-dim">
+                {[vehicle.make, vehicle.model, vehicle.year]
+                  .filter(Boolean)
+                  .join(' · ') || 'Unspecified model'}
+              </p>
+
+              <dl className="mt-3 space-y-1.5 border-t border-edge pt-2.5 text-[11px]">
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-ink-dim">Driver</dt>
+                  <dd className="truncate text-ink">
+                    {vehicle.driver_name || 'Unassigned'}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-ink-dim">Odometer</dt>
+                  <dd className="font-mono tabular-nums text-ink">
+                    {vehicle.total_odometer_km != null
+                      ? formatOdometerMiles(vehicle.total_odometer_km)
+                      : vehicle.odometer_km != null
+                        ? formatOdometerMiles(vehicle.odometer_km)
+                        : '—'}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-ink-dim">Fuel</dt>
+                  <dd className="font-mono tabular-nums text-ink">
+                    {vehicle.fuel_level_liters != null
+                      ? `${Number(vehicle.fuel_level_liters).toFixed(1)} L`
+                      : '—'}
+                  </dd>
+                </div>
+              </dl>
+
+              {/* Modelled, and says so. The tank on this fleet is computed from
+                  distance and idle time, so a bar drawn without that caption
+                  reads as a sensor reading it is not. */}
+              {vehicle.fuel_level_liters != null &&
+              vehicle.tank_capacity_liters ? (
+                <div className="mt-2.5">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-panel-deep">
+                    <div
+                      className="h-full rounded-full bg-good"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, (Number(vehicle.fuel_level_liters) / vehicle.tank_capacity_liters) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] text-ink-dim">
+                    of {vehicle.tank_capacity_liters} L
+                    {vehicle.fuel_source === 'virtual' ? ' · modelled' : ''}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
             <p className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-wider text-ink-dim">
               Drag to rotate · scroll to zoom · tap a marker for detail
             </p>

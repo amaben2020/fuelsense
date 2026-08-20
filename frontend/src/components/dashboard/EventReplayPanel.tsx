@@ -34,6 +34,7 @@ import {
 import { TRUST_COPY, severityLabel } from '@/lib/trust-language';
 import { ReplayTarget, replayApiPath } from '@/lib/replay-target';
 import { bearingDeg } from '@/lib/map-utils';
+import { ReplayMap3D, mapbox3DAvailable } from '@/components/maps/ReplayMap3D';
 import {
   FLEET_MAPS_KEY,
   LAGOS_CENTER,
@@ -384,31 +385,91 @@ function ReplayMapSection({
   const active = readings[activeIndex];
   const atAnomaly = Math.abs(activeIndex - anomalyIndex) <= 2;
 
+  // 2D is the default deliberately: it answers "where did this happen", which
+  // is the first question. The pitched view answers "what did the road look
+  // like" — useful on a flyover or an interchange, a cost in legibility on a
+  // flat grid — so the manager opts into it.
+  const [dimension, setDimension] = useState<'2d' | '3d'>('2d');
+  const canShow3D = mapbox3DAvailable();
+
+  // Same remapping the 2D layer does: readings without a fix are dropped for
+  // drawing, so manoeuvre indices counted against the full reading list have
+  // to be moved onto the drawn path or a harsh brake lands on the wrong corner.
+  const { track3d, manoeuvres3d, activeIndex3d } = useMemo(() => {
+    const remap: number[] = new Array(readings.length).fill(-1);
+    const pts: { lat: number; lng: number; speedKph: number }[] = [];
+    readings.forEach((r, i) => {
+      if (r.latitude == null || r.longitude == null) return;
+      remap[i] = pts.length;
+      pts.push({ lat: r.latitude, lng: r.longitude, speedKph: r.speed_kph ?? 0 });
+    });
+    const mapped = remap[activeIndex];
+    return {
+      track3d: pts,
+      manoeuvres3d: manoeuvres
+        .map((m) => ({ ...m, index: remap[m.index] ?? -1 }))
+        .filter((m) => m.index >= 0),
+      activeIndex3d: mapped != null && mapped >= 0 ? mapped : Math.max(0, pts.length - 1),
+    };
+  }, [readings, manoeuvres, activeIndex]);
+
   return (
     <div
       className="relative w-full overflow-hidden rounded-lg border border-edge bg-panel-deep"
       style={{ height: REPLAY_MAP_HEIGHT, minHeight: REPLAY_MAP_MIN_HEIGHT_PX }}
     >
-      <Map
-        {...fleetMapDefaults({
-          defaultCenter:
-            mapCenter?.latitude != null && mapCenter?.longitude != null
-              ? { lat: mapCenter.latitude, lng: mapCenter.longitude }
-              : LAGOS_CENTER,
-          defaultZoom: 14,
-          reuseMaps: true,
-        })}
-        style={replayMapStyle}
-      >
-        <ReplayMap
-          readings={readings}
-          activeIndex={activeIndex}
-          anomalyIndex={anomalyIndex}
-          moments={moments}
-          manoeuvres={manoeuvres}
+      {dimension === '3d' && canShow3D ? (
+        <ReplayMap3D
+          points={track3d}
+          manoeuvres={manoeuvres3d}
+          activeIndex={activeIndex3d}
           speedLimitKph={speedLimitKph}
         />
-      </Map>
+      ) : (
+        <Map
+          {...fleetMapDefaults({
+            defaultCenter:
+              mapCenter?.latitude != null && mapCenter?.longitude != null
+                ? { lat: mapCenter.latitude, lng: mapCenter.longitude }
+                : LAGOS_CENTER,
+            defaultZoom: 14,
+            reuseMaps: true,
+          })}
+          style={replayMapStyle}
+        >
+          <ReplayMap
+            readings={readings}
+            activeIndex={activeIndex}
+            anomalyIndex={anomalyIndex}
+            moments={moments}
+            manoeuvres={manoeuvres}
+            speedLimitKph={speedLimitKph}
+          />
+        </Map>
+      )}
+
+      {/* Hidden entirely when no Mapbox token is configured, rather than
+          offered and then failing — a toggle that does nothing is worse than
+          no toggle. */}
+      {canShow3D && (
+        <div className="absolute right-3 top-3 z-20 flex overflow-hidden rounded-lg border border-edge bg-canvas/90 text-[11px] backdrop-blur-md">
+          {(['2d', '3d'] as const).map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setDimension(d)}
+              aria-pressed={dimension === d}
+              className={`px-2.5 py-1.5 font-semibold uppercase transition-colors ${
+                dimension === d
+                  ? 'bg-accent-y text-accent-y-ink'
+                  : 'text-ink-mid hover:bg-panel-hover'
+              }`}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* A colour legend, because a coloured track that needs explaining in
           prose is just decoration. Manoeuvre keys appear only for the types
@@ -626,6 +687,9 @@ export function EventReplayPanel({
 
   const intelligence = useMemo(() => {
     if (!data) return null;
+    // Not every replay branch computes an evidence-weighted score. Where one
+    // is absent the badge falls back to the event's own severity rather than
+    // inventing a number to fill the space.
     const confidence = data.anomaly.confidence_percent;
     return {
       title: anomalyDisplayTitle(data),
@@ -636,7 +700,7 @@ export function EventReplayPanel({
       baseline: buildBaselineComparison(readings, anomalyIndex),
       correlation: buildCorrelationAt(readings[activeIndex], data),
       actions: buildRecommendedActions(data),
-      severity: severityLabel(confidence),
+      severity: confidence != null ? severityLabel(confidence) : 'MEDIUM',
     };
   }, [data, readings, moments, anomalyIndex, activeIndex]);
 
@@ -936,7 +1000,10 @@ export function EventReplayPanel({
                           : 'bg-ink-dim/20 text-ink-mid'
                     }`}
                   >
-                    {intelligence.severity} · {data.anomaly.confidence_percent}%
+                    {intelligence.severity}
+                    {data.anomaly.confidence_percent != null
+                      ? ` · ${data.anomaly.confidence_percent}%`
+                      : ''}
                   </span>
                 </div>
               </div>

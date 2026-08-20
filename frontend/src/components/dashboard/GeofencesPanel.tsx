@@ -10,6 +10,7 @@ import {
   fetchGeofences,
 } from '@/lib/api';
 import { Panel, StatusChip } from '@/components/ui/chrome';
+import { ZONE_PURPOSE_LABEL } from '@/lib/trust-language';
 
 /**
  * How big the zone is, in the terms its own shape is defined by.
@@ -118,8 +119,8 @@ export function GeofencesPanel({ onDrawZone }: { onDrawZone?: () => void }) {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold text-ink">{z.name}</p>
-                    <StatusChip tone={z.active ? 'good' : 'neutral'} className="capitalize">
-                      {z.purpose}
+                    <StatusChip tone={z.active ? 'good' : 'neutral'}>
+                      {ZONE_PURPOSE_LABEL[z.purpose] ?? z.purpose}
                     </StatusChip>
                   </div>
                   <p className="mt-0.5 text-xs text-ink-dim tabular-nums">

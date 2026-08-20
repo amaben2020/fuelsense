@@ -922,7 +922,14 @@ async function buildDailyReplay({
           (anomalyReading?.recorded_at ?? rows[0].recorded_at) as string,
           drop,
         )),
-        confidence_percent: drop >= 5 ? 82 : 68,
+        // No confidence figure on this branch.
+        //
+        // The other replay branches accumulate a score alongside the reasons
+        // that earned each increment, so their percentage can be checked
+        // against the evidence listed beside it. This one had no such tally —
+        // it was `drop >= 5 ? 82 : 68`, a two-value lookup rendered to the
+        // percent. `reasons` below already says what was actually observed,
+        // which is the part a manager can act on.
         reasons,
       },
     },

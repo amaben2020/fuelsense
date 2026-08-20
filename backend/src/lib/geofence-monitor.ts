@@ -6,6 +6,8 @@
 // every incoming record here and a crossing raises an alert immediately.
 import { db, alerts, vehicles, eq, and, sql } from './db-helpers';
 import { geofences, geofenceStates } from '../db/schema';
+import { alertEmail, sendMail } from './mailer';
+import { resolveAlertRecipient } from './alert-mail';
 
 const EARTH_RADIUS_M = 6_371_000;
 
@@ -145,6 +147,62 @@ function wants(notifyOn: string, direction: 'entered' | 'exited'): boolean {
 }
 
 /**
+ * Mail the manager that a vehicle crossed a zone boundary.
+ *
+ * Until now a crossing only wrote an `alerts` row, so "notify on exit" meant
+ * "appear in a list the next time somebody opens the dashboard" — which is not
+ * a notification. A vehicle leaving a site at 02:00 is exactly the case where
+ * nobody is looking at a screen.
+ *
+ * Opt-in is respected as it is everywhere else: `resolveAlertRecipient`
+ * returns null unless the manager has switched this alert type on, so enabling
+ * geofencing never starts mailing an account that never asked. Failures are
+ * swallowed — a bounced alert must not stop the tracker ingesting telemetry,
+ * and the alert row is already durable regardless.
+ */
+async function notifyCrossing(
+  zone: ZoneRow,
+  direction: 'entered' | 'exited',
+  ctx: GeofenceContext
+): Promise<void> {
+  try {
+    const to = await resolveAlertRecipient(
+      ctx.customerId,
+      direction === 'entered' ? 'geofence_entry' : 'geofence_exit'
+    );
+    if (!to) return;
+
+    const plate = ctx.licensePlate ?? 'Vehicle';
+    const verb = direction === 'entered' ? 'entered' : 'left';
+    const { text, html } = alertEmail({
+      title: `${plate} ${verb} ${zone.name}`,
+      lines: [
+        ['Vehicle', plate],
+        ['Driver', ctx.driverName || 'Unassigned'],
+        ['Zone', `${zone.name} (${zone.purpose})`],
+        ['Movement', direction === 'entered' ? 'Entered the zone' : 'Left the zone'],
+        ['Time', ctx.recordedAt.toISOString().replace('T', ' ').slice(0, 16) + ' UTC'],
+      ],
+      linkUrl:
+        ctx.latitude != null && ctx.longitude != null
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${ctx.latitude},${ctx.longitude}`)}`
+          : null,
+      linkLabel: 'Where the vehicle crossed',
+      footer: 'FuelSense · turn these off in Settings → Notifications',
+    });
+
+    await sendMail({
+      to,
+      subject: `${plate} ${verb} ${zone.name}`,
+      text,
+      html,
+    });
+  } catch {
+    // Deliberately silent: see above.
+  }
+}
+
+/**
  * Feed every telemetry record here. Returns the crossings that raised alerts.
  *
  * Zones with a NULL vehicle_id apply fleet-wide; a zone bound to a vehicle only
@@ -238,6 +296,11 @@ export async function handleGeofenceForRecord(
       latitude: latitude.toString(),
       longitude: longitude.toString(),
     });
+
+    // Not awaited into the ingest path's critical section beyond this call:
+    // the alert row above is what makes the crossing durable, and the mail is
+    // best-effort on top of it.
+    await notifyCrossing(zone, direction, ctx);
 
     crossings.push({
       zoneId: zone.id,

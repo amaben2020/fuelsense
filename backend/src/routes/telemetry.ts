@@ -813,7 +813,17 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       // stationary, measured) and the part it cannot, and carry the harsh-event
       // count as context for the remainder.
       const idleHours = (Number(r.idle_seconds) || 0) / 3600;
-      const idleLiters = Math.min(idleHours * IDLE_BURN_LITERS_PER_HOUR, fuelUsed);
+      // The vehicle's own idle rate, not the fleet-wide constant.
+      //
+      // The expectation above already prices idling at `vehicleIdleLph`, and
+      // the tank model burns it at that same rate — but this attribution used
+      // the 0.9 L/h default regardless. On a vehicle configured at 1.2 L/h
+      // that under-credited idling by 0.3 L per idle hour, and the shortfall
+      // did not vanish: it fell through to `unexplainedLiters` and was
+      // reported as fuel the tracker "cannot account for". 1.8 idle hours
+      // manufactured 0.54 L of phantom loss that way, on a vehicle doing
+      // exactly what its settings said it would.
+      const idleLiters = Math.min(idleHours * vehicleIdleLph, fuelUsed);
       // Efficiency is fuel per distance, so with no distance there is no
       // efficiency to judge. The baseline expects 0 L for 0 km, which made
       // every drop of legitimate idle burn read as "unaccounted for" and
@@ -921,7 +931,11 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       total_savings_ngn: rows.reduce((s, r) => s + r.savings_ngn, 0),
       total_theft_loss_ngn: rows.reduce((s, r) => s + r.theft_loss_ngn, 0),
       total_efficiency_loss_ngn: rows.reduce((s, r) => s + r.efficiency_loss_ngn, 0),
-      recoverable_ngn: Math.round(rows.reduce((s, r) => s + r.total_loss_ngn, 0) * 0.9),
+      // `recoverable_ngn` was removed deliberately. It was total loss × 0.9 —
+      // a 90% recovery rate with nothing behind it, presented to the nearest
+      // naira. Nobody can act on a figure whose only input is another figure
+      // on the same screen, and a made-up precision costs more trust than the
+      // line was ever worth.
       price_per_liter_ngn: pricePerLiter,
       period_days: days,
     };
@@ -1574,6 +1588,51 @@ router.get('/vehicle-signals', async (req: Request, res: Response) => {
     });
 
     res.json(serializeForApi(cached));
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * A manager's verdict on a receipt reconciliation could not settle itself.
+ *
+ * "Pending" means the automatic check had nothing to judge against — the
+ * telemetry that would have matched the fill never arrived, or arrived outside
+ * the window. Until now that was terminal: the row sat as Pending forever and
+ * the only person who could actually resolve it (someone who can ask the
+ * driver) had no way to record what they found.
+ *
+ * Accepting marks it `manually_verified` rather than `matched`, so a human
+ * decision is never mistaken later for a reconciliation the system performed
+ * itself. Rejecting is its own status, not `flagged_theft` — a receipt the
+ * manager could not stand up is a bookkeeping outcome, not an accusation.
+ */
+router.patch('/fuel-purchases/:id/resolve', async (req: Request, res: Response) => {
+  try {
+    const decision = String((req.body ?? {}).decision || '');
+    if (decision !== 'accept' && decision !== 'reject') {
+      res.status(400).json({ error: "decision must be 'accept' or 'reject'" });
+      return;
+    }
+
+    const [row] = await db.execute(sql`
+      UPDATE fuel_receipts
+      SET reconciliation_status = ${decision === 'accept' ? 'manually_verified' : 'rejected'}
+      WHERE id = ${String(req.params.id)}::uuid
+        AND customer_id = ${req.user.customerId}
+        -- Only a pending row is the manager's to settle. Re-deciding a receipt
+        -- the reconciler already matched would silently overwrite evidence.
+        AND reconciliation_status = 'pending'
+      RETURNING id, reconciliation_status
+    `).then((r) => r.rows as Array<Record<string, unknown>>);
+
+    if (!row) {
+      res.status(404).json({ error: 'No pending receipt with that id' });
+      return;
+    }
+
+    await invalidate(req.user.customerId, 'fuel-purchases', 'fuel-events');
+    res.json({ ok: true, id: row.id, status: row.reconciliation_status });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Clock, Droplet, Receipt, Shield, Wallet } from 'lucide-react';
+import { AlertTriangle, Clock, Droplet, Receipt, Shield, Wallet, X } from 'lucide-react';
 import {
   FleetVehicle,
   FuelPurchase,
@@ -513,6 +513,22 @@ function ReceiptStatusBadge({ status }: { status: FuelPurchase['status'] }) {
       </span>
     );
   }
+  if (status === 'rejected') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-ink-dim/20 px-2 py-1 text-xs text-ink-mid">
+        <X className="h-3 w-3" /> Rejected
+      </span>
+    );
+  }
+  if (status === 'manually_verified') {
+    // Distinct from the reconciler's own "Verified": a human decided this, and
+    // conflating the two would let a judgement call read later as evidence.
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-good/20 px-2 py-1 text-xs text-good">
+        <Shield className="h-3 w-3" /> Verified by manager
+      </span>
+    );
+  }
   if (status === 'pending_receipt') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-warn-deep/20 px-2 py-1 text-xs text-warn">
@@ -604,6 +620,8 @@ function ReconciledReceiptRow({
 }: {
   purchase: FuelPurchase;
   onViewEvent: (purchase: FuelPurchase) => void;
+  /** Omitted where the table is read-only. */
+  onResolve?: (id: string, decision: 'accept' | 'reject') => Promise<void>;
   compact?: boolean;
 }) {
   const isTheft = purchase.status === 'flagged_theft';
@@ -633,7 +651,12 @@ function ReconciledReceiptRow({
           <ReceiptStatusBadge status={purchase.status} />
         </td>
         <td className="px-6 py-3">
-          <ViewEventButton onClick={() => onViewEvent(purchase)} />
+          <div className="flex items-center gap-1.5">
+            <ViewEventButton onClick={() => onViewEvent(purchase)} />
+            {isPending && onResolve && (
+              <ResolvePendingButtons id={purchase.id} onResolve={onResolve} />
+            )}
+          </div>
         </td>
       </tr>
     );
@@ -660,9 +683,68 @@ function ReconciledReceiptRow({
         <ReceiptStatusBadge status={purchase.status} />
       </td>
       <td className="px-6 py-3">
-        <ViewEventButton onClick={() => onViewEvent(purchase)} />
+        <div className="flex items-center gap-1.5">
+          <ViewEventButton onClick={() => onViewEvent(purchase)} />
+          {isPending && onResolve && (
+            <ResolvePendingButtons id={purchase.id} onResolve={onResolve} />
+          )}
+        </div>
       </td>
     </tr>
+  );
+}
+
+/**
+ * The two verdicts a manager can record on a receipt the reconciler could not
+ * settle.
+ *
+ * "Pending" previously had no exit: the automatic check had nothing to judge
+ * against, and the one person who could resolve it — someone able to ask the
+ * driver — had nowhere to put the answer, so the row stayed Pending forever.
+ *
+ * Rejecting is deliberately not "flag as theft". A receipt the manager could
+ * not stand up is a bookkeeping outcome; escalating it to an accusation is a
+ * separate decision with separate evidence behind it.
+ */
+function ResolvePendingButtons({
+  id,
+  onResolve,
+}: {
+  id: string;
+  onResolve: (id: string, decision: 'accept' | 'reject') => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const decide = async (decision: 'accept' | 'reject') => {
+    setBusy(true);
+    try {
+      await onResolve(id, decision);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => decide('accept')}
+        disabled={busy}
+        title="Accept this receipt as genuine"
+        className="whitespace-nowrap rounded-lg border border-edge px-2.5 py-1.5 text-xs font-medium text-ink-mid transition-colors hover:border-good/50 hover:text-good disabled:opacity-40"
+      >
+        Accept
+      </button>
+      <button
+        type="button"
+        onClick={() => decide('reject')}
+        disabled={busy}
+        title="Could not stand this receipt up"
+        className="whitespace-nowrap rounded-lg border border-edge px-2.5 py-1.5 text-xs font-medium text-ink-mid transition-colors hover:border-bad/50 hover:text-bad disabled:opacity-40"
+      >
+        Reject
+      </button>
+    </>
   );
 }
 

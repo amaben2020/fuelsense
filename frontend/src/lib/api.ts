@@ -578,7 +578,6 @@ export interface FleetEfficiencySummary {
   total_savings_ngn: number;
   total_theft_loss_ngn: number;
   total_efficiency_loss_ngn: number;
-  recoverable_ngn: number;
   price_per_liter_ngn: number;
   period_days: number;
 }
@@ -770,7 +769,8 @@ export interface EventReplayResponse {
     estimated_loss_ngn: number | null;
     price_ngn_per_liter?: number | null;
     price_source?: 'benchmark' | 'receipt' | null;
-    confidence_percent: number;
+    /** Absent where no evidence-weighted score was computed for the branch. */
+    confidence_percent?: number;
     reasons: string[];
     declared_liters?: number;
     /** Litres the modelled tank actually rose by. Named for history, not OBD. */
@@ -958,7 +958,13 @@ export interface FuelPurchase {
   distance_km?: number | null;
   merchant: string;
   receipt_reference?: string | null;
-  status: 'verified' | 'flagged_theft' | 'pending_receipt';
+  /** `manually_verified` / `rejected` are manager verdicts on a pending row. */
+  status:
+    | 'verified'
+    | 'flagged_theft'
+    | 'pending_receipt'
+    | 'manually_verified'
+    | 'rejected';
   actual_from?: string;
 }
 
@@ -1651,6 +1657,33 @@ export function createGeofence(input: {
   driver_id?: string | null;
 }): Promise<Geofence> {
   return api<Geofence>('/geofences', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/**
+ * Resolve many alerts in one request.
+ *
+ * Returns the ids the server actually resolved, which can be fewer than were
+ * asked for — another session may have cleared some already. The caller should
+ * reconcile against what comes back rather than assuming its own list won.
+ */
+export function resolveAlerts(ids: number[]): Promise<{ resolved: number; ids: number[] }> {
+  return api('/alerts/resolve', { method: 'POST', body: JSON.stringify({ ids }) });
+}
+
+/**
+ * Record a manager's verdict on a receipt the reconciler left pending.
+ *
+ * Only pending rows are accepted server-side, so a double-submit or a stale
+ * tab cannot overwrite a reconciliation the system already performed.
+ */
+export function resolvePendingReceipt(
+  id: string,
+  decision: 'accept' | 'reject'
+): Promise<{ ok: true; id: string; status: string }> {
+  return api(`/telemetry/fuel-purchases/${id}/resolve`, {
+    method: 'PATCH',
+    body: JSON.stringify({ decision }),
+  });
 }
 
 export function deleteGeofence(id: string): Promise<void> {

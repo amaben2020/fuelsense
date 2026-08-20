@@ -19,10 +19,8 @@ import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
 import {
   TRUST_COPY,
-  receiptMismatchConfidence,
   receiptMismatchContextLines,
-  severityLabel,
-  siphonConfidence,
+  severityRank,
   siphonContextLines,
 } from '@/lib/trust-language';
 
@@ -215,8 +213,9 @@ function SiphonCard({
   onReplay: () => void;
   onViewMap: () => void;
 }) {
-  const confidence = siphonConfidence(event);
-  const severity = severityLabel(confidence);
+  // A siphon event is classified critical by the detector; the percentage
+  // that used to accompany this badge was a fixed table keyed on that fact.
+  const severity = severityRank('critical');
   const reasons = siphonContextLines(event).slice(0, 3);
 
   return (
@@ -232,7 +231,7 @@ function SiphonCard({
           </p>
         </div>
         <span className="rounded-full bg-bad/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-bad">
-          {severity} · {confidence}%
+          {severity}
         </span>
       </div>
       <ul className="mt-2 space-y-0.5">
@@ -305,8 +304,7 @@ function ReceiptFlagCard({
   onResolve: () => void;
   onReplay: () => void;
 }) {
-  const confidence = receiptMismatchConfidence(flag);
-  const severity = severityLabel(confidence);
+  const severity = severityRank('warning');
   const reasons = receiptMismatchContextLines(flag).slice(0, 3);
 
   return (
@@ -314,7 +312,7 @@ function ReceiptFlagCard({
       <div className="flex items-start justify-between gap-2">
         <p className="font-semibold text-ink">{TRUST_COPY.receiptMismatchTitle}</p>
         <span className="rounded-full bg-warn/20 px-2 py-0.5 text-[10px] font-semibold uppercase text-warn">
-          {severity} · {confidence}%
+          {severity}
         </span>
       </div>
       <p className="text-xs text-ink-dim">

@@ -13,6 +13,7 @@ import {
   TripsResponse,
   VehicleTrack,
   createGeofence,
+  deleteGeofence,
   fetchGeofences,
   fetchStopPlace,
   formatOdometerMiles,
@@ -34,6 +35,8 @@ import {
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
 import { Circle as CircleIcon, Crosshair, Minus, Pentagon, Plus, Square } from 'lucide-react';
+import { Compass } from '@/components/maps/Compass';
+import { ZONE_PURPOSE_LABEL } from '@/lib/trust-language';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { TripDetailModal } from './TripDetailModal';
 import { StopDetailModal } from './StopDetailModal';
@@ -173,17 +176,21 @@ function GeofenceShapes({
   draftMode,
   draftPoints,
   draftRadius,
+  onHoverZone,
 }: {
   zones: Geofence[];
   draftMode: ZoneShapeMode;
   draftPoints: ZonePoint[];
   draftRadius: number;
+  /** Raised with the zone under the cursor, or null when it leaves. */
+  onHoverZone?: (hit: { zone: Geofence; x: number; y: number } | null) => void;
 }) {
   const map = useMap();
 
   useEffect(() => {
     if (!map) return;
     const drawn: Array<{ setMap: (m: google.maps.Map | null) => void }> = [];
+    const listeners: google.maps.MapsEventListener[] = [];
 
     const circle = (
       center: google.maps.LatLngLiteral,
@@ -195,12 +202,22 @@ function GeofenceShapes({
         center,
         radius,
         strokeColor: pending ? ROUTE_ACTIVE : ROUTE_PRIMARY,
-        strokeOpacity: pending ? 1 : 0.9,
-        strokeWeight: 2,
+        // A saved zone is context, not content. At 0.9/0.1 the fill washed the
+        // basemap out — roads, markets and POI labels inside a depot were
+        // harder to read than outside it, which punishes the manager for the
+        // zone existing. Barely-there fill and a thin stroke keep the boundary
+        // legible while leaving the map underneath fully readable.
+        strokeOpacity: pending ? 1 : 0.5,
+        strokeWeight: pending ? 2 : 1.5,
         // Dashed would be ideal; the API has no dash option for circles, so
         // the unsaved zone is distinguished by a brighter stroke and fill.
         fillColor: pending ? ROUTE_ACTIVE : ROUTE_PRIMARY,
-        fillOpacity: pending ? 0.2 : 0.1,
+        fillOpacity: pending ? 0.2 : 0.04,
+        // Never clickable, saved or draft. A filled polygon that takes the
+        // cursor swallows every click inside it — vehicle markers, POIs, the
+        // map itself — so a large depot would make its own contents
+        // unreachable. The zone's controls hang off a small labelled chip at
+        // its centre instead (see zoneChip below).
         clickable: false,
       });
 
@@ -209,23 +226,90 @@ function GeofenceShapes({
         map,
         paths: ring.map(toLatLng),
         strokeColor: pending ? ROUTE_ACTIVE : ROUTE_PRIMARY,
-        strokeOpacity: pending ? 1 : 0.9,
-        strokeWeight: 2,
+        strokeOpacity: pending ? 1 : 0.5,
+        strokeWeight: pending ? 2 : 1.5,
         fillColor: pending ? ROUTE_ACTIVE : ROUTE_PRIMARY,
-        fillOpacity: pending ? 0.2 : 0.1,
+        fillOpacity: pending ? 0.2 : 0.04,
         clickable: false,
       });
+
+    // A small labelled chip at the zone's centre, and the only part of a zone
+    // that takes the cursor.
+    //
+    // Hovering the whole polygon was tried first and is worse twice over: the
+    // shape then intercepts clicks meant for what is inside it, and it puts a
+    // one-pixel-away delete button under a target the size of a district.
+    // A named chip is a deliberate target for a destructive action and leaves
+    // the map beneath it completely free.
+    const zoneChip = (position: google.maps.LatLngLiteral, zone: Geofence) => {
+      const marker = new google.maps.Marker({
+        map,
+        position,
+        clickable: true,
+        cursor: 'pointer',
+        zIndex: 3,
+        label: {
+          text: zone.name,
+          color: '#0b0e13',
+          fontSize: '11px',
+          fontWeight: '600',
+        },
+        icon: {
+          path: 'M -46 -11 H 46 A 11 11 0 0 1 46 11 H -46 A 11 11 0 0 1 -46 -11 Z',
+          fillColor: ROUTE_PRIMARY,
+          fillOpacity: 0.92,
+          strokeColor: '#0b0e13',
+          strokeWeight: 1,
+          scale: 1,
+          labelOrigin: new google.maps.Point(0, 0),
+        },
+      });
+
+      if (onHoverZone) {
+        listeners.push(
+          marker.addListener('mouseover', (e: google.maps.MapMouseEvent) => {
+            const dom = e.domEvent as MouseEvent | undefined;
+            const rect = map.getDiv().getBoundingClientRect();
+            if (!dom) return;
+            onHoverZone({ zone, x: dom.clientX - rect.left, y: dom.clientY - rect.top });
+          })
+        );
+        // Click as well as hover: touch has no hover, and on a phone the chip
+        // would otherwise be inert.
+        listeners.push(
+          marker.addListener('click', (e: google.maps.MapMouseEvent) => {
+            const dom = e.domEvent as MouseEvent | undefined;
+            const rect = map.getDiv().getBoundingClientRect();
+            if (!dom) return;
+            onHoverZone({ zone, x: dom.clientX - rect.left, y: dom.clientY - rect.top });
+          })
+        );
+      }
+      return marker;
+    };
+
+    /** Average of the ring's vertices — good enough to sit a label on. */
+    const ringCentre = (ring: ZonePoint[]): google.maps.LatLngLiteral => {
+      const sum = ring.reduce((a, [lat, lng]) => ({ lat: a.lat + lat, lng: a.lng + lng }), {
+        lat: 0,
+        lng: 0,
+      });
+      return { lat: sum.lat / ring.length, lng: sum.lng / ring.length };
+    };
 
     for (const z of zones) {
       if (z.shape === 'polygon') {
         const ring = z.polygon;
-        if (Array.isArray(ring) && ring.length >= 3) drawn.push(polygon(ring, false));
+        if (Array.isArray(ring) && ring.length >= 3) {
+          drawn.push(polygon(ring, false));
+          drawn.push(zoneChip(ringCentre(ring as ZonePoint[]), z));
+        }
         continue;
       }
       if (z.center_lat == null || z.center_lng == null || !z.radius_m) continue;
-      drawn.push(
-        circle({ lat: Number(z.center_lat), lng: Number(z.center_lng) }, z.radius_m, false)
-      );
+      const centre = { lat: Number(z.center_lat), lng: Number(z.center_lng) };
+      drawn.push(circle(centre, z.radius_m, false));
+      drawn.push(zoneChip(centre, z));
     }
 
     // The draft. Circles need a single centre; the other two are rings once
@@ -270,8 +354,11 @@ function GeofenceShapes({
       }
     }
 
-    return () => drawn.forEach((s) => s.setMap(null));
-  }, [map, zones, draftMode, draftPoints, draftRadius]);
+    return () => {
+      listeners.forEach((l) => l.remove());
+      drawn.forEach((s) => s.setMap(null));
+    };
+  }, [map, zones, draftMode, draftPoints, draftRadius, onHoverZone]);
 
   return null;
 }
@@ -292,50 +379,10 @@ function CompassRose() {
     return () => listener.remove();
   }, [map]);
 
-  return (
-    <button
-      type="button"
-      onClick={() => map?.setHeading?.(0)}
-      title="Reset bearing to north"
-      aria-label="Reset bearing to north"
-      className="pointer-events-auto relative flex h-14 w-14 items-center justify-center rounded-full border border-edge bg-panel/90 shadow-xl backdrop-blur transition-colors hover:bg-panel"
-    >
-      <svg viewBox="0 0 56 56" className="h-full w-full" style={{ transform: `rotate(${-heading}deg)` }}>
-        {/* Tick ring — the detail that makes it read as an instrument. */}
-        {Array.from({ length: 36 }, (_, i) => {
-          const deg = i * 10;
-          const rad = (deg * Math.PI) / 180;
-          const major = i % 9 === 0;
-          const r1 = major ? 18 : 21;
-          return (
-            <line
-              key={i}
-              x1={28 + r1 * Math.sin(rad)}
-              y1={28 - r1 * Math.cos(rad)}
-              x2={28 + 24 * Math.sin(rad)}
-              y2={28 - 24 * Math.cos(rad)}
-              stroke={major ? 'var(--accent-y)' : 'var(--instrument-tick)'}
-              strokeWidth={major ? 1.4 : 0.8}
-              opacity={major ? 0.9 : 0.45}
-            />
-          );
-        })}
-        <polygon points="28,10 31.5,26 28,23 24.5,26" fill="var(--bad-bright)" />
-        <polygon points="28,46 24.5,30 28,33 31.5,30" fill="var(--ink-dim)" />
-        <text
-          x={28}
-          y={28}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontSize={9}
-          fontWeight={700}
-          fill="var(--ink)"
-        >
-          N
-        </text>
-      </svg>
-    </button>
-  );
+  // The instrument itself lives in components/maps/Compass so the driver-view
+  // and any future map can mount the same one rather than growing a second
+  // copy that drifts out of step with this one.
+  return <Compass heading={heading} onReset={() => map?.setHeading?.(0)} />;
 }
 
 /** Circular map control, matching the rail's button language. */
@@ -692,6 +739,12 @@ export function LiveMonitoringMap({
   // A polygon has no natural end — unlike the other two shapes there is no
   // click count that means "finished", so the user says when.
   const [polygonClosed, setPolygonClosed] = useState(false);
+  // The zone under the cursor, in container pixel space, plus whichever zone
+  // is mid-delete so the button can show progress and stay disabled.
+  const [hoveredZone, setHoveredZone] = useState<
+    { zone: Geofence; x: number; y: number } | null
+  >(null);
+  const [removingZoneId, setRemovingZoneId] = useState<string | null>(null);
   const [zoneName, setZoneName] = useState('');
   // '' = whole fleet. A depot is not per-vehicle, but a customer site
   // assigned to one driver is, and only the vehicle scope can express that.
@@ -709,6 +762,22 @@ export function LiveMonitoringMap({
     onDrawingStarted?.();
   }, [startDrawing, onDrawingStarted]);
 
+  // Stable identity: GeofenceShapes lists this in its effect deps, and a fresh
+  // closure each render would tear down and rebuild every shape on the map on
+  // every frame of the vehicle animation.
+  const handleHoverZone = useCallback(
+    (hit: { zone: Geofence; x: number; y: number } | null) => {
+      // Hovering is suppressed while drawing: the draft needs the pointer, and
+      // a tooltip offering to delete a zone mid-placement is a misclick away
+      // from destroying the wrong thing.
+      setHoveredZone((prev) => {
+        if (hit == null && prev == null) return prev;
+        return hit;
+      });
+    },
+    []
+  );
+
   const loadZones = useCallback(() => {
     fetchGeofences()
       .then(setZones)
@@ -718,6 +787,25 @@ export function LiveMonitoringMap({
   useEffect(() => {
     loadZones();
   }, [loadZones]);
+
+  // Depends on `loadZones` directly. That is safe precisely because
+  // `loadZones` is a useCallback with no dependencies, so its identity is
+  // stable for the life of the component and this handler does not churn.
+  const removeHoveredZone = useCallback(
+    async (id: string) => {
+      setRemovingZoneId(id);
+      try {
+        await deleteGeofence(id);
+        setHoveredZone(null);
+        loadZones();
+      } catch (err) {
+        setZoneError((err as Error).message);
+      } finally {
+        setRemovingZoneId(null);
+      }
+    },
+    [loadZones]
+  );
 
   const resetDraft = useCallback(() => {
     setDraftPoints([]);
@@ -863,6 +951,7 @@ export function LiveMonitoringMap({
               draftMode={shapeMode}
               draftPoints={draftPoints}
               draftRadius={draftRadius}
+              onHoverZone={handleHoverZone}
             />
             <MapInitialRecenter
               target={
@@ -967,10 +1056,21 @@ export function LiveMonitoringMap({
                 onClick={() => handleSelectVehicle(track.vehicleId)}
               />
             ))}
-            {/* Instrument cluster on the right edge: compass above, camera
-                controls below — the Haulix arrangement, and it keeps the
-                left half of the map clear for the vehicle card. */}
-            <div className="pointer-events-none absolute right-4 top-4 z-20">
+            {/* Instrument cluster on the right edge, camera controls and
+                compass in one column.
+                
+                The compass used to sit at `right-4 top-4`, directly underneath
+                the trail-duration bar — so on every screen wide enough to show
+                that bar the instrument was completely hidden behind it, which
+                is why it read as missing rather than as a control nobody used.
+                Grouped with the other map instruments it is always clear of
+                the overlays, and the cluster reads as one control surface. */}
+            {/* Compass on the left. The right edge carries the trail bar above
+                and the vehicle detail card below, and at laptop widths those
+                two meet — burying anything in that column. The left edge is
+                clear between the header chip and the stops legend at every
+                width the dashboard supports. */}
+            <div className="pointer-events-none absolute left-4 top-24 z-20">
               <CompassRose />
             </div>
             <div className="pointer-events-none absolute bottom-24 right-4 z-20 flex flex-col items-center gap-2">
@@ -1007,6 +1107,55 @@ export function LiveMonitoringMap({
                 ))}
               </ul>
             </div>
+            {/* Zone tooltip. Follows the cursor inside the zone and offers the
+                one action a manager wants from the map itself — getting rid of
+                a zone that is in the way. Hidden entirely while drawing, so a
+                delete button never sits under the next placement click.
+                
+                Positioned in container pixels from the DOM event rather than
+                projected from a LatLng: it must track the pointer, not a fixed
+                point on the ground, and it stays clear of the container edges
+                so it is never clipped. */}
+            {hoveredZone && !drawing && (
+              <div
+                className="pointer-events-auto absolute z-30 w-56 rounded-xl border border-edge bg-canvas/95 p-3 shadow-2xl backdrop-blur-md"
+                style={{
+                  left: Math.min(Math.max(hoveredZone.x + 14, 8), 9999),
+                  top: Math.max(hoveredZone.y - 10, 8),
+                }}
+                onMouseLeave={() => setHoveredZone(null)}
+              >
+                <p className="text-sm font-semibold text-ink">{hoveredZone.zone.name}</p>
+                <p className="mt-0.5 text-[11px] text-ink-dim">
+                  <span>
+                    {ZONE_PURPOSE_LABEL[hoveredZone.zone.purpose] ?? hoveredZone.zone.purpose}
+                  </span>{' '}
+                  ·{' '}
+                  {hoveredZone.zone.shape === 'polygon'
+                    ? `${Array.isArray(hoveredZone.zone.polygon) ? hoveredZone.zone.polygon.length : 0} corners`
+                    : hoveredZone.zone.radius_m
+                      ? `${hoveredZone.zone.radius_m} m radius`
+                      : 'circle'}
+                </p>
+                <p className="mt-0.5 text-[11px] text-ink-dim">
+                  Alerts on{' '}
+                  {hoveredZone.zone.notify_on === 'both'
+                    ? 'entry & exit'
+                    : hoveredZone.zone.notify_on === 'enter'
+                      ? 'entry'
+                      : 'exit'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => removeHoveredZone(hoveredZone.zone.id)}
+                  disabled={removingZoneId === hoveredZone.zone.id}
+                  className="mt-2.5 w-full rounded-lg border border-edge px-2.5 py-1.5 text-[11px] font-medium text-ink-mid transition-colors hover:border-bad/50 hover:text-bad disabled:opacity-50"
+                >
+                  {removingZoneId === hoveredZone.zone.id ? 'Removing…' : 'Remove zone'}
+                </button>
+              </div>
+            )}
+
             {/* Shape picker plus the instruction for the chosen shape. The
                 flow used to offer only a circle and said so in a fixed line of
                 text; each shape now explains its own gesture, because "click

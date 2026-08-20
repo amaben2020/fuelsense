@@ -16,7 +16,7 @@ export function lossReasonLines(reason: LossReason | undefined | null): string[]
   }
   if (reason.unexplained_liters > 0) {
     lines.push(
-      `${reason.unexplained_liters.toFixed(1)} L (${formatNgn(reason.unexplained_cost_ngn)}) the tracker cannot account for`
+      `${reason.unexplained_liters.toFixed(1)} L (${formatNgn(reason.unexplained_cost_ngn)}) above the configured rate — stop-start driving is charged up to 1.3x and the benchmark does not model it`
     );
   }
   if (reason.harsh_event_count > 0) {
@@ -27,16 +27,26 @@ export function lossReasonLines(reason: LossReason | undefined | null): string[]
   return lines;
 }
 
-/** One-line summary for row-level use where a list would be too heavy. */
+/**
+ * One-line summary for row-level use where a list would be too heavy.
+ *
+ * Deliberately no longer says "unaccounted for". Nothing here is measured
+ * fuel going missing: the tank is modelled from distance and idle time (the
+ * FMC150's AVL 12 element is unconfigured on this fleet and reads about 1.3 L
+ * against 117 km, so it is not used), and the benchmark it is compared with is
+ * the same model without the speed-bucket multiplier. The residue is therefore
+ * the cost of stop-start driving, not a litre that left the tank — and
+ * "unaccounted for" invited a manager to read theft into arithmetic.
+ */
 export function lossReasonSummary(reason: LossReason | undefined | null): string | null {
   if (!reason || reason.excess_liters <= 0) return null;
   if (reason.unexplained_liters <= 0 && reason.idle_liters > 0) {
     return `Fully explained by ${formatHours(reason.idle_hours)} of idling`;
   }
   if (reason.idle_liters <= 0) {
-    return `${reason.unexplained_liters.toFixed(1)} L unaccounted for — worth a look`;
+    return `${reason.unexplained_liters.toFixed(1)} L above the configured rate (estimate)`;
   }
-  return `${reason.idle_liters.toFixed(1)} L from idling, ${reason.unexplained_liters.toFixed(1)} L unaccounted for`;
+  return `${reason.idle_liters.toFixed(1)} L from idling, ${reason.unexplained_liters.toFixed(1)} L above the configured rate`;
 }
 
 function formatHours(hours: number): string {
@@ -57,25 +67,22 @@ export function formatMillionsNgn(amount: number) {
   }).format(amount);
 }
 
-export function siphonConfidence(event: SiphonEventRow): number {
-  const parked = event.evidence.parked_duration_minutes ?? 0;
-  const drop = event.liters_stolen;
-  let score = 72;
-  if (parked >= 10) score += 8;
-  if (event.evidence.engine_state_after === false) score += 6;
-  if (drop >= 5 && drop <= 40) score += 4;
-  return Math.min(94, score);
-}
-
-export function receiptMismatchConfidence(flag: ReceiptFlagRow): number {
-  const declared = flag.declared_liters;
-  const actual = flag.obd_actual_liters;
-  if (actual == null) return 55;
-  const ratio = actual / Math.max(declared, 0.1);
-  if (ratio < 0.3) return 78;
-  if (ratio < 0.6) return 68;
-  return 58;
-}
+/*
+ * `siphonConfidence`, `receiptMismatchConfidence` and `anomalyConfidence` were
+ * removed from this file.
+ *
+ * All three returned a number from a fixed table — anomalyConfidence was
+ * literally `critical → 82, warning → 68, info → 52` — and the badge then ran
+ * that number back through `severityLabel()` to recover the severity it had
+ * just come from. "MEDIUM · 68%" was therefore one fact printed twice, the
+ * second copy wearing the clothes of a measurement. Every warning-severity
+ * alert on the Operations page read 68%, which is what gave the game away.
+ *
+ * A percentage promises that something was weighed. Where that is true — the
+ * evidence score in event-replay, which adds points only alongside the reason
+ * it is adding them for — the number stays. Here nothing was weighed, so the
+ * severity is now carried on its own.
+ */
 
 export function siphonContextLines(event: SiphonEventRow): string[] {
   const lines: string[] = [];
@@ -119,17 +126,40 @@ export function anomalyContextLines(anomaly: FuelAnomaly): string[] {
   return lines;
 }
 
-export function anomalyConfidence(anomaly: FuelAnomaly): number {
-  if (anomaly.severity === 'critical') return 82;
-  if (anomaly.severity === 'warning') return 68;
-  return 52;
+/**
+ * The backend's own severity, in the words the UI uses.
+ *
+ * Direct, rather than via a confidence number: severity is what was actually
+ * classified, and routing it through a percentage only invited the percentage
+ * to be displayed as though it meant something separate.
+ */
+export function severityRank(
+  severity: 'critical' | 'warning' | 'info' | string
+): 'HIGH' | 'MEDIUM' | 'LOW' {
+  if (severity === 'critical') return 'HIGH';
+  if (severity === 'warning') return 'MEDIUM';
+  return 'LOW';
 }
 
+/** Still used where a genuine, evidence-weighted score exists. */
 export function severityLabel(confidence: number): 'HIGH' | 'MEDIUM' | 'LOW' {
   if (confidence >= 75) return 'HIGH';
   if (confidence >= 60) return 'MEDIUM';
   return 'LOW';
 }
+
+/**
+ * What a geofence's `purpose` describes — the place, never the person.
+ *
+ * Rendering the raw value capitalised made a zone named after its driver read
+ * "Benneth · Customer", which states that Benneth is a customer. Kept here so
+ * the map tooltip and the zones list cannot drift apart on the wording.
+ */
+export const ZONE_PURPOSE_LABEL: Record<string, string> = {
+  depot: 'Depot',
+  customer: 'Customer site',
+  restricted: 'Restricted area',
+};
 
 export const TRUST_COPY = {
   siphonTitle: 'Possible fuel anomaly',

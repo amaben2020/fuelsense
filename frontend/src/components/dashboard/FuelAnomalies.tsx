@@ -17,7 +17,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { FuelAnomaly, formatNgn } from '@/lib/api';
-import { TRUST_COPY, anomalyConfidence, anomalyContextLines, severityLabel } from '@/lib/trust-language';
+import { TRUST_COPY, anomalyContextLines, severityRank } from '@/lib/trust-language';
 import { FuelAnomalyModal } from './FuelAnomalyModal';
 
 export function FuelAnomalies({
@@ -152,8 +152,9 @@ function AnomalyRow({
   onViewOnMap?: (anomaly: FuelAnomaly) => void;
 }) {
   const isCritical = anomaly.severity === 'critical';
-  const confidence = anomalyConfidence(anomaly);
-  const severity = severityLabel(confidence);
+  // Severity straight from the backend classification. The percentage that
+  // used to sit beside it was derived from this same field via a fixed table.
+  const severity = severityRank(anomaly.severity);
   const reasons = anomalyContextLines(anomaly);
   const displayTitle =
     anomaly.type === 'theft' || anomaly.type === 'fraud'
@@ -199,7 +200,7 @@ function AnomalyRow({
                     : 'bg-ink-dim/20 text-ink-mid'
               }`}
             >
-              {severity} · {confidence}%
+              {severity}
             </span>
             {!anomaly.acknowledged && (
               <span className="text-xs text-bad">● New</span>

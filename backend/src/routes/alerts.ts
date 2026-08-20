@@ -142,7 +142,13 @@ router.get('/anomalies', async (req: Request, res: Response) => {
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const key = cacheKey(req.user.customerId, 'alerts');
+    // The cap used to be a hardcoded 20 while /dashboard/summary counted every
+    // unresolved row, so a fleet with more than 20 open alerts showed a
+    // headline count its own detail view could not account for — 22 counted,
+    // 20 listed, with nothing to explain the difference. Callers that need to
+    // enumerate the count can now ask for enough rows to do it.
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
+    const key = cacheKey(req.user.customerId, 'alerts', String(limit));
     const rows = await withCache(key, 8, () =>
       db
         .select({
@@ -168,7 +174,7 @@ router.get('/', async (req: Request, res: Response) => {
           and(eq(alerts.customerId, req.user.customerId), eq(alerts.isResolved, false))
         )
         .orderBy(desc(alerts.createdAt))
-        .limit(20)
+        .limit(limit)
     );
     res.json(rows);
   } catch (error) {
@@ -199,6 +205,46 @@ router.patch('/:id/acknowledge', async (req: Request, res: Response) => {
 
     await invalidate(req.user.customerId, 'alerts', 'anomalies');
     res.json({ ok: true, id: updated.id });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * Resolve many alerts at once.
+ *
+ * A manager clearing a morning's queue would otherwise fire one request per
+ * row — twenty round trips, twenty cache invalidations, and a list that
+ * repaints under them as each lands. Ids are filtered to the caller's own
+ * customer in the same statement, so a guessed id from another fleet updates
+ * nothing rather than 404ing informatively.
+ */
+router.post('/resolve', async (req: Request, res: Response) => {
+  try {
+    const raw = (req.body ?? {}).ids;
+    const ids = Array.isArray(raw)
+      ? raw.map(Number).filter((n) => Number.isFinite(n)).slice(0, 500)
+      : [];
+
+    if (!ids.length) {
+      res.status(400).json({ error: 'ids must be a non-empty array of alert ids' });
+      return;
+    }
+
+    const updated = await db
+      .update(alerts)
+      .set({ isResolved: true, resolvedAt: new Date() })
+      .where(
+        and(
+          inArray(alerts.id, ids),
+          eq(alerts.customerId, req.user.customerId),
+          eq(alerts.isResolved, false)
+        )
+      )
+      .returning({ id: alerts.id });
+
+    await invalidate(req.user.customerId, 'alerts', 'anomalies');
+    res.json({ ok: true, resolved: updated.length, ids: updated.map((r) => r.id) });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

@@ -74,7 +74,8 @@ import { FuelPurchaseTable, ReceiptsPanel } from '@/components/dashboard/Receipt
 import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
-import { AlertsList, TheftAlertBanner } from '@/components/dashboard/AlertsList';
+import { TheftAlertBanner } from '@/components/dashboard/AlertsList';
+import { AlertsWorkbench } from '@/components/dashboard/AlertsWorkbench';
 import { LoadErrorBanner } from '@/components/dashboard/LoadErrorBanner';
 import { isPro } from '@/lib/plan';
 import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
@@ -369,7 +370,9 @@ export default function DashboardPage() {
       const [meOrNull, fleetRows, alertList, anomalyList, fuelEvents] = await Promise.all([
         cachedCustomer ? Promise.resolve(cachedCustomer) : api<Customer>('/auth/me'),
         api<FleetVehicle[]>('/vehicles/fleet'),
-        api<Alert[]>('/alerts'),
+        // Enough rows for the alert-detail section to enumerate the count the
+        // summary headlines. The queue above it still shows a shortlist.
+        api<Alert[]>('/alerts?limit=200'),
         api<FuelAnomaly[]>('/alerts/anomalies').catch(() => [] as FuelAnomaly[]),
         api<FuelEventsResponse>('/fuel-events').catch(() => null),
       ]);
@@ -580,6 +583,7 @@ export default function DashboardPage() {
   const switchView = (view: DashboardView) => {
     setActiveView(view);
     setMobileNavOpen(false);
+    markSeen(view);
     if (globalThis.window) {
       globalThis.window.history.replaceState(null, '', `#${view}`);
     }
@@ -602,15 +606,65 @@ export default function DashboardPage() {
    * optimistically — putting it back on failure would be a row flying out and
    * then reappearing, which reads as a bug rather than as an error.
    */
-  const handleDismissAlert = async (alert: Alert) => {
-    setAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+  /**
+   * When this browser last opened a given view, as an epoch millisecond.
+   *
+   * Kept client-side deliberately. A server-side "read" flag would be a real
+   * feature — per user, synced across devices — and inventing half of it here
+   * (one shared flag for the whole account) would mean one manager reading
+   * alerts silently cleared the badge for everyone else on the fleet.
+   */
+  const [seenAt, setSeenAt] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {};
     try {
-      await api(`/alerts/${alert.id}/acknowledge`, { method: 'PATCH' });
+      return JSON.parse(window.localStorage.getItem('fuelsense_seen_at') || '{}');
     } catch {
-      // Restore it, since the alert is genuinely still open server-side.
-      setAlerts((prev) => [alert, ...prev]);
+      return {};
     }
-  };
+  });
+
+  /**
+   * Stamp a view as seen. Called from navigation rather than from an effect
+   * watching `activeView`: an effect would set state during render-commit on
+   * every dependency change, and it fired again each time the alert list
+   * refreshed while the view was already open.
+   */
+  const markSeen = useCallback((view: DashboardView) => {
+    if (view !== 'alerts' && view !== 'receipts') return;
+    const now = Date.now();
+    setSeenAt((prev) => {
+      const next = { ...prev, [view]: now };
+      try {
+        window.localStorage.setItem('fuelsense_seen_at', JSON.stringify(next));
+      } catch {
+        // Private mode or a full quota — the badge keeps showing, which is the
+        // safe failure for a notification count.
+      }
+      return next;
+    });
+  }, []);
+
+  const unseenAlertCount = useMemo(
+    () => alerts.filter((a) => new Date(a.created_at).getTime() > (seenAt.alerts ?? 0)).length,
+    [alerts, seenAt.alerts]
+  );
+
+  /**
+   * Receipts filed since this browser last opened the receipts view.
+   *
+   * The badge previously carried `total` — every receipt the fleet has ever
+   * filed — in the same red pill shape the alert count uses, so four receipts
+   * on file looked exactly like four things demanding attention. Counted off
+   * the purchases actually loaded, so it never claims more than it can show.
+   */
+  const unseenReceiptCount = useMemo(
+    () =>
+      (fuelPurchases?.purchases ?? []).filter(
+        (r) => new Date(r.timestamp ?? r.purchased_at ?? 0).getTime() > (seenAt.receipts ?? 0)
+      ).length,
+    [fuelPurchases, seenAt.receipts]
+  );
+
 
   const handleAcknowledgeAnomaly = async (id: string) => {
     try {
@@ -658,9 +712,14 @@ export default function DashboardPage() {
   /** Badge counts are only meaningful on a handful of destinations. */
   const navBadge: Partial<Record<DashboardView, number | undefined>> = {
     live: liveTracks.length || undefined,
-    receipts: fuelPurchases?.total || undefined,
+    receipts: unseenReceiptCount || undefined,
     anomalies: fuelEventCount || undefined,
-    alerts: alerts.length || undefined,
+    // Unseen alerts, not open ones. The badge used to carry the full open
+    // count, so it sat there permanently — a manager who had read every alert
+    // still saw "22" and learned to ignore the number entirely, which is the
+    // one thing a notification badge must never become. It now counts only
+    // alerts raised since this browser last opened the alerts view.
+    alerts: unseenAlertCount || undefined,
   };
 
   const navItems: RailItem<DashboardView>[] = VIEWS.filter((v) => isVisible(v.id)).map((v) => ({
@@ -924,14 +983,20 @@ export default function DashboardPage() {
                 )}
               </div>
               <div className="relative">
+                {/* Unseen, not open — same reasoning as the rail badge. A
+                    permanent red "22" on the bell is indistinguishable from a
+                    red "22" that means something new just happened, so the
+                    badge stopped carrying information. The button's own label
+                    still names the full open count for screen readers, since
+                    that is a statement of workload rather than a notification. */}
                 <RoundButton
                   icon={Bell}
-                  label={`Alerts${alerts.length ? ` (${alerts.length})` : ''}`}
+                  label={`Alerts${alerts.length ? ` (${alerts.length} open)` : ''}`}
                   onClick={() => switchView('alerts')}
                 />
-                {alerts.length > 0 && (
+                {unseenAlertCount > 0 && (
                   <span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-w-[1.15rem] justify-center rounded-full bg-bad-bright px-1 text-[10px] font-bold leading-[1.15rem] text-white">
-                    {alerts.length > 99 ? '99+' : alerts.length}
+                    {unseenAlertCount > 99 ? '99+' : unseenAlertCount}
                   </span>
                 )}
               </div>
@@ -1210,13 +1275,16 @@ export default function DashboardPage() {
             <div className="rounded-lg border border-edge bg-panel p-6">
               <h2 className="font-semibold text-ink">All active alerts</h2>
               <p className="mt-1 text-xs text-ink-dim">
-                Fuel anomaly alerts include GPS coordinates from the tracker
+                Select rows to resolve several at once. Fuel anomaly alerts carry
+                the tracker&apos;s GPS coordinates.
               </p>
               <div className="mt-4">
-                <AlertsList
+                <AlertsWorkbench
                   alerts={alerts}
+                  onResolved={(ids) =>
+                    setAlerts((prev) => prev.filter((a) => !ids.includes(a.id)))
+                  }
                   onViewOnMap={handleViewAlertOnMap}
-                  onDismiss={handleDismissAlert}
                 />
               </div>
             </div>

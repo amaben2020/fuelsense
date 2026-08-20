@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { HelpCircle, Receipt, TrendingDown } from 'lucide-react';
 import { FleetEfficiencySummary, formatFuelPricePerLiter, formatNgn } from '@/lib/api';
-import { formatMillionsNgn } from '@/lib/trust-language';
 
 import { SavingsExplanationModal } from './SavingsExplanationModal';
 
@@ -16,8 +15,6 @@ export function SavingsDashboard({
   if (!summary) return null;
 
   const periodDays = summary.period_days;
-  const annualSavingsOpportunity = Math.round((summary.total_loss_ngn / periodDays) * 365);
-  const recoverable = summary.recoverable_ngn;
 
   return (
     <div className="space-y-4">
@@ -38,15 +35,15 @@ export function SavingsDashboard({
               {formatFuelPricePerLiter(summary.price_per_liter_ngn)}
             </p>
           </div>
-          <div className="text-right">
-            <p className="text-sm text-ink-mid">Potential annual savings opportunity</p>
-            <p className="text-2xl font-bold text-good">
-              {formatMillionsNgn(annualSavingsOpportunity)}
-            </p>
-            <p className="mt-1 text-xs text-ink-dim">
-              ~{formatNgn(recoverable)} recoverable in last {periodDays} days if addressed
-            </p>
-          </div>
+          {/* The annualised projection and the "recoverable" figure both used
+              to sit here. The Operations page removed its own copy of the
+              annualisation for a reason that applies just as much here: one
+              period's loss × 365/period is a forecast dressed as a
+              measurement, and a bad week reads as a catastrophic year.
+              "Recoverable" was worse — total loss × 0.9, a recovery rate
+              invented outright. Neither survived, and nothing replaces them,
+              because the honest version of both is the period figure already
+              shown on the left. */}
           <button
             type="button"
             onClick={() => setExplainOpen(true)}

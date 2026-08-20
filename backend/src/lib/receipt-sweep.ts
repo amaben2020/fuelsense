@@ -215,6 +215,68 @@ export async function refreshStationEvidence(): Promise<number> {
   return patched;
 }
 
+/**
+ * Clears unlogged-fill alerts whose receipt turned up late.
+ *
+ * `alertUnloggedFills` only asks "is there a receipt?" at the instant it
+ * raises the alert. A driver who uploads the next morning — the common case,
+ * since the grace period is three hours and people fuel at the end of a shift
+ * — therefore left the accusation standing forever. The manager saw a demand
+ * for a receipt that was already filed, which is precisely the kind of stale
+ * alert that teaches people to ignore the whole feed.
+ *
+ * Matched on the same ±2h window the alert was raised against, so a receipt
+ * only ever clears the stop it actually belongs to. Resolved rather than
+ * deleted: the alert did describe something real at the time it fired, and the
+ * record of it having been answered is worth keeping.
+ */
+export async function resolveAnsweredUnloggedFills(): Promise<number> {
+  const result = await db.execute(sql`
+    WITH bound AS (
+      -- Exactly one stop per alert: the latest forecourt stop at or before it.
+      --
+      -- A plain join on "within 12 hours" is not enough. A vehicle that calls
+      -- at two stations in an afternoon puts both inside the window, and the
+      -- alert then matches whichever the planner reaches first — so a receipt
+      -- for the midday stop could clear an alert raised about the evening one,
+      -- silently dismissing the very thing the manager needed to see.
+      --
+      -- The binding is done here rather than in an UPDATE ... FROM LATERAL,
+      -- which Postgres rejects: the update target cannot be referenced from
+      -- its own FROM clause.
+      SELECT a.id AS alert_id, stop.occurred_at, stop.vehicle_id
+      FROM alerts a
+      JOIN LATERAL (
+        SELECT e.occurred_at, e.vehicle_id
+        FROM device_events e
+        WHERE e.event_type = 'fuel_stop'
+          AND e.vehicle_id = a.vehicle_id
+          AND e.occurred_at <= a.created_at
+          AND e.occurred_at > a.created_at - INTERVAL '12 hours'
+        ORDER BY e.occurred_at DESC
+        LIMIT 1
+      ) stop ON true
+      WHERE a.alert_type = 'unlogged_fill'
+        AND a.is_resolved = false
+    ),
+    answered AS (
+      SELECT b.alert_id
+      FROM bound b
+      WHERE EXISTS (
+        SELECT 1 FROM fuel_receipts r
+        WHERE r.vehicle_id = b.vehicle_id
+          AND r.transaction_date BETWEEN b.occurred_at - INTERVAL '2 hours'
+                                     AND b.occurred_at + INTERVAL '2 hours'
+      )
+    )
+    UPDATE alerts
+    SET is_resolved = true, resolved_at = NOW()
+    WHERE id IN (SELECT alert_id FROM answered)
+    RETURNING id
+  `);
+  return result.rows.length;
+}
+
 let timer: NodeJS.Timeout | null = null;
 
 /** Runs both passes on an interval. Failures are logged, never thrown — this
@@ -225,11 +287,14 @@ export function startReceiptSweep(intervalMs = 15 * 60 * 1000): void {
   const run = async () => {
     try {
       const settled = await reverifyPendingReceipts();
+      // Clear answered alerts before raising new ones, so a receipt that
+      // arrived since the last pass is honoured on this one.
+      const cleared = await resolveAnsweredUnloggedFills();
       const raised = await alertUnloggedFills();
       const patched = await refreshStationEvidence();
-      if (settled || raised || patched) {
+      if (settled || cleared || raised || patched) {
         console.log(
-          `[receipt_sweep] ${settled} receipt(s) settled, ${raised} unlogged fill(s) flagged, ${patched} station image(s) added`
+          `[receipt_sweep] ${settled} receipt(s) settled, ${cleared} unlogged fill(s) cleared by a late receipt, ${raised} unlogged fill(s) flagged, ${patched} station image(s) added`
         );
       }
     } catch (error) {
