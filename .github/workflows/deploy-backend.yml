@@ -97,17 +97,31 @@ jobs:
       - name: Restart and verify
         run: |
           ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
-            sudo systemctl restart fuelsense-backend
+            # The unit is `fuelsense`. Until 2026-08-21 a duplicate named
+            # `fuelsense-backend` also existed, and this step restarted that
+            # one -- so deploys shipped code to disk and left the running
+            # process on the old version. Do not rename this back.
+            sudo systemctl restart fuelsense
             for i in $(seq 1 20); do
               sleep 3
               CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5001/api/health || true)
               if [ "$CODE" = "200" ]; then
                 echo "Healthy after $((i * 3))s"
+                # A 200 only proves the API answers. Confirm the process
+                # holding the ingest port is the one systemd just started,
+                # otherwise something outside systemd is serving traffic.
+                MAIN=$(systemctl show fuelsense -p MainPID --value)
+                PORT=$(sudo ss -lptnH "sport = :5027" | grep -oP "pid=\K[0-9]+" | head -1)
+                if [ "$MAIN" != "$PORT" ]; then
+                  echo "::error::port 5027 held by PID $PORT, but systemd MainPID is $MAIN"
+                  exit 1
+                fi
+                echo "Ingest port owned by systemd (PID $MAIN)"
                 exit 0
               fi
             done
             echo "Service did not come back healthy"
-            sudo journalctl -u fuelsense-backend -n 40 --no-pager
+            sudo journalctl -u fuelsense -n 40 --no-pager
             exit 1
           '
 
