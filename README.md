@@ -1,4 +1,4 @@
-# FuelSense [FuelSense](https://fuelsense.ng/)
+# FuelSense [visit website:](https://fuelsense.ng/)
 
 Multi-tenant fuel monitoring platform for Teltonika FMC150 devices. Customers register fleets, link devices by IMEI, and view live telemetry with theft alerts — all isolated per tenant.
 
