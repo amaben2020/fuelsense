@@ -37,50 +37,62 @@ chmod 600 ~/.ssh/fuelsense.pem
 
 ## Local dev against production data (SSH tunnel)
 
-Your laptop's `backend/.env` cannot reach EC2's Postgres directly — it's bound
-to `localhost:5432` on the EC2 box itself, not exposed to the internet. To run
-`npm run dev` locally against the **real** production data (not a local Docker
-DB with fake seeded rows), tunnel a local port through SSH to that box.
+Since **2026-08-21** the production database is Amazon RDS — `fuelsense-prod`
+in `eu-north-1c`, PostgreSQL 16.15. It is deliberately *not* publicly
+reachable: its security group (`sg-072efb466379bfe8a`) admits port 5432 from
+the backend's security group and nothing else. So your laptop reaches it by
+tunnelling **through** the EC2 box, which acts purely as a jump host.
+
+Before this, the database was a Postgres 15 server on the EC2 box's own disk.
+That server still exists as a rollback option but is no longer written to.
 
 ### 1. Open the tunnel
 
+Just run the watchdog — it opens the forward and re-establishes it whenever it
+drops (which it does every 30–60 minutes, usually when the laptop's network
+interface sleeps):
+
+```bash
+cd backend
+nohup ./tunnel-watchdog.sh > tunnel-watchdog.log 2>&1 & disown
+```
+
+Stop it with `pkill -f tunnel-watchdog.sh`. To open a one-off forward by hand
+instead:
+
 ```bash
 ssh -i ~/.ssh/fuelsense.pem \
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes \
-  -N -L 15432:localhost:5432 \
+  -N -L 15432:fuelsense-prod.cf0m8smsiksj.eu-north-1.rds.amazonaws.com:5432 \
   ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
 ```
 
-This blocks the terminal (that's `-N`, no remote command — just the forward).
-Leave it running in its own terminal tab, or background it with `-f` instead
-of `-N`'s foreground block if you'd rather not dedicate a tab to it:
-
-```bash
-ssh -i ~/.ssh/fuelsense.pem \
-  -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes \
-  -f -N -L 15432:localhost:5432 \
-  ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
-```
+Note the forward target is the **RDS endpoint**, not `localhost` — forwarding
+to `localhost:5432` now lands on the retired local Postgres, not production.
 
 ### 2. Point `backend/.env` at the tunnel
 
-Get the real `DATABASE_URL` once (username/password) from the EC2 box:
+Get the real `DATABASE_URL` (username/password) from the EC2 box:
 
 ```bash
 ssh -i ~/.ssh/fuelsense.pem ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com \
   "grep '^DATABASE_URL=' /home/ec2-user/backend/.env"
 ```
 
-It'll look like `postgresql://fuelsense:<password>@localhost:5432/neondb`.
-Copy it into your local `backend/.env`, but change the port from `5432` to
-`15432` (the tunnel's local end):
+Copy it into your local `backend/.env`, replacing the RDS hostname with
+`localhost:15432` (the tunnel's local end), and **add `DATABASE_SSL=require`**:
 
 ```bash
-DATABASE_URL=postgresql://fuelsense:<password>@localhost:15432/neondb
+DATABASE_URL=postgresql://fuelsense:<password>@localhost:15432/fuelsense
+DATABASE_SSL=require
 ```
 
-Comment out whatever `DATABASE_URL` was there before (Neon, local Docker,
-whatever) rather than deleting it — you'll likely want it back later.
+That second line is not optional. RDS runs `rds.force_ssl=1` and rejects
+plaintext connections outright, but through the tunnel the host reads as
+`localhost` — the one case `needsSsl()` in `src/db/index.ts` cannot infer TLS
+from the hostname, so it has to be told explicitly.
+
+Comment out whatever `DATABASE_URL` was there before rather than deleting it.
 
 ### 3. Start the backend
 
@@ -168,8 +180,17 @@ database.
 Then on EC2:
 
 ```bash
-sudo systemctl restart fuelsense-backend
+sudo systemctl restart fuelsense
 ```
+
+**The unit is `fuelsense`, not `fuelsense-backend`.** Until 2026-08-21 the box
+carried *two* enabled units running the same app. On boot they raced for ports
+5027 and 5001; one won and served traffic, the other crash-looped to `failed`.
+Because this file used to say `fuelsense-backend`, every documented deploy
+restarted the dead unit and left the running app on old code — which is how the
+box came to be serving 50-day-old code in July. The duplicate has been removed
+to `/root/removed-units/`. If you ever see a `fuelsense-backend` again, that is
+the bug, not a second service.
 
 **Do not run `npm install --omit=dev`.** The systemd unit starts the app with
 `node_modules/.bin/tsx src/server.ts`, and `tsx` is a devDependency — omitting
@@ -190,7 +211,7 @@ Add/update keys, save, then:
 
 ```bash
 chmod 600 /home/ec2-user/backend/.env
-sudo systemctl restart fuelsense-backend
+sudo systemctl restart fuelsense
 ```
 
 Important: If code now reads a **new env key**, add it to `.env` manually (it will not appear automatically).
@@ -199,9 +220,9 @@ Important: If code now reads a **new env key**, add it to `.env` manually (it wi
 
 ```bash
 curl http://127.0.0.1:5001/api/health
-sudo systemctl status fuelsense-backend --no-pager
-sudo journalctl -u fuelsense-backend -n 100 --no-pager
-sudo journalctl -u fuelsense-backend -f
+sudo systemctl status fuelsense --no-pager
+sudo journalctl -u fuelsense -n 100 --no-pager
+sudo journalctl -u fuelsense -f
 ```
 
 ## Telemetry not writing to Postgres?
@@ -238,7 +259,7 @@ Must point at the **same** Postgres you query. Neon needs `?sslmode=require`.
 After `.env` changes:
 
 ```bash
-sudo systemctl restart fuelsense-backend
+sudo systemctl restart fuelsense
 ```
 
 **Log on DB failure:** `❌ TELEMETRY SAVE FAILED` or `[REAL DEVICE] insert error`
@@ -292,7 +313,7 @@ sudo systemctl status caddy --no-pager
 Stopping the server
 
 ```bash
-sudo systemctl stop fuelsense-backend
+sudo systemctl stop fuelsense
 tcping ec2-13-61-2-216.eu-north-1.compute.amazonaws.com 5027
 
 ping -c 4 ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
@@ -301,5 +322,5 @@ ping -c 4 ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
 Resuming the server
 
 ```bash
-sudo systemctl start fuelsense-backend
+sudo systemctl start fuelsense
 ```

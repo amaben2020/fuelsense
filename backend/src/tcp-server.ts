@@ -55,7 +55,27 @@ interface TeltonikaPacket {
   records: TeltonikaRecord[];
 }
 
+/**
+ * Idle timeout on every device socket.
+ *
+ * Without one, a tracker whose mobile network silently drops the NAT mapping
+ * leaves a half-open connection: the socket stays ESTABLISHED on this side
+ * forever, the device believes it is still connected and never redials, and
+ * nothing arrives. That is exactly what happened on 2026-08-20 — the last fix
+ * landed at 12:28, the server correctly raised device_offline at 12:59, and
+ * the socket was still ESTABLISHED with zero bytes six hours later.
+ *
+ * Fifteen minutes is comfortably longer than the device's own reporting
+ * interval when parked, so a stationary vehicle is never disconnected for
+ * being quiet — only one that has genuinely gone away. The SDK destroys the
+ * socket on timeout, which forces the tracker to open a fresh connection.
+ */
+const DEVICE_SOCKET_TIMEOUT_MS = Number(
+  process.env.TCP_SOCKET_TIMEOUT_MS || 15 * 60 * 1000
+);
+
 const tcpServer = new TeltonikaTCPServer({
+  timeout: DEVICE_SOCKET_TIMEOUT_MS,
   codecs: {
     data: TeltonikaDataCodec.Codec8e,
     gprs: TeltonikaGPRSCodec.Codec12,
@@ -446,7 +466,13 @@ tcpServer.on('data', async (device: TeltonikaDevice, packet: TeltonikaPacket) =>
 });
 
 tcpServer.on('timeout', (device: TeltonikaDevice) => {
-  console.log(`Device ${device.imei} timed out`);
+  // Logged loudly: this is the event that distinguishes "vehicle parked and
+  // quiet" from "connection died and the tracker has not noticed".
+  console.log(
+    `Device ${device.imei} sent nothing for ${Math.round(
+      DEVICE_SOCKET_TIMEOUT_MS / 60000
+    )} min — dropping the socket so it reconnects`
+  );
 });
 
 // A parse failure discards every record in the packet. That looked identical

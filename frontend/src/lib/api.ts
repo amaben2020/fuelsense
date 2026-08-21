@@ -1201,6 +1201,19 @@ export interface ServerTrip {
   /** 0-100. How much weight this trip's fuel figure can carry. */
   confidence: number;
   confidence_notes: string[];
+  /**
+   * Where the vehicle was last seen before it set off without a GPS lock.
+   *
+   * Present only on the first trip after a cold start, and only when it is far
+   * enough from the first plotted fix to matter. The route between the two is
+   * genuinely unknown, so it must never be drawn as a solid trail.
+   */
+  blind_origin?: {
+    latitude: number;
+    longitude: number;
+    last_known_at: string;
+    distance_m: number;
+  };
 }
 
 export interface IdleStretch {

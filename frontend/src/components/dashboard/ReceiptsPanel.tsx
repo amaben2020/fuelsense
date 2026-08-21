@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { AlertTriangle, Clock, Droplet, Receipt, Shield, Wallet, X } from 'lucide-react';
 import {
   FleetVehicle,
@@ -10,6 +10,7 @@ import {
   formatNgn,
   api,
 } from '@/lib/api';
+import { resolvePendingReceipt } from '@/lib/api';
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
 import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
@@ -124,6 +125,22 @@ export function ReceiptsPanel({
   const [purchasedAtLocal, setPurchasedAtLocal] = useState(() => toDatetimeLocalValue());
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  /**
+   * Record a verdict, then refetch rather than patching local state.
+   *
+   * The badge a manager ends up looking at should be the server's, not an
+   * optimistic guess: the endpoint refuses anything already settled, so a
+   * stale tab that "succeeds" locally would otherwise show a decision the
+   * database never accepted.
+   */
+  const handleResolvePending = useCallback(
+    async (id: string, decision: 'accept' | 'reject') => {
+      await resolvePendingReceipt(id, decision);
+      onRefresh?.();
+    },
+    [onRefresh]
+  );
+
   const [selectedPurchase, setSelectedPurchase] = useState<FuelPurchase | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
@@ -370,6 +387,7 @@ export function ReceiptsPanel({
             dailyTotalsByDate={dailyTotalsByDate}
             summary={summary}
             onViewEvent={setSelectedPurchase}
+            onResolve={handleResolvePending}
           />
         )}
 
@@ -382,6 +400,7 @@ export function ReceiptsPanel({
 }
 
 function ReconciledReceiptsTable({
+  onResolve,
   groupedByDate,
   dailyTotalsByDate,
   summary,
@@ -394,6 +413,7 @@ function ReconciledReceiptsTable({
   >;
   summary?: FuelPurchasesResponse['summary'];
   onViewEvent: (purchase: FuelPurchase) => void;
+  onResolve?: (id: string, decision: 'accept' | 'reject') => Promise<void>;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -425,6 +445,7 @@ function ReconciledReceiptsTable({
                 purchases={dayPurchases}
                 dayTotals={dayTotals}
                 onViewEvent={onViewEvent}
+                onResolve={onResolve}
               />
             );
           })}
@@ -556,6 +577,7 @@ function ViewEventButton({ onClick }: { onClick: () => void }) {
 }
 
 function ReconciledDateGroup({
+  onResolve,
   dayLabel,
   purchases,
   dayTotals,
@@ -571,6 +593,7 @@ function ReconciledDateGroup({
     receipt_count: number;
   }>;
   onViewEvent: (purchase: FuelPurchase) => void;
+  onResolve?: (id: string, decision: 'accept' | 'reject') => Promise<void>;
 }) {
   const dayCost = dayTotals.reduce((sum, row) => sum + row.total_cost_ngn, 0);
 
@@ -587,7 +610,12 @@ function ReconciledDateGroup({
         </td>
       </tr>
       {purchases.map((purchase) => (
-        <ReconciledReceiptRow key={purchase.id} purchase={purchase} onViewEvent={onViewEvent} />
+        <ReconciledReceiptRow
+          key={purchase.id}
+          purchase={purchase}
+          onViewEvent={onViewEvent}
+          onResolve={onResolve}
+        />
       ))}
       {dayTotals.map((row) => (
         <tr key={`${dayLabel}-${row.driver_name}-reconciled`} className="bg-canvas/80">
@@ -616,6 +644,7 @@ function ReconciledDateGroup({
 function ReconciledReceiptRow({
   purchase,
   onViewEvent,
+  onResolve,
   compact = false,
 }: {
   purchase: FuelPurchase;
@@ -752,6 +781,7 @@ function ResolvePendingButtons({
 export function FuelPurchaseTable({
   data,
   onOpenReceipts,
+  onRefresh,
 }: {
   data: FuelPurchasesResponse | null;
   fleet: FleetVehicle[];
@@ -762,6 +792,16 @@ export function FuelPurchaseTable({
 }) {
   const purchases = data?.purchases ?? [];
   const [selectedPurchase, setSelectedPurchase] = useState<FuelPurchase | null>(null);
+
+  // Same contract as the main panel: settle server-side, then refetch, so the
+  // badge shown is the database's verdict rather than an optimistic guess.
+  const handleResolvePending = useCallback(
+    async (id: string, decision: 'accept' | 'reject') => {
+      await resolvePendingReceipt(id, decision);
+      onRefresh?.();
+    },
+    [onRefresh]
+  );
 
   return (
     <div className="overflow-hidden rounded-lg border border-edge bg-panel">
@@ -811,6 +851,7 @@ export function FuelPurchaseTable({
                   key={purchase.id}
                   purchase={purchase}
                   onViewEvent={setSelectedPurchase}
+                  onResolve={handleResolvePending}
                   compact
                 />
               ))}

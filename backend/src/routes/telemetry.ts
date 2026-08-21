@@ -277,7 +277,88 @@ router.get('/trips', async (req: Request, res: Response) => {
       // Groups raw points by vehicle, segments them into trips, and prices
       // each trip using the same methodology as the fuel estimate (driving +
       // engine-idle burn). Shared by both the live-window and historical query.
-      const buildVehicleTrips = (rows: TripRow[]) => {
+      /**
+       * Where each vehicle actually set off, when the tracker had not yet
+       * acquired a satellite.
+       *
+       * A cold-started FMC150 reports ignition-on with a null position for the
+       * first minutes of a journey. Those rows fail the GPS filter above, so
+       * the drawn trail — and the "trip start" badge on it — begin wherever the
+       * vehicle happened to be when the first fix landed, which can be several
+       * minutes down the road from the depot or the driver's home.
+       *
+       * This returns the last position the tracker *did* know, plus how long
+       * it spent running blind. It is an origin the platform can evidence, not
+       * one it assumes: the frontend draws it dashed and labelled, never as a
+       * solid trail, because the vehicle's route across that gap is genuinely
+       * unknown.
+       */
+      const loadBlindOrigins = async (vehicleIds: string[], earliest: Date) => {
+        const out = new Map<
+          string,
+          { lat: number; lng: number; at: string; blind_seconds: number }
+        >();
+        if (!vehicleIds.length) return out;
+
+        const res = await db.execute(sql`
+          SELECT
+            v.vehicle_id,
+            last_fix.latitude::double precision AS lat,
+            last_fix.longitude::double precision AS lng,
+            last_fix.recorded_at AS at,
+            blind.first_blind_at
+          -- A VALUES list, not UNNEST($1::uuid[]): the driver binds a JS array
+          -- as a single scalar, so the cast failed with "malformed array
+          -- literal" on the first id.
+          FROM (VALUES ${sql.join(
+            vehicleIds.map((id) => sql`(${id}::uuid)`),
+            sql`, `
+          )}) AS v(vehicle_id)
+          -- The most recent position before the window, whenever that was.
+          LEFT JOIN LATERAL (
+            SELECT t.latitude, t.longitude, t.recorded_at
+            FROM telemetry t
+            WHERE t.vehicle_id = v.vehicle_id
+              AND t.customer_id = ${customerId}
+              AND t.recorded_at < ${earliest}
+              AND t.latitude IS NOT NULL AND t.longitude IS NOT NULL
+            ORDER BY t.recorded_at DESC
+            LIMIT 1
+          ) last_fix ON true
+          -- The first moment the engine was running with no fix to show for
+          -- it. Bounded strictly *between* the last known position and the
+          -- first plotted one: those blind rows are by definition earlier than
+          -- the first fix that could be drawn, so anchoring the search at the
+          -- plotted fix excluded the only rows it was looking for.
+          LEFT JOIN LATERAL (
+            SELECT MIN(t.recorded_at) AS first_blind_at
+            FROM telemetry t
+            WHERE t.vehicle_id = v.vehicle_id
+              AND t.customer_id = ${customerId}
+              AND t.recorded_at > last_fix.recorded_at
+              AND t.recorded_at < ${earliest}
+              AND COALESCE(t.ignition_on, false)
+              AND (t.latitude IS NULL OR t.longitude IS NULL)
+          ) blind ON true
+          WHERE last_fix.recorded_at IS NOT NULL
+            AND blind.first_blind_at IS NOT NULL
+        `);
+
+        for (const raw of res.rows as Array<Record<string, unknown>>) {
+          out.set(String(raw.vehicle_id), {
+            lat: Number(raw.lat),
+            lng: Number(raw.lng),
+            at: new Date(raw.at as string).toISOString(),
+            blind_seconds: 0,
+          });
+        }
+        return out;
+      };
+
+      const buildVehicleTrips = (
+        rows: TripRow[],
+        blindOrigins?: Map<string, { lat: number; lng: number; at: string; blind_seconds: number }>
+      ) => {
         const byVehicle = new Map<
           string,
           {
@@ -308,6 +389,7 @@ router.get('/trips', async (req: Request, res: Response) => {
 
         const nowMs = Date.now();
         return Array.from(byVehicle.entries()).map(([vehicleId, v]) => {
+          const blind = blindOrigins?.get(vehicleId);
           const efficiencyKmL = baselineEfficiencyKmL(v.model ?? '');
           const trips = segmentTrips(v.points, nowMs).map((trip) => {
             // Economy follows a U-curve, so the same distance burns more in
@@ -328,8 +410,38 @@ router.get('/trips', async (req: Request, res: Response) => {
                 pricePerLiter != null ? Math.round(fuel * pricePerLiter) : null,
               speed_bucket: speedBucketLabel(trip.avg_speed_kph),
               speed_bucket_multiplier: multiplier,
+              // Filled below for the one trip that began without a GPS lock.
+              blind_origin: undefined as
+                | {
+                    latitude: number;
+                    longitude: number;
+                    last_known_at: string;
+                    distance_m: number;
+                  }
+                | undefined,
             };
           });
+          // Only the earliest trip can have been the one that set off blind;
+          // by the second trip the tracker has a lock. Attached only when the
+          // known origin is far enough from the first plotted fix to be worth
+          // drawing — a lock acquired on the driveway needs no explanation.
+          const firstTrip = trips[0];
+          if (blind && firstTrip?.path?.length) {
+            const [flat, flng] = firstTrip.path[0];
+            const dLat = (blind.lat - flat) * 111_320;
+            const dLng =
+              (blind.lng - flng) * 111_320 * Math.cos((flat * Math.PI) / 180);
+            const metres = Math.sqrt(dLat * dLat + dLng * dLng);
+            if (metres > 150) {
+              firstTrip.blind_origin = {
+                latitude: blind.lat,
+                longitude: blind.lng,
+                last_known_at: blind.at,
+                distance_m: Math.round(metres),
+              };
+            }
+          }
+
           return {
             vehicle_id: vehicleId,
             license_plate: v.license_plate,
@@ -364,7 +476,16 @@ router.get('/trips', async (req: Request, res: Response) => {
       `);
 
       let source = 'live';
-      let vehicleTrips = buildVehicleTrips(liveResult.rows as TripRow[]);
+      const liveRows = liveResult.rows as TripRow[];
+      const liveVehicleIds = [...new Set(liveRows.map((r) => String(r.vehicle_id)))];
+      const earliestPlotted = liveRows.reduce<Date | null>((min, r) => {
+        const at = new Date(r.recorded_at as string);
+        return min == null || at < min ? at : min;
+      }, null);
+      const blindOrigins = earliestPlotted
+        ? await loadBlindOrigins(liveVehicleIds, earliestPlotted)
+        : new Map();
+      let vehicleTrips = buildVehicleTrips(liveRows, blindOrigins);
       const liveTripCount = vehicleTrips.reduce((s, v) => s + v.trips.length, 0);
 
       // The live window can be non-empty (parked heartbeat pings) yet contain
@@ -1615,15 +1736,20 @@ router.patch('/fuel-purchases/:id/resolve', async (req: Request, res: Response) 
       return;
     }
 
+    // `fuel_purchases`, not `fuel_receipts`. Two tables carry a receipt here:
+    // `fuel_receipts` is the driver's upload and its own reconciliation, while
+    // `fuel_purchases` is what this screen actually lists and what the id in
+    // the row belongs to. Targeting the wrong one made every resolve 404 while
+    // looking, from the code, entirely correct.
     const [row] = await db.execute(sql`
-      UPDATE fuel_receipts
-      SET reconciliation_status = ${decision === 'accept' ? 'manually_verified' : 'rejected'}
+      UPDATE fuel_purchases
+      SET status = ${decision === 'accept' ? 'manually_verified' : 'rejected'}
       WHERE id = ${String(req.params.id)}::uuid
         AND customer_id = ${req.user.customerId}
-        -- Only a pending row is the manager's to settle. Re-deciding a receipt
-        -- the reconciler already matched would silently overwrite evidence.
-        AND reconciliation_status = 'pending'
-      RETURNING id, reconciliation_status
+        -- Only a pending row is the manager's to settle. Re-deciding one the
+        -- reconciler already matched would silently overwrite evidence.
+        AND status = 'pending_receipt'
+      RETURNING id, status
     `).then((r) => r.rows as Array<Record<string, unknown>>);
 
     if (!row) {
@@ -1632,7 +1758,7 @@ router.patch('/fuel-purchases/:id/resolve', async (req: Request, res: Response) 
     }
 
     await invalidate(req.user.customerId, 'fuel-purchases', 'fuel-events');
-    res.json({ ok: true, id: row.id, status: row.reconciliation_status });
+    res.json({ ok: true, id: row.id, status: row.status });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

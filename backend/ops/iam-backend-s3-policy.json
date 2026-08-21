@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteNightlyBackups",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::fuelsense-db-backups/postgres/*"
+    },
+    {
+      "Sid": "ListOwnBackupsForVerification",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::fuelsense-db-backups",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "postgres/*"
+        }
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import { DateRangePicker } from './DateRangePicker';
 import { isReadingLive, lerp, timeAgo, tripColor } from '@/lib/map-utils';
@@ -135,6 +135,74 @@ function clockTime(iso: string): string {
   return Number.isNaN(d.getTime())
     ? '—'
     : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Dashed link from the last known position to the first plotted fix.
+ *
+ * Google's Polyline has no dash property; a repeated dot icon along a
+ * zero-opacity stroke is the documented way to get one, and it keeps the
+ * dashes at a fixed screen size so the line stays legible at every zoom.
+ */
+function BlindOriginLink({
+  from,
+  to,
+}: {
+  from: google.maps.LatLngLiteral;
+  to: google.maps.LatLngLiteral;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map) return;
+    const line = new google.maps.Polyline({
+      map,
+      path: [from, to],
+      strokeOpacity: 0,
+      clickable: false,
+      zIndex: 1,
+      icons: [
+        {
+          icon: {
+            path: 'M 0,-1 0,1',
+            strokeOpacity: 0.75,
+            strokeColor: '#8b93a1',
+            strokeWeight: 2,
+            scale: 3,
+          },
+          offset: '0',
+          repeat: '12px',
+        },
+      ],
+    });
+    const marker = new google.maps.Marker({
+      map,
+      position: from,
+      clickable: false,
+      zIndex: 2,
+      title: 'Last known position before the tracker had a GPS lock',
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 6,
+        fillColor: '#8b93a1',
+        fillOpacity: 0.9,
+        strokeColor: '#0b1220',
+        strokeWeight: 2,
+      },
+      label: {
+        text: 'Set off here (no GPS yet)',
+        color: '#c8d0dc',
+        fontSize: '11px',
+        fontWeight: '600',
+      },
+    });
+    return () => {
+      line.setMap(null);
+      marker.setMap(null);
+    };
+  }, [map, from, to]);
+
+  return null;
 }
 
 /** Rectangles are stored as polygons; these are the four corners of one. */
@@ -382,7 +450,10 @@ function CompassRose() {
   // The instrument itself lives in components/maps/Compass so the driver-view
   // and any future map can mount the same one rather than growing a second
   // copy that drifts out of step with this one.
-  return <Compass heading={heading} onReset={() => map?.setHeading?.(0)} />;
+  // 84px rather than the default 56. At 56 the cardinal letters and the tick
+  // ring were below the size where the instrument reads as an instrument —
+  // the detail that sells it was there but too small to resolve.
+  return <Compass heading={heading} onReset={() => map?.setHeading?.(0)} size={84} />;
 }
 
 /** Circular map control, matching the rail's button language. */
@@ -985,13 +1056,35 @@ export function LiveMonitoringMap({
                   ? isFocused
                   : track.vehicleId === selectedVehicleId;
                 return (
-                  <EmphasizedRoute
-                    key={`route-${track.vehicleId}-${i}`}
-                    path={path}
-                    color={tripColor(i)}
-                    emphasized={emphasized}
-                    flowing={!!trip.active}
-                  />
+                  <Fragment key={`route-${track.vehicleId}-${i}`}>
+                    {/* The run-up the tracker drove blind, dashed.
+                        
+                        A cold-started FMC150 reports ignition-on with no
+                        position for the first minutes of a journey, so the
+                        solid trail — and the trip-start badge on it — begin
+                        wherever the first fix landed, often kilometres from
+                        where the driver actually set off. This joins the last
+                        position the tracker did know to the first one it
+                        plotted. Dashed and unemphasised on purpose: the two
+                        ends are evidence, the line between them is not a
+                        route, and drawing it solid would assert a path nobody
+                        recorded. */}
+                    {trip.blind_origin && path.length > 0 && (
+                      <BlindOriginLink
+                        from={{
+                          lat: trip.blind_origin.latitude,
+                          lng: trip.blind_origin.longitude,
+                        }}
+                        to={path[0]}
+                      />
+                    )}
+                    <EmphasizedRoute
+                      path={path}
+                      color={tripColor(i)}
+                      emphasized={emphasized}
+                      flowing={!!trip.active}
+                    />
+                  </Fragment>
                 );
               });
             })}

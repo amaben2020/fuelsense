@@ -1,0 +1,14 @@
+[Unit]
+Description=FuelSense nightly Postgres backup to S3
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/ec2-user/backend/ops/db-backup.sh
+User=ec2-user
+# The script writes its dump into the real /var/tmp (not a per-unit private
+# one) and removes it via an EXIT trap, so a failed run cannot leave the file
+# behind on the shared 8 GB root volume.
+PrivateTmp=false
+TimeoutStartSec=900
