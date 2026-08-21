@@ -4,6 +4,88 @@ Multi-tenant fuel monitoring platform for Teltonika FMC150 devices. Customers re
 
 ## Architecture
 
+# FuelSense AWS Architecture
+
+## 🏗️ System Overview
+
+FuelSense is deployed on AWS **EU-NORTH-1 (Stockholm)** region, utilizing a multi-service architecture for vehicle tracking and data management.
+
+---
+
+## 🌐 Network Infrastructure
+
+### VPC Configuration
+- **VPC ID**: `vpc-09f7f94b5ac630d58`
+- **Availability Zone**: `eu-north-1b`
+- **Security Groups**: 
+  - PostgreSQL accessible only from backend SG
+  - Port `5432` restricted to backend services only
+
+---
+
+## 🖥️ Compute Resources
+
+### EC2 Instance
+- **Type**: `t3.micro`
+- **Instance ID**: `i-02365bd7ac603ace3`
+- **Role**: Hosts main application services
+
+### Running Services
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| TCP Server | `5027` | Vehicle tracking data ingestion (Codec: 8E) |
+| Express API | `5001` | RESTful API endpoints |
+| Caddy Server | `80` | Reverse proxy (frontend → API:5001) |
+
+---
+
+## 💾 Data Layer
+
+### PostgreSQL Database
+- **Version**: `16.15`
+- **Connection**: Secure via security group restrictions
+- **Access**: Only from backend SG on port `5432`
+
+### Backup Strategy
+
+#### Automated Snapshots (PITR)
+- **Retention**: 1 day (free-tier cap)
+- **Point-in-Time Recovery**: Enabled
+- **Cross-AZ**: Automated replication
+
+#### Nightly pg_dump
+- **Schedule**: `01:30 UTC`
+- **Status**: ⚠️ **Designed, not yet enabled**
+- **Storage**: S3 bucket `fuelsense-db-backups`
+
+---
+
+## 📦 Storage
+
+### S3 Bucket Configuration
+- **Backup Bucket**: `fuelsense-db-backups`
+- **Features**:
+  - Portable backups (outlives RDS retention)
+  - Cross-AZ replication
+  - Cost-optimized storage
+
+---
+
+## 🔐 Security
+
+### Access Controls
+- **SSH Tunnel**: For developer access to database
+- **Port Restrictions**:
+  - Local ports: `15432` / `15433` (tunneled)
+  - Database: `5432` (SG restricted)
+- **API**: Protected via Caddy reverse proxy
+
+---
+
+## 📡 Data Flow
+
+
 ```
 Customer (browser)          FMC150 device
        │                           │
