@@ -3,7 +3,7 @@ import { authenticateCustomer } from '../middleware/auth';
 import { db, sql, eq, and } from '../lib/db-helpers';
 import { maintenanceSchedules } from '../db/schema';
 import { round1 } from '../lib/fuel-metrics';
-import { logAndRespond } from '../lib/errors';
+import { isUniqueViolation, logAndRespond } from '../lib/errors';
 
 const router = express.Router();
 router.use(authenticateCustomer);
@@ -167,13 +167,14 @@ router.post('/', async (req: Request, res: Response) => {
       .returning();
     res.status(201).json(row);
   } catch (error) {
-    const message = (error as Error).message;
     // One schedule per kind per vehicle — two "oil_change" rows would race.
-    if (message.includes('duplicate key')) {
-      res.status(409).json({ error: `A "${kind}" schedule already exists for this vehicle` });
+    if (isUniqueViolation(error)) {
+      // The stored kind is snake_case; the message is read by a person.
+      const readable = String(kind).trim().replace(/_/g, ' ');
+      res.status(409).json({ error: `"${readable}" is already scheduled for this vehicle` });
       return;
     }
-    res.status(500).json({ error: message });
+    logAndRespond(res, req.path, error);
   }
 });
 
