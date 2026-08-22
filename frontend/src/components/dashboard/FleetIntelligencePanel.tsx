@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  Brain,
   Clock,
   Gauge,
   Info,
@@ -145,7 +146,8 @@ export function FleetIntelligencePanel({ fleet = [] }: { fleet?: FleetVehicle[] 
   return (
     <div className="space-y-4">
       <Panel
-        icon={Gauge}
+        icon={Brain}
+        iconTone="accent"
         title="Fleet intelligence"
         subtitle={`Derived from the tracker's own signals over the last ${WINDOW_DAYS} days — no extra hardware`}
         onRefresh={load}

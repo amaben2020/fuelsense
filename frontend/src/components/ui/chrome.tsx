@@ -666,6 +666,7 @@ export function IconRail<T extends string>({
  */
 export function Panel({
   icon: Icon,
+  iconTone = 'neutral',
   title,
   subtitle,
   chip,
@@ -677,6 +678,8 @@ export function Panel({
   className = '',
 }: {
   icon?: React.ComponentType<{ className?: string }>;
+  /** 'accent' puts the heading glyph in lemon; neutral keeps it dim. */
+  iconTone?: 'neutral' | 'accent';
   title?: React.ReactNode;
   subtitle?: React.ReactNode;
   chip?: React.ReactNode;
@@ -696,7 +699,13 @@ export function Panel({
         <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              {Icon && <Icon className="h-[1.05rem] w-[1.05rem] shrink-0 text-ink-mid" />}
+              {Icon && (
+                <Icon
+                  className={`h-[1.05rem] w-[1.05rem] shrink-0 ${
+                    iconTone === 'accent' ? 'text-accent-y' : 'text-ink-mid'
+                  }`}
+                />
+              )}
               {title && <h2 className="text-base font-bold tracking-tight text-ink">{title}</h2>}
               {chip}
             </div>
