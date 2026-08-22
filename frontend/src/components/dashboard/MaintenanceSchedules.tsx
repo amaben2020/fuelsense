@@ -214,10 +214,7 @@ export function MaintenanceSchedules({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-ink-dim">
-          Counted against the distance the tracker measures — no dashboard reading to remember.
-        </p>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <button
           type="button"
           onClick={() => (showForm ? setShowForm(false) : openForm())}

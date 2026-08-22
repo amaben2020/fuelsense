@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   Bell,
   Calculator,
+  ClipboardList,
   Clock,
   Fuel,
   Gauge,
@@ -84,6 +85,7 @@ import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPa
 import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
 import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePanel';
 import { FleetIntelligencePanel } from '@/components/dashboard/FleetIntelligencePanel';
+import { VehicleRecordsPanel } from '@/components/dashboard/VehicleRecordsPanel';
 import { AccountingLedgerPanel } from '@/components/dashboard/AccountingLedgerPanel';
 import { TheftPanel } from '@/components/dashboard/TheftPanel';
 import {
@@ -118,6 +120,7 @@ type DashboardView =
   | 'behavior'
   | 'drivers'
   | 'intel'
+  | 'records'
   | 'geofences'
   | 'fuel'
   | 'estimate'
@@ -185,6 +188,7 @@ const VIEW_META: Record<
   behavior: { icon: ShieldAlert, nav: 'Driving behavior', title: 'Driving behavior' },
   drivers: { icon: Users, nav: 'Driver management', title: 'Driver Management' },
   intel: { icon: Gauge, nav: 'Fleet intelligence', title: 'Fleet Intelligence' },
+  records: { icon: ClipboardList, nav: 'Vehicle records', title: 'Vehicle records' },
   geofences: { icon: Pentagon, nav: 'Geofencing', title: 'Geofencing' },
   fuel: { icon: Fuel, nav: 'Fuel analytics', title: 'Fuel analytics' },
   estimate: { icon: Calculator, nav: 'Fuel estimate', title: 'Fuel estimate' },
@@ -205,6 +209,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'behavior', label: 'Driving behavior', hash: 'behavior' },
   { id: 'drivers', label: 'Driver management', hash: 'drivers' },
   { id: 'intel', label: 'Fleet intelligence', hash: 'intel' },
+  { id: 'records', label: 'Vehicle records', hash: 'records' },
   { id: 'geofences', label: 'Geofencing', hash: 'geofences' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
@@ -225,7 +230,10 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
  */
 const NAV_GROUPS: { label: string; views: DashboardView[] }[] = [
   { label: 'Overview', views: ['overview', 'live'] },
-  { label: 'Fleet', views: ['vehicle', 'trips', 'behavior', 'drivers', 'intel', 'geofences'] },
+  {
+    label: 'Fleet',
+    views: ['vehicle', 'trips', 'behavior', 'drivers', 'intel', 'records', 'geofences'],
+  },
   { label: 'Fuel', views: ['fuel', 'estimate', 'receipts', 'accounting', 'anomalies'] },
   { label: 'Security', views: ['theft', 'alerts'] },
   { label: 'System', views: ['calibration', 'settings'] },
@@ -1222,7 +1230,9 @@ export default function DashboardPage() {
             />
           )}
 
-          {activeView === 'intel' && <FleetIntelligencePanel fleet={fleet} />}
+          {activeView === 'intel' && <FleetIntelligencePanel />}
+
+          {activeView === 'records' && <VehicleRecordsPanel fleet={fleet} />}
 
           {activeView === 'calibration' && <CalibrationGuidePanel fleet={fleet} />}
 

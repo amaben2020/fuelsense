@@ -14,25 +14,26 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import {
-  FleetVehicle,
   Geofence,
   GeofenceEvent,
   HoursResponse,
-  MaintenanceResponse,
   SecurityResponse,
   UtilisationResponse,
   fetchDrivingHours,
   fetchGeofenceEvents,
   fetchGeofences,
-  fetchMaintenance,
   fetchSecuritySignals,
   fetchUtilisation,
 } from '@/lib/api';
 import { HatchBar, Panel, StatusChip, TabRow } from '@/components/ui/chrome';
-import { MaintenanceSchedules } from './MaintenanceSchedules';
 import { LoadErrorBanner } from './LoadErrorBanner';
 
-type Tab = 'maintenance' | 'security' | 'hours' | 'utilisation' | 'zones';
+/**
+ * Every tab here is computed from signals the FMC150 already sends. Service
+ * schedules used to sit alongside them and did not belong: the interval is
+ * typed by a person, not measured. They now live under Vehicle records.
+ */
+type Tab = 'security' | 'hours' | 'utilisation' | 'zones';
 
 const WINDOW_DAYS = 30;
 
@@ -76,9 +77,8 @@ function Metric({
 
 const relTime = (iso: string) => new Date(iso).toLocaleString();
 
-export function FleetIntelligencePanel({ fleet = [] }: { fleet?: FleetVehicle[] }) {
-  const [tab, setTab] = useState<Tab>('maintenance');
-  const [maintenance, setMaintenance] = useState<MaintenanceResponse | null>(null);
+export function FleetIntelligencePanel() {
+  const [tab, setTab] = useState<Tab>('security');
   const [security, setSecurity] = useState<SecurityResponse | null>(null);
   const [hours, setHours] = useState<HoursResponse | null>(null);
   const [utilisation, setUtilisation] = useState<UtilisationResponse | null>(null);
@@ -89,15 +89,13 @@ export function FleetIntelligencePanel({ fleet = [] }: { fleet?: FleetVehicle[] 
 
   const runFetch = useCallback(() => {
     Promise.all([
-      fetchMaintenance(),
       fetchSecuritySignals(WINDOW_DAYS),
       fetchDrivingHours(WINDOW_DAYS),
       fetchUtilisation(WINDOW_DAYS),
       fetchGeofences(),
       fetchGeofenceEvents(WINDOW_DAYS),
     ])
-      .then(([m, s, h, u, z, ze]) => {
-        setMaintenance(m);
+      .then(([s, h, u, z, ze]) => {
         setSecurity(s);
         setHours(h);
         setUtilisation(u);
@@ -114,11 +112,6 @@ export function FleetIntelligencePanel({ fleet = [] }: { fleet?: FleetVehicle[] 
     runFetch();
   }, [runFetch]);
 
-  /** After a schedule is added, completed or deleted, only this tab is stale. */
-  const reloadMaintenance = useCallback(() => {
-    fetchMaintenance().then(setMaintenance).catch(setError);
-  }, []);
-
   useEffect(() => {
     runFetch();
   }, [runFetch]);
@@ -126,17 +119,12 @@ export function FleetIntelligencePanel({ fleet = [] }: { fleet?: FleetVehicle[] 
   // Counts ride on the tabs so the badge is the reason to click.
   const tabs = useMemo(
     () => [
-      {
-        id: 'maintenance' as const,
-        label: 'Maintenance',
-        count: (maintenance?.overdue ?? 0) + (maintenance?.due_soon ?? 0),
-      },
       { id: 'security' as const, label: 'Security', count: security?.events.length ?? 0 },
       { id: 'hours' as const, label: 'Hours', count: hours?.flagged.length ?? 0 },
       { id: 'utilisation' as const, label: 'Utilisation' },
       { id: 'zones' as const, label: 'Zones', count: zones.length },
     ],
-    [maintenance, security, hours, zones]
+    [security, hours, zones]
   );
 
   if (error) {
@@ -156,14 +144,6 @@ export function FleetIntelligencePanel({ fleet = [] }: { fleet?: FleetVehicle[] 
         <TabRow items={tabs} active={tab} onChange={setTab} />
 
         <div className="pt-4">
-          {tab === 'maintenance' && (
-            <MaintenanceSchedules
-              data={maintenance}
-              fleet={fleet}
-              onChanged={reloadMaintenance}
-            />
-          )}
-
           {tab === 'security' && (
             <div className="space-y-3">
               <p className="flex items-start gap-2 text-[11px] leading-relaxed text-ink-dim">
