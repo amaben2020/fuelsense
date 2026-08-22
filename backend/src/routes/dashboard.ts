@@ -91,7 +91,27 @@ router.get('/summary', async (req: Request, res: Response) => {
         ? totalDistanceKm / totalFuelUsedLiters
         : null;
     const avgEfficiencyL100km = computeL100km(totalFuelUsedLiters, totalDistanceKm);
-    const totalFuelCostNgn = Math.round(totalFuelUsedLiters * pricePerLiter);
+    // fleetEfficiencyAggSql already values every litre at the price in force
+    // the day it was burned, so a price change cannot restate what an earlier
+    // week cost. This used to throw that away and multiply the period's total
+    // litres by today's price, which silently back-dated the current price over
+    // the whole window — across the 10 Aug (1300) → 11 Aug (1275) → 18 Aug
+    // (1310) changes, every figure was wrong.
+    const totalFuelCostNgn = Math.round(
+      vehicleRows.reduce(
+        (sum, row) => sum + (Number((row as Record<string, unknown>).telemetry_cost_ngn) || 0),
+        0
+      )
+    );
+
+    // The honest headline price for a window that spans several: what the fuel
+    // actually cost, divided by how much of it there was. A plain mean of the
+    // declared prices would weight a day with 2 litres the same as a day with
+    // 40. Falls back to the point-in-time price when nothing was burned.
+    const avgPricePerLiterNgn =
+      totalFuelUsedLiters > 0
+        ? Math.round(totalFuelCostNgn / totalFuelUsedLiters)
+        : pricePerLiter;
 
     const alertRows = await db
       .select({
@@ -122,7 +142,14 @@ router.get('/summary', async (req: Request, res: Response) => {
       return {
         period_days: days,
         currency: 'NGN',
+        /** The price in force right now — what a new litre would cost. */
         price_per_liter_ngn: pricePerLiter,
+        /**
+         * What the fuel in this window actually averaged, weighted by volume.
+         * Differs from the above whenever the price moved during the period,
+         * and is the number to quote against a cost total.
+         */
+        avg_price_per_liter_ngn: avgPricePerLiterNgn,
         total_vehicles: Number(fleet.total_vehicles) || 0,
         online_vehicles: Number(fleet.online_vehicles) || 0,
         total_fuel_liters: Math.round(Number(fleet.total_fuel_liters) * 10) / 10,

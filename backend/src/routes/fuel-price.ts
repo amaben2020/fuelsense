@@ -32,11 +32,39 @@ router.get('/', async (req: Request, res: Response) => {
       benchmarkPriceHistory(customerId),
     ]);
 
+    // Fuel price drives every naira figure in the product, so which way it is
+    // moving is worth stating outright rather than leaving a manager to read it
+    // off a list of dates. Oldest-first so a chart can plot it directly.
+    const series = [...history].sort(
+      (a, b) => new Date(a.effectiveFrom).getTime() - new Date(b.effectiveFrom).getTime()
+    );
+    const first = series[0] ?? null;
+    const last = series[series.length - 1] ?? null;
+    const changeNgn = first && last ? last.ngnPerLiter - first.ngnPerLiter : 0;
+
     res.json(
       serializeForApi({
         current,
         latestReceipt: receipt,
         history,
+        trend: {
+          /** Every declared price, oldest first — the zigzag itself. */
+          series: series.map((p) => ({
+            ngnPerLiter: p.ngnPerLiter,
+            effectiveFrom: p.effectiveFrom,
+          })),
+          changeNgn,
+          changePct:
+            first && first.ngnPerLiter > 0
+              ? Math.round((changeNgn / first.ngnPerLiter) * 1000) / 10
+              : 0,
+          // A price that has only ever been declared once is flat, not rising:
+          // with a single point there is no movement to describe.
+          direction: series.length < 2 ? 'flat' : changeNgn > 0 ? 'up' : changeNgn < 0 ? 'down' : 'flat',
+          changes: series.length,
+          low: series.length ? Math.min(...series.map((p) => p.ngnPerLiter)) : null,
+          high: series.length ? Math.max(...series.map((p) => p.ngnPerLiter)) : null,
+        },
       })
     );
   } catch (error) {

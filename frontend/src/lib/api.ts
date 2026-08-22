@@ -1054,10 +1054,29 @@ export interface SetFuelPriceResult extends BenchmarkPrice {
   notable_change: boolean;
 }
 
+/**
+ * How the declared fuel price has moved. Every naira figure in the product is
+ * derived from this, so the direction is worth stating rather than leaving a
+ * manager to infer it from a list of dates.
+ */
+export interface FuelPriceTrend {
+  /** Oldest first, so it plots left to right without reversing. */
+  series: { ngn_per_liter: number; effective_from: string }[];
+  change_ngn: number;
+  change_pct: number;
+  direction: 'up' | 'down' | 'flat';
+  /** How many prices have been declared, not how many times it rose. */
+  changes: number;
+  low: number | null;
+  high: number | null;
+}
+
 export interface FuelPriceResponse {
   current: BenchmarkPrice | null;
   latest_receipt: { ngn_per_liter: number; as_of: string } | null;
   history: BenchmarkPrice[];
+  /** Absent from a backend deployed before the trend was added. */
+  trend?: FuelPriceTrend;
 }
 
 export async function getFuelPrice(): Promise<FuelPriceResponse> {

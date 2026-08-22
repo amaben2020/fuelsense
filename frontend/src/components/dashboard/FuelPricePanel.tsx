@@ -11,6 +11,7 @@ import {
   setFuelPrice,
   undoFuelPrice,
 } from '@/lib/api';
+import { FuelPriceTrend } from './FuelPriceTrend';
 
 // How long the undo offer stays up. Long enough to notice, short enough that
 // undoing doesn't feel available forever — matches the backend's own
@@ -125,6 +126,10 @@ export function FuelPricePanel() {
               ? `In force since ${formatDate(current.effective_from)}`
               : 'Costs fall back to the latest receipt, then to an assumed rate'}
           </p>
+          {/* Where the rate has been, not just where it is. Every cost figure
+              in the product is this number multiplied by litres, so its
+              direction is part of reading any of them. */}
+          <FuelPriceTrend trend={data?.trend} className="mt-2.5" />
         </div>
         <div className="rounded-lg border border-edge bg-canvas p-3">
           <p className="text-xs text-ink-dim">Latest receipt price</p>
