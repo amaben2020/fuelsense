@@ -325,6 +325,55 @@ export function DrivingBehaviorPanel({
     return feed.filter((e) => set.has(e.eventType));
   }, [feed, filter]);
 
+  /**
+   * The feed as a flat reverse-chronological list made it hard to answer the
+   * question a manager actually has — is this driver getting better or worse —
+   * because one driver's events were interleaved with everyone else's and with
+   * every other week. Grouping into fortnights, and by driver inside each,
+   * turns the same rows into a comparison.
+   *
+   * Fortnights are counted back from today rather than pinned to the calendar,
+   * so the most recent group is always "the last two weeks" no matter which day
+   * it is read on.
+   */
+  const groupedEvents = useMemo(() => {
+    const FORTNIGHT_MS = 14 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    const groups = new Map<
+      string,
+      { key: string; index: number; driver: string; start: Date; end: Date; items: FeedItem[] }
+    >();
+
+    for (const item of filteredEvents) {
+      const at = new Date(item.occurredAt).getTime();
+      // 0 = the current fortnight, 1 = the one before it, and so on.
+      const index = Math.max(0, Math.floor((now - at) / FORTNIGHT_MS));
+      const driver = item.driverName?.trim() || 'Unassigned';
+      const key = `${index}::${driver}`;
+
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          key,
+          index,
+          driver,
+          start: new Date(now - (index + 1) * FORTNIGHT_MS),
+          end: new Date(now - index * FORTNIGHT_MS),
+          items: [],
+        };
+        groups.set(key, group);
+      }
+      group.items.push(item);
+    }
+
+    // Most recent fortnight first; inside a fortnight, the busiest driver
+    // first, since that is the one worth looking at.
+    return [...groups.values()].sort(
+      (a, b) => a.index - b.index || b.items.length - a.items.length
+    );
+  }, [filteredEvents]);
+
   const mutedCount = feed.length - feed.filter((e) => e.needsAttention).length;
 
   const vehiclesWithData = useMemo(
@@ -557,8 +606,22 @@ export function DrivingBehaviorPanel({
               : 'No events in this window.'}
           </p>
         ) : (
-          <ul className="max-h-[28rem] divide-y divide-edge overflow-y-auto">
-            {filteredEvents.map((item) => {
+          <div className="max-h-[28rem] overflow-y-auto">
+            {groupedEvents.map((group) => (
+              <section key={group.key}>
+                {/* Sticky so the driver and fortnight a row belongs to stay
+                    visible while scrolling a long group — otherwise the
+                    grouping is lost the moment the header scrolls away. */}
+                <header className="sticky top-0 z-10 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-y border-edge bg-panel-deep/95 px-6 py-2 backdrop-blur">
+                  <span className="text-sm font-semibold text-ink">{group.driver}</span>
+                  <span className="text-[11px] text-ink-dim">
+                    {group.index === 0 ? 'Last 2 weeks' : `${group.start.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })} – ${group.end.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' })}`}
+                    {' · '}
+                    {group.items.length} event{group.items.length === 1 ? '' : 's'}
+                  </span>
+                </header>
+                <ul className="divide-y divide-edge">
+                  {group.items.map((item) => {
               const Icon =
                 item.eventType === 'idling' ? Timer : EVENT_META[item.eventType]?.icon ?? Activity;
               const tone =
@@ -643,8 +706,11 @@ export function DrivingBehaviorPanel({
                   </div>
                 </li>
               );
-            })}
-          </ul>
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
         )}
       </div>
     </div>

@@ -15,8 +15,9 @@ import { getGreenDrivingStatus, getToken, type GreenDrivingStatus } from '@/lib/
  * alone would suggest. That is defensible, but only if it is visible: a score
  * nobody can account for is a score nobody trusts.
  *
- * Shown on every page rather than only the driving-behaviour panel, because
- * the score it qualifies is surfaced across the dashboard.
+ * Lives in the dashboard's top bar rather than floating over the page. As a
+ * fixed badge it sat on top of the live map's stop legend, and an explanation
+ * that covers the thing it is explaining is worse than no explanation.
  */
 export function GreenDrivingBadge() {
   const [status, setStatus] = useState<GreenDrivingStatus | null>(null);
@@ -75,11 +76,10 @@ export function GreenDrivingBadge() {
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-label="Eco Driving is on. See how it affects your fleet scores."
-        // The dashboard's icon rail is 77px wide and full height, but only
-        // exists from `lg` up (it is `hidden lg:block`), so the badge clears it
-        // at that breakpoint and sits at the edge below it. z-40 matches the
-        // rail rather than exceeding it, so an open nav is never covered.
-        className="fixed bottom-4 left-4 z-40 flex items-center gap-2 rounded-full border border-good/40 bg-good/10 px-3 py-2 text-xs font-medium text-good shadow-lg backdrop-blur transition hover:bg-good/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-good focus-visible:ring-offset-2 focus-visible:ring-offset-canvas lg:left-24"
+        // Sized to sit alongside the other top-bar controls. Below `sm` the
+        // label drops and only the leaf remains, so it costs almost no width
+        // on a phone where the bar is already tight.
+        className="flex shrink-0 items-center gap-1.5 rounded-full border border-good/40 bg-good/10 px-2.5 py-2 text-xs font-medium text-good transition hover:bg-good/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-good focus-visible:ring-offset-2 focus-visible:ring-offset-canvas sm:px-3"
       >
         <Leaf className="h-4 w-4 shrink-0" aria-hidden="true" />
         {/* Narrow screens get the leaf alone; the aria-label above carries the

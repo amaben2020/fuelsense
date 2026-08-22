@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Archivo, Geist_Mono, Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { StructuredData } from "@/components/marketing/StructuredData";
-import { GreenDrivingBadge } from "@/components/dashboard/GreenDrivingBadge";
 
 const interSans = Inter({
   variable: "--font-inter",
@@ -90,11 +89,6 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <StructuredData />
         {children}
-        {/* Mounted at the root so it appears on every page: it qualifies the
-            safety score, which is surfaced across the dashboard, not only on
-            the driving-behaviour panel. Renders nothing for signed-out
-            visitors, or when the trackers are not reporting Eco Driving. */}
-        <GreenDrivingBadge />
       </body>
     </html>
   );

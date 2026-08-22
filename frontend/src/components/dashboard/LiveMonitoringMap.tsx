@@ -1181,21 +1181,33 @@ export function LiveMonitoringMap({
             {/* Legend. The stop dots are the only thing on the map encoding
                 meaning purely in colour, so the key has to be on screen —
                 otherwise an amber dot is just an amber dot. */}
-            <div className="pointer-events-none absolute bottom-4 left-4 z-10 rounded-xl border border-edge bg-panel/85 px-3 py-2.5 backdrop-blur">
-              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-dim">
+            <div className="pointer-events-none absolute bottom-4 left-4 z-10 rounded-xl border border-edge bg-panel/95 px-4 py-3.5 shadow-lg backdrop-blur">
+              <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">
                 Stops
               </p>
-              <ul className="space-y-1">
+              <ul className="space-y-2">
                 {[
-                  { c: 'bg-brand', t: 'Trip start' },
-                  { c: 'bg-traffic', t: 'Slow traffic' },
-                  { c: 'bg-warn', t: 'Stopped' },
-                  { c: 'bg-ink-dim', t: 'Brief pause' },
-                  { c: 'bg-bad', t: 'Trip end' },
-                ].map(({ c, t }) => (
-                  <li key={t} className="flex items-center gap-2 text-[11px] text-ink-mid">
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${c}`} />
-                    {t}
+                  // Wording mirrors the thresholds in
+                  // backend/src/lib/trip-segmentation.ts. If those constants
+                  // move, these move with them.
+                  { c: 'bg-brand', t: 'Trip start', d: 'Where the drive began' },
+                  { c: 'bg-traffic', t: 'Slow traffic', d: 'Under 15 km/h for 5 min+' },
+                  { c: 'bg-warn', t: 'Stopped', d: 'Parked 5 min or more' },
+                  { c: 'bg-ink-dim', t: 'Brief pause', d: '1.5 to 5 minutes' },
+                  { c: 'bg-bad', t: 'Trip end', d: 'Where the drive ended' },
+                ].map(({ c, t, d }) => (
+                  <li key={t} className="flex items-start gap-2.5">
+                    {/* Nudged down so the dot aligns with the label's first
+                        line rather than the block's centre now that each row
+                        carries a second line. */}
+                    <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${c}`} />
+                    <span className="leading-tight">
+                      <span className="block text-sm font-medium text-ink">{t}</span>
+                      {/* The colour alone never said what separates a pause
+                          from a stop, so the key now carries the rule it is
+                          keying rather than only the name. */}
+                      <span className="block text-[11px] text-ink-dim">{d}</span>
+                    </span>
                   </li>
                 ))}
               </ul>

@@ -55,6 +55,7 @@ import { BrandMark } from '@/components/BrandMark';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { FleetOperationsOverview } from '@/components/dashboard/FleetOperationsOverview';
+import { GreenDrivingBadge } from '@/components/dashboard/GreenDrivingBadge';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
 import { FuelPricePanel } from '@/components/dashboard/FuelPricePanel';
@@ -982,6 +983,11 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+              {/* Sits in the bar rather than floating over the page: as a
+                  fixed badge it covered the live map's stop legend. Renders
+                  nothing unless the trackers are actually reporting Eco
+                  Driving. */}
+              <GreenDrivingBadge />
               <div className="relative">
                 {/* Unseen, not open — same reasoning as the rail badge. A
                     permanent red "22" on the bell is indistinguishable from a
