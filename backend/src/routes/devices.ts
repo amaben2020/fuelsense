@@ -16,6 +16,66 @@ const router = express.Router();
 
 router.use(authenticateCustomer);
 
+/**
+ * Whether the trackers are reporting Green Driving themselves.
+ *
+ * The FMC150 can judge harsh acceleration, braking and cornering with its own
+ * accelerometer and report them as AVL element 253. FuelSense *also* derives
+ * the same three from the GPS speed and heading series, because for a long
+ * time no device here had the scenario switched on. When it is on, both run,
+ * and both feed the safety score — so the score is stricter than either source
+ * alone, and a manager reading it deserves to know that rather than wonder why
+ * their fleet grades badly.
+ *
+ * Deliberately measured from frames actually received rather than from a
+ * configuration flag: what matters is whether the events are arriving, not
+ * what the Configurator was once set to.
+ */
+router.get('/green-driving', async (req: Request, res: Response) => {
+  try {
+    const customerId = req.user.customerId;
+    const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
+
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE f.event_id = 253)                      AS device_events,
+        MAX(f.received_at) FILTER (WHERE f.event_id = 253)            AS last_device_event,
+        COUNT(DISTINCT f.imei) FILTER (WHERE f.event_id = 253)        AS devices_reporting
+      FROM device_frames f
+      JOIN devices d ON d.imei = f.imei
+      WHERE d.customer_id = ${customerId}
+        AND f.received_at > NOW() - (${days} || ' days')::INTERVAL
+    `);
+
+    const derived = await db.execute(sql`
+      SELECT COUNT(*) AS n
+      FROM device_events
+      WHERE customer_id = ${customerId}
+        AND event_type IN ('harsh_acceleration', 'harsh_braking', 'harsh_cornering')
+        AND unit = 'm/s2'
+        AND occurred_at > NOW() - (${days} || ' days')::INTERVAL
+    `);
+
+    const row = (result.rows[0] ?? {}) as Record<string, unknown>;
+    const deviceEvents = Number(row.device_events) || 0;
+
+    res.json({
+      period_days: days,
+      // "Active" means the device is speaking, not that a checkbox is ticked.
+      active: deviceEvents > 0,
+      device_events: deviceEvents,
+      devices_reporting: Number(row.devices_reporting) || 0,
+      last_device_event_at: row.last_device_event ?? null,
+      // The GPS-derived count, so the modal can show both contributions side
+      // by side instead of asserting that double counting happens.
+      derived_events:
+        Number((derived.rows[0] as Record<string, unknown> | undefined)?.n ?? 0) || 0,
+    });
+  } catch (error) {
+    logAndRespond(res, req.path, error, 'Could not check your tracker settings.');
+  }
+});
+
 router.get('/', async (req: Request, res: Response) => {
   try {
     const rows = await db

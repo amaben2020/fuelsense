@@ -1064,6 +1064,28 @@ export async function getFuelPrice(): Promise<FuelPriceResponse> {
   return api<FuelPriceResponse>('/fuel-price');
 }
 
+/**
+ * Whether the trackers are judging harsh driving themselves, alongside the
+ * measurement FuelSense derives from GPS. Both feed the safety score, so a
+ * manager reading that score needs to know when two sources are contributing.
+ */
+export interface GreenDrivingStatus {
+  period_days: number;
+  /** True when Green Driving frames actually arrived, not when a flag is set. */
+  active: boolean;
+  device_events: number;
+  devices_reporting: number;
+  last_device_event_at: string | null;
+  /** The GPS-derived harsh events over the same window, for comparison. */
+  derived_events: number;
+}
+
+export async function getGreenDrivingStatus(
+  days = 7
+): Promise<GreenDrivingStatus> {
+  return api<GreenDrivingStatus>(`/devices/green-driving?days=${days}`);
+}
+
 export async function setFuelPrice(input: {
   ngnPerLiter: number;
   effectiveFrom?: string;
