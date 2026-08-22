@@ -33,6 +33,25 @@ const SECURITY_EVENT_TYPES = [
   'geofence_exit',
 ];
 
+/**
+ * Turns a penalty rate into a 0-100 score that keeps meaning at the bad end.
+ *
+ * This was `100 - penaltyPer100km`, clamped. Any fleet past 100 penalty per
+ * 100 km therefore read exactly 0 — the real vehicle here scored 128.8 and
+ * showed "0/100", indistinguishable from one ten times worse. The number had
+ * stopped ranking anything.
+ *
+ * Exponential decay never reaches zero, so ordering survives however bad the
+ * driving gets. The constant is 100 because that makes the initial gradient
+ * identical to the old straight line: a fleet scoring in the healthy range
+ * sees essentially the number it saw before (a penalty of 10 gave 90, and now
+ * gives 90.5), and only the saturated end behaves differently.
+ */
+export function scoreForPenalty(penaltyPer100km: number): number {
+  if (!Number.isFinite(penaltyPer100km) || penaltyPer100km <= 0) return 100;
+  return 100 * Math.exp(-penaltyPer100km / 100);
+}
+
 const gradeForScore = (score: number): string => {
   if (score >= 90) return 'A';
   if (score >= 80) return 'B';
@@ -165,7 +184,7 @@ router.get('/summary', async (req: Request, res: Response) => {
       // Floor the divisor so a single short trip with one harsh brake
       // doesn't produce a catastrophic score.
       const penaltyPer100km = (penalty * 100) / Math.max(distanceKm, 20);
-      const score = Math.round(Math.min(100, Math.max(0, 100 - penaltyPer100km)));
+      const score = Math.round(scoreForPenalty(penaltyPer100km));
 
       const securityEvents = SECURITY_EVENT_TYPES.reduce(
         (s, t) => s + (counts[t] || 0),

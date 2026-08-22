@@ -386,7 +386,7 @@ export function DrivingBehaviorPanel({
         <StatTile
           label="Fleet safety score"
           value={summary?.fleet.avg_score != null ? `${summary.fleet.avg_score}/100` : '—'}
-          hint="Weighted harsh events per 100 km"
+          hint="Harsh manoeuvres and idling, per 100 km"
           tone={
             summary?.fleet.avg_score != null
               ? summary.fleet.avg_score >= 80

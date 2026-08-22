@@ -150,11 +150,36 @@ export interface HarshThresholds {
   severeMultiple: number;
 }
 
+/**
+ * Where "harsh" starts.
+ *
+ * These began at 2.5 / 3 / 3, which flagged 43 manoeuvres in 86 km of city
+ * driving — one every two kilometres. 2.5 m/s² is 0.25 g, roughly 0-100 km/h
+ * in eleven seconds: a brisk overtake, not a violent one. Two things make that
+ * too tight. Published telematics practice puts harsh acceleration nearer
+ * 3.0-3.5 m/s² and braking nearer 3.5-4.5. And these figures are differentiated
+ * from GNSS speed, not read from an accelerometer — about 1 km/h of speed noise
+ * across a half-second sample is already ±0.5 m/s² of phantom acceleration, so
+ * a low threshold reports the receiver's error as the driver's.
+ *
+ * Braking sits higher than acceleration because heavy braking is the ordinary
+ * response to someone else's mistake, and should not be scored like a choice.
+ *
+ * There is no ground truth to fit these against: the FMC150's Eco Driving
+ * scenario is switched off, so the device reports no accelerometer events to
+ * compare with. Treat them as a defensible starting point, not a measurement,
+ * and tune with the env vars as real trips accumulate.
+ */
 export const DEFAULT_HARSH_THRESHOLDS: HarshThresholds = {
-  accelerationMs2: Number(process.env.HARSH_ACCEL_MS2 || 2.5),
-  brakingMs2: Number(process.env.HARSH_BRAKE_MS2 || 3),
-  corneringMs2: Number(process.env.HARSH_CORNER_MS2 || 3),
-  severeMultiple: Number(process.env.HARSH_SEVERE_MULTIPLE || 1.5),
+  accelerationMs2: Number(process.env.HARSH_ACCEL_MS2 || 3.2),
+  brakingMs2: Number(process.env.HARSH_BRAKE_MS2 || 3.8),
+  corneringMs2: Number(process.env.HARSH_CORNER_MS2 || 3.5),
+  // Lowered from 1.5 alongside the raised thresholds above, which would
+  // otherwise have dragged the critical bar up with them: 3.8 x 1.5 puts
+  // "critical" braking at 5.7 m/s², and a 0.57 g emergency stop would have
+  // been filed as a mere warning. Severe braking is around 0.5 g in the
+  // literature, and 3.8 x 1.35 = 5.13 m/s² lands there.
+  severeMultiple: Number(process.env.HARSH_SEVERE_MULTIPLE || 1.35),
 };
 
 const KPH_TO_MS = 1 / 3.6;
