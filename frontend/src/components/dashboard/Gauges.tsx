@@ -12,6 +12,16 @@ import { Fuel } from 'lucide-react';
  * type around it stay on theme tokens.
  */
 
+/**
+ * Where the fuel gauge changes colour, as a percentage of usable tank.
+ *
+ * `usableFuelPercent` already subtracts the reserve litres, so 0% here means
+ * the tank is down to the volume held back for the pump — these are warning
+ * bands on the way there, not absolute tank fractions.
+ */
+const RESERVE_PCT = 11;
+const LOW_PCT = 15;
+
 const RAMP: { t: number; color: [number, number, number] }[] = [
   { t: 0, color: [77, 222, 138] }, // green — comfortable
   { t: 0.45, color: [226, 232, 113] }, // pale yellow — the Haulix accent
@@ -271,6 +281,33 @@ export function LiquidFuelGauge({
   const hasValue = percent != null && Number.isFinite(percent);
   const pct = hasValue ? Math.max(0, Math.min(100, percent)) : 0;
 
+  // Three bands rather than two. The gauge used to jump straight from amber to
+  // red the moment the tank hit reserve, which gave a driver no warning that it
+  // was coming — the interesting moment is the approach, not the arrival.
+  //
+  // `inReserve` stays authoritative for the red band because it is measured in
+  // litres against the manufacturer's held-back volume, which is the real
+  // physical threshold; the percentages below are the warning shading on top.
+  const level: 'reserve' | 'low' | 'normal' =
+    inReserve || (hasValue && pct <= RESERVE_PCT)
+      ? 'reserve'
+      : hasValue && pct <= LOW_PCT
+        ? 'low'
+        : 'normal';
+
+  const waveDeep =
+    level === 'reserve'
+      ? 'var(--bad-deep)'
+      : level === 'low'
+        ? 'var(--fuel-low-deep)'
+        : 'var(--fuel-amber-deep)';
+  const waveTop =
+    level === 'reserve'
+      ? 'var(--bad-bright)'
+      : level === 'low'
+        ? 'var(--fuel-low)'
+        : 'var(--fuel-amber)';
+
   const cx = 100;
   const cy = 100;
   const rOuter = 92;
@@ -342,7 +379,7 @@ export function LiquidFuelGauge({
                   <g className="fuel-wave-b">
                     <path
                       d={wavePath(9)}
-                      fill={inReserve ? 'var(--bad-deep)' : 'var(--fuel-amber-deep)'}
+                      fill={waveDeep}
                       opacity={0.6}
                       transform={`translate(${-WAVE_PERIOD} 0)`}
                     />
@@ -355,7 +392,7 @@ export function LiquidFuelGauge({
                   <g className="fuel-wave-a">
                     <path
                       d={wavePath(12)}
-                      fill={inReserve ? 'var(--bad-bright)' : 'var(--fuel-amber)'}
+                      fill={waveTop}
                       transform={`translate(${-WAVE_PERIOD} 0)`}
                     />
                   </g>
@@ -371,8 +408,8 @@ export function LiquidFuelGauge({
             cy={cy}
             r={rDial}
             fill="none"
-            stroke={inReserve ? 'var(--bad-bright)' : 'var(--edge)'}
-            strokeWidth={inReserve ? 2.5 : 1.5}
+            stroke={level === 'reserve' ? 'var(--bad-bright)' : level === 'low' ? 'var(--fuel-low)' : 'var(--edge)'}
+            strokeWidth={level === 'normal' ? 1.5 : 2.5}
             className={inReserve ? 'accent-pulse' : undefined}
           />
         </svg>
