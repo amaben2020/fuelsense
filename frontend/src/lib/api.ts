@@ -1691,6 +1691,61 @@ export interface GeofenceEvent {
 }
 
 export const fetchMaintenance = () => api<MaintenanceResponse>('/maintenance');
+
+/**
+ * The service kinds offered by default. Free text is still accepted by the
+ * API — these are the ones worth one tap, with intervals that are ordinary
+ * for Nigerian fleet operation rather than manufacturer ideals.
+ */
+export const MAINTENANCE_PRESETS: {
+  kind: string;
+  label: string;
+  intervalKm: number;
+  intervalDays: number | null;
+}[] = [
+  { kind: 'oil_change', label: 'Oil change', intervalKm: 5000, intervalDays: 180 },
+  { kind: 'tyres', label: 'Tyres', intervalKm: 40000, intervalDays: null },
+  { kind: 'brakes', label: 'Brakes', intervalKm: 25000, intervalDays: null },
+  { kind: 'service', label: 'Full service', intervalKm: 10000, intervalDays: 365 },
+];
+
+export interface CreateMaintenanceInput {
+  vehicleId: string;
+  kind: string;
+  intervalKm?: number | null;
+  intervalDays?: number | null;
+  lastServiceKm?: number | null;
+  lastServiceAt?: string | null;
+  notes?: string | null;
+}
+
+export const createMaintenance = (input: CreateMaintenanceInput) =>
+  api<MaintenanceItem>('/maintenance', {
+    method: 'POST',
+    body: JSON.stringify({
+      vehicle_id: input.vehicleId,
+      kind: input.kind,
+      interval_km: input.intervalKm ?? null,
+      interval_days: input.intervalDays ?? null,
+      last_service_km: input.lastServiceKm ?? null,
+      last_service_at: input.lastServiceAt ?? null,
+      notes: input.notes ?? null,
+    }),
+  });
+
+/**
+ * Records a service as done, restarting the interval from here. Omitting the
+ * odometer reading is normal: the backend then uses the vehicle's current
+ * measured mileage rather than storing "unknown".
+ */
+export const completeMaintenance = (id: string, atKm?: number | null) =>
+  api<MaintenanceItem>(`/maintenance/${id}/complete`, {
+    method: 'PATCH',
+    body: JSON.stringify({ at_km: atKm ?? null }),
+  });
+
+export const deleteMaintenance = (id: string) =>
+  api<{ success: boolean }>(`/maintenance/${id}`, { method: 'DELETE' });
 export const fetchSecuritySignals = (days = 30) =>
   api<SecurityResponse>(`/intelligence/security?days=${days}`);
 export const fetchDrivingHours = (days = 30) =>

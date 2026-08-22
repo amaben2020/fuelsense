@@ -181,10 +181,44 @@ router.post('/', async (req: Request, res: Response) => {
 router.patch('/:id/complete', async (req: Request, res: Response) => {
   const { at_km: atKm } = req.body ?? {};
   try {
+    // Marking a service done without naming an odometer reading used to store
+    // NULL, which erased the distance baseline: the schedule then had nothing
+    // to count from and could never fall due on mileage again. The tracker
+    // already knows where the vehicle is, so an unspecified reading means
+    // "here, now" rather than "unknown".
+    let resolvedKm: number | null = atKm == null ? null : Number(atKm);
+    if (resolvedKm == null) {
+      const current = await db.execute(sql`
+        SELECT
+          CASE
+            WHEN v.odometer_baseline_km IS NOT NULL
+              AND v.odometer_baseline_device_km IS NOT NULL
+              THEN v.odometer_baseline_km
+                 + GREATEST(0, latest.device_km - v.odometer_baseline_device_km)
+            ELSE latest.device_km
+          END AS current_km
+        FROM maintenance_schedules m
+        JOIN vehicles v ON v.id = m.vehicle_id
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(t.odometer_m::double precision / 1000.0, t.odometer_km::double precision)
+                 AS device_km
+          FROM telemetry t
+          WHERE t.vehicle_id = m.vehicle_id AND t.customer_id = m.customer_id
+          ORDER BY t.recorded_at DESC
+          LIMIT 1
+        ) latest ON true
+        WHERE m.id = ${String(req.params.id)} AND m.customer_id = ${req.user.customerId}
+      `);
+      const km = (current.rows[0] as Record<string, unknown> | undefined)?.current_km;
+      // Still null when the vehicle has never reported an odometer — then the
+      // schedule is genuinely time-based and NULL is the honest value.
+      resolvedKm = km == null ? null : Math.round(Number(km));
+    }
+
     const [row] = await db
       .update(maintenanceSchedules)
       .set({
-        lastServiceKm: atKm == null ? null : Number(atKm),
+        lastServiceKm: resolvedKm,
         lastServiceAt: new Date(),
         updatedAt: sql`NOW()`,
       })
