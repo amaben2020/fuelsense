@@ -221,12 +221,25 @@ export function isNotableBenchmarkChange(fraction: number | null): boolean {
 export async function effectivePriceAt(
   customerId: string,
   at: Date
-): Promise<{ ngnPerLiter: number; source: 'benchmark' | 'receipt' } | null> {
+): Promise<{
+  ngnPerLiter: number;
+  source: 'benchmark' | 'receipt';
+  /** When this price took effect, so a caller can show what it is quoting. */
+  asOf: Date;
+} | null> {
   const benchmark = await benchmarkPriceAt(customerId, at);
-  if (benchmark) return { ngnPerLiter: benchmark.ngnPerLiter, source: 'benchmark' };
+  if (benchmark) {
+    return {
+      ngnPerLiter: benchmark.ngnPerLiter,
+      source: 'benchmark',
+      asOf: benchmark.effectiveFrom,
+    };
+  }
 
   const receipt = await latestReceiptPrice(customerId);
-  if (receipt) return { ngnPerLiter: receipt.ngnPerLiter, source: 'receipt' };
+  if (receipt) {
+    return { ngnPerLiter: receipt.ngnPerLiter, source: 'receipt', asOf: receipt.asOf };
+  }
 
   return null;
 }

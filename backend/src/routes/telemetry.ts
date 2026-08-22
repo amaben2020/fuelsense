@@ -34,7 +34,7 @@ import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '..
 import { creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase, consumptionTrend } from '../lib/fuel-calibration';
 import { lookupPlace, cachedPlaceNames, placeKeyFor } from '../lib/place-lookup';
-import { latestReceiptPrice, currentBenchmarkPrice } from '../lib/fuel-price';
+import { latestReceiptPrice, currentBenchmarkPrice, effectivePriceAt } from '../lib/fuel-price';
 import { googleUsageSnapshot } from '../lib/google-usage';
 import { getSerializedIoValue } from '../lib/avl-io';
 import { decodeSignal } from '../lib/avl-catalogue';
@@ -254,7 +254,12 @@ router.get('/trips', async (req: Request, res: Response) => {
         : `${minutes}:${allowFallback ? 'fb' : 'strict'}`
     );
     const cached = await withCache(key, 60, async () => {
-      const price = await latestReceiptPrice(customerId);
+      // Was `latestReceiptPrice` alone, which quoted trip history at the last
+      // price a driver happened to pay (1210) while every other panel used the
+      // manager's declared benchmark (1310). The benchmark is the fleet's own
+      // statement of what fuel costs, so it wins; a receipt is the fallback for
+      // a fleet that has never declared one.
+      const price = await effectivePriceAt(customerId, new Date());
       pricePerLiter = price?.ngnPerLiter ?? null;
       const tripColumns = sql`
         t.vehicle_id,

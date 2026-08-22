@@ -8,7 +8,11 @@ import {
   localDate,
   windowStart,
 } from '../lib/telemetry-deltas-sql';
-import { benchmarkPriceHistory, latestReceiptPrice } from '../lib/fuel-price';
+import {
+  benchmarkPriceHistory,
+  latestReceiptPrice,
+  effectivePriceAt,
+} from '../lib/fuel-price';
 import { countsTowardHealth } from '../lib/alert-taxonomy';
 import {
   round1,
@@ -29,10 +33,20 @@ router.use(authenticateCustomer);
 
 router.get('/summary', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
   try {
     const customerId = req.user.customerId;
+    // The same litre was being priced three different ways across the app: the
+    // benchmark here, the newest receipt on /telemetry/trips, and this env var
+    // on the summary — which never consulted the database at all, so the
+    // overview quoted a hardcoded 1300/L while the manager's declared price was
+    // 1310. One resolver now decides, in the documented order (benchmark for
+    // the moment, then newest receipt), and the env value is only the last
+    // resort when a fleet has declared no price and logged no receipt.
+    const effective = await effectivePriceAt(customerId, new Date());
+    const pricePerLiter =
+      effective?.ngnPerLiter ??
+      Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
     const key = cacheKey(customerId, 'summary', String(days));
 
     const cached = await withCache(key, 15, async () => {
