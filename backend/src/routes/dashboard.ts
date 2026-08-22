@@ -9,6 +9,7 @@ import {
   windowStart,
 } from '../lib/telemetry-deltas-sql';
 import { benchmarkPriceHistory, latestReceiptPrice } from '../lib/fuel-price';
+import { countsTowardHealth } from '../lib/alert-taxonomy';
 import {
   round1,
   round2,
@@ -91,6 +92,13 @@ router.get('/summary', async (req: Request, res: Response) => {
     const fleet = (fleetResult.rows[0] ?? {}) as Record<string, unknown>;
 
     const activeAlerts = alertRows.length;
+    // Everything open, versus only what says something about how the fleet is
+    // driven and fuelled. The health score needs the second number: counting a
+    // filed receipt or a zone crossing against fleet health made a working
+    // single-vehicle fleet read as "critical".
+    const concerningAlerts = alertRows.filter((a) =>
+      countsTowardHealth(a.alert_type ?? '')
+    ).length;
     const theftAlerts = alertRows.filter((a) => a.alert_type === 'fuel_theft');
     const theftLossNgn = theftAlerts.reduce(
       (sum, a) => sum + (Number(a.estimated_loss_ngn) || 0),
@@ -112,6 +120,7 @@ router.get('/summary', async (req: Request, res: Response) => {
         avg_efficiency_l_100km: avgEfficiencyL100km,
         total_fuel_cost_ngn: totalFuelCostNgn,
         active_alerts: activeAlerts,
+        concerning_alerts: concerningAlerts,
         theft_alerts: theftAlerts.length,
         estimated_theft_loss_ngn: theftLossNgn,
       };

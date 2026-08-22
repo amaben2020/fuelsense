@@ -89,12 +89,21 @@ type AttentionItem = {
  * driven and fuelled well) were being answered with one number.
  */
 function fleetHealthScore(summary: DashboardSummary, efficiency: FleetEfficiency[]) {
-  // Only alerts that actually indicate a driving/fuel problem count here —
-  // reuses the same bad/warn severity classification the alerts feed itself
-  // uses, so a receipt upload or a routine trip-start note never touches
-  // this score. Weighted lighter than before: one open alert is a thing to
-  // look at, not a tenth of the fleet's health gone.
-  const concerningAlerts = summary.active_alerts - summary.theft_alerts;
+  // This filter was described here long before it existed: the score used to
+  // subtract for *every* open alert, so a driver filing a receipt cost the
+  // same as driving off route, and 12 of the demo fleet's 27 open alerts were
+  // dragging down a number they had nothing to do with. The classification now
+  // lives in backend/src/lib/alert-taxonomy.ts and arrives as
+  // `concerning_alerts`. Weighted lightly on purpose: one open alert is a
+  // thing to look at, not a tenth of the fleet's health gone.
+  // The backend classifies these (see backend/src/lib/alert-taxonomy.ts), so a
+  // filed receipt or a zone crossing never reaches the score. Falling back to
+  // the old subtraction keeps this working against a backend deployed before
+  // `concerning_alerts` existed, rather than silently scoring zero.
+  const concerningAlerts =
+    summary.concerning_alerts != null
+      ? Math.max(0, summary.concerning_alerts - summary.theft_alerts)
+      : summary.active_alerts - summary.theft_alerts;
   const theftAlerts = summary.theft_alerts;
   const underperforming = efficiency.filter((e) => e.status !== 'verified').length;
   const score =

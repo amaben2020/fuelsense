@@ -34,6 +34,7 @@ import { startRouteSweep } from './lib/route-sweep';
 import { startDrivingEventSweep } from './lib/driving-events-sweep';
 import { startDailyReportScheduler } from './lib/daily-report-mailer';
 import { startDeviceOfflineWatchdog } from './lib/device-offline-watchdog';
+import { startAlertRetentionSweep } from './lib/alert-retention';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -166,6 +167,12 @@ const start = async () => {
   // Notices a tracker going silent on its own, rather than waiting for a
   // manager to have the dashboard open when it happens.
   startDeviceOfflineWatchdog();
+
+  // Closes alerts that have aged out of being actionable. Without it nothing
+  // but the offline watchdog ever resolved anything, so open alerts only
+  // accumulated and dragged the health score down over time rather than in
+  // response to how the fleet was actually driven.
+  startAlertRetentionSweep();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {

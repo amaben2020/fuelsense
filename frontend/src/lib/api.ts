@@ -429,6 +429,13 @@ export interface DashboardSummary {
   avg_efficiency_l_100km?: number | null;
   total_fuel_cost_ngn: number;
   active_alerts: number;
+  /**
+   * Open alerts that say something about how the fleet is driven and fuelled,
+   * excluding notifications (a receipt filed, a zone crossed) and tracker
+   * connectivity, which has its own tile. Optional because a backend deployed
+   * before this field existed simply omits it.
+   */
+  concerning_alerts?: number;
   theft_alerts: number;
   estimated_theft_loss_ngn: number;
 }
