@@ -58,16 +58,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Secrets arrive as env vars rather than being interpolated into the
+      # script text: a multi-line PEM spliced into a shell command is fragile,
+      # and the previous version swallowed stderr, so every misconfiguration
+      # surfaced identically as "exit code 1" with nothing to act on.
       - name: Load the deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.EC2_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.EC2_HOST }}
+          DEPLOY_USER: ${{ secrets.EC2_USER }}
         run: |
+          set -euo pipefail
+
+          # Name the missing secret. GitHub masks values in logs, and none are
+          # printed here regardless.
+          MISSING=""
+          [ -n "${DEPLOY_KEY:-}" ]  || MISSING="$MISSING EC2_SSH_KEY"
+          [ -n "${DEPLOY_HOST:-}" ] || MISSING="$MISSING EC2_HOST"
+          [ -n "${DEPLOY_USER:-}" ] || MISSING="$MISSING EC2_USER"
+          if [ -n "$MISSING" ]; then
+            echo "::error::missing repository secret(s):$MISSING — add them at Settings ▸ Secrets and variables ▸ Actions"
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy.pem
           chmod 600 ~/.ssh/deploy.pem
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+          # A key pasted without its final newline, or with the BEGIN/END lines
+          # dropped, otherwise fails much later with an opaque "invalid format".
+          if ! ssh-keygen -y -f ~/.ssh/deploy.pem > /dev/null 2>&1; then
+            echo "::error::EC2_SSH_KEY is not a usable private key — likely truncated, or pasted without the -----BEGIN-----/-----END----- lines"
+            exit 1
+          fi
+          echo "deploy key parsed successfully"
+
+          # stderr is kept this time: a DNS or firewall problem should say so.
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          if ! [ -s ~/.ssh/known_hosts ]; then
+            echo "::error::ssh-keyscan returned no host key for EC2_HOST — check the hostname and that port 22 is reachable"
+            exit 1
+          fi
+          echo "host key recorded for the deploy target"
 
       # --exclude .env is not optional: the server holds the production
       # environment file and nothing in the repo should ever overwrite it.
       - name: Sync backend
+        env:
+          DEPLOY_HOST: ${{ secrets.EC2_HOST }}
+          DEPLOY_USER: ${{ secrets.EC2_USER }}
         run: |
           rsync -az --delete \
             --exclude node_modules \
@@ -76,14 +115,17 @@ jobs:
             --exclude dist \
             -e "ssh -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes" \
             backend/ \
-            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/backend/"
+            "$DEPLOY_USER@$DEPLOY_HOST:/home/$DEPLOY_USER/backend/"
 
       # Dependencies are installed only when the lockfile actually changed.
       # A plain `npm ci` on every deploy would be slow, and `--omit=dev` would
       # delete tsx, which is what the systemd unit executes.
       - name: Install dependencies if the lockfile changed
+        env:
+          DEPLOY_HOST: ${{ secrets.EC2_HOST }}
+          DEPLOY_USER: ${{ secrets.EC2_USER }}
         run: |
-          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
+          ssh -i ~/.ssh/deploy.pem "$DEPLOY_USER@$DEPLOY_HOST" '
             cd ~/backend
             if ! cmp -s package-lock.json .deployed-lock; then
               echo "Lockfile changed, installing"
@@ -95,8 +137,11 @@ jobs:
           '
 
       - name: Restart and verify
+        env:
+          DEPLOY_HOST: ${{ secrets.EC2_HOST }}
+          DEPLOY_USER: ${{ secrets.EC2_USER }}
         run: |
-          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
+          ssh -i ~/.ssh/deploy.pem "$DEPLOY_USER@$DEPLOY_HOST" '
             # The unit is `fuelsense`. Until 2026-08-21 a duplicate named
             # `fuelsense-backend` also existed, and this step restarted that
             # one -- so deploys shipped code to disk and left the running
