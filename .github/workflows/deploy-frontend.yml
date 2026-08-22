@@ -1,10 +1,16 @@
-name: Deploy frontend to EC2
+name: Deploy frontend to CloudFront
 
-# Netlify paused production deploys when the team ran out of credits, leaving
-# the live site several builds behind while reporting nothing but "Skipped".
-# The site is a static export, so it now ships to the same EC2 box that
-# already serves the API, behind the Caddy that is already there. One host,
-# one pipeline, no build minutes to run out of.
+# The site is a Next.js static export, so it ships as plain files to S3 and is
+# served by CloudFront. Netlify was abandoned when its credits ran out and left
+# the live site 17 days stale while reporting nothing; before that the export
+# went to the EC2 box, which meant the site and the API shared one instance
+# with no CDN in front of either.
+#
+# /api/* is a second behaviour on the same distribution, pointed at the EC2
+# backend. That is deliberate: it puts the API behind CloudFront's certificate,
+# so the browser talks HTTPS end to end without a certificate on the box (Let's
+# Encrypt cannot issue for *.amazonaws.com), and it makes API calls same-origin,
+# so there is no CORS to configure and no mixed-content blocking.
 on:
   push:
     branches: [main]
@@ -16,6 +22,18 @@ on:
 concurrency:
   group: deploy-frontend
   cancel-in-progress: true
+
+# Required for OIDC. The workflow assumes an AWS role via a short-lived token
+# rather than a stored access key, so there is no long-lived AWS credential in
+# GitHub to leak or rotate.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-north-1
+  BUCKET: fuelsense-frontend
+  DISTRIBUTION_ID: EMLYMQX2321Z2
 
 jobs:
   deploy:
@@ -40,43 +58,65 @@ jobs:
       - name: Build
         working-directory: frontend
         env:
-          # Read by next.config at build time, so the landing map falls back to
-          # its drawn trace if this is missing.
-          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          # Relative, not absolute: the API is a behaviour on this same
+          # distribution, so requests are same-origin. Setting a full
+          # https://... URL here would reintroduce CORS for no benefit.
+          NEXT_PUBLIC_API_URL: /api
           NEXT_PUBLIC_SITE_URL: https://fuelsense.ng
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_MAPBOX_PK: ${{ secrets.NEXT_PUBLIC_MAPBOX_PK }}
         run: npx next build
 
-      - name: Load the deploy key
+      - name: Fail if the build baked in a localhost API
+        working-directory: frontend
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
-          chmod 600 ~/.ssh/deploy.pem
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          if grep -rq "localhost:5001" out/; then
+            echo "::error::build contains localhost:5001 - NEXT_PUBLIC_API_URL did not apply"
+            exit 1
+          fi
+          echo "API base is relative, as expected"
 
-      - name: Publish
-        run: |
-          rsync -az --delete \
-            -e "ssh -i ~/.ssh/deploy.pem -o StrictHostKeyChecking=yes" \
-            frontend/out/ \
-            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/var/www/fuelsense/"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::006291942168:role/FuelSenseDeployRole
+          aws-region: ${{ env.AWS_REGION }}
 
-      # Checked against the box directly rather than the public name, so a
-      # deploy can be verified before DNS is cut over and stays verifiable if
-      # DNS is ever the thing that breaks.
-      - name: Confirm the pages answer
+      # Two passes, because the right cache header differs. Asset filenames are
+      # content-hashed and may be cached forever; HTML must revalidate or a
+      # deploy stays invisible until the old copy expires.
+      - name: Upload hashed assets (immutable)
+        working-directory: frontend
         run: |
-          IP=$(dig +short "${{ secrets.EC2_HOST }}" | tail -1)
-          for path in / /pricing /contact /robots.txt; do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-              --resolve "fuelsense.ng:443:$IP" "https://fuelsense.ng$path")
+          aws s3 sync out/_next/static/ "s3://$BUCKET/_next/static/" \
+            --cache-control "public,max-age=31536000,immutable" --only-show-errors
+
+      - name: Upload everything else (revalidate)
+        working-directory: frontend
+        run: |
+          aws s3 sync out/ "s3://$BUCKET/" --delete \
+            --exclude "_next/static/*" \
+            --cache-control "public,max-age=0,must-revalidate" --only-show-errors
+
+      # Only the HTML needs purging -- the hashed assets are new paths, and a
+      # blanket /* invalidation past the monthly free allowance costs money.
+      - name: Invalidate HTML at the edge
+        run: |
+          ID=$(aws cloudfront create-invalidation \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --paths "/" "/*.html" "/dashboard/*" "/documentation/*" \
+            --query 'Invalidation.Id' --output text)
+          echo "invalidation $ID"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$DISTRIBUTION_ID" --id "$ID"
+
+      - name: Confirm the site answers
+        run: |
+          BASE="https://${{ secrets.SITE_TEST_HOST || 'dtz4lvqdpmzcy.cloudfront.net' }}"
+          FAILED=0
+          for path in / /pricing /contact /login /dashboard; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$BASE$path")
             echo "$path -> $CODE"
-            if [ "$CODE" != "200" ]; then
-              echo "::error::$path returned $CODE"
-              exit 1
-            fi
+            [ "$CODE" = "200" ] || FAILED=1
           done
-
-      - name: Clean up the key
-        if: always()
-        run: rm -f ~/.ssh/deploy.pem
+          # A 404 here would mean the URL-rewrite function is not applying.
+          [ "$FAILED" = "0" ] || { echo "::error::one or more routes did not return 200"; exit 1; }
