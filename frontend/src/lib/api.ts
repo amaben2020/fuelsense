@@ -1490,6 +1490,11 @@ export function formatOdometerMiles(km: number | string | null | undefined): str
   return `${Math.round(Number(km) * KM_TO_MILES).toLocaleString()} mi`;
 }
 
+/** The other direction — a reading a manager typed, on its way to the API. */
+export function milesToKm(miles: number): number {
+  return miles / KM_TO_MILES;
+}
+
 /**
  * NGN prefix rather than the ₦ glyph. Confirmed on this machine (and every
  * font tested — Inter, system-ui, Arial, monospace all show the same thing)
@@ -1696,17 +1701,21 @@ export const fetchMaintenance = () => api<MaintenanceResponse>('/maintenance');
  * The service kinds offered by default. Free text is still accepted by the
  * API — these are the ones worth one tap, with intervals that are ordinary
  * for Nigerian fleet operation rather than manufacturer ideals.
+ *
+ * Intervals are stated in miles because that is what the dashboards read and
+ * what a manager types; they are converted to km on the way to the API, which
+ * is metric throughout.
  */
 export const MAINTENANCE_PRESETS: {
   kind: string;
   label: string;
-  intervalKm: number;
+  intervalMiles: number;
   intervalDays: number | null;
 }[] = [
-  { kind: 'oil_change', label: 'Oil change', intervalKm: 5000, intervalDays: 180 },
-  { kind: 'tyres', label: 'Tyres', intervalKm: 40000, intervalDays: null },
-  { kind: 'brakes', label: 'Brakes', intervalKm: 25000, intervalDays: null },
-  { kind: 'service', label: 'Full service', intervalKm: 10000, intervalDays: 365 },
+  { kind: 'oil_change', label: 'Oil change', intervalMiles: 3000, intervalDays: 180 },
+  { kind: 'tyres', label: 'Tyres', intervalMiles: 25000, intervalDays: null },
+  { kind: 'brakes', label: 'Brakes', intervalMiles: 15000, intervalDays: null },
+  { kind: 'service', label: 'Full service', intervalMiles: 6000, intervalDays: 365 },
 ];
 
 export interface CreateMaintenanceInput {

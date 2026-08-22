@@ -11,9 +11,9 @@ import {
   Radio,
   ShieldAlert,
   TrendingDown,
-  Wrench,
 } from 'lucide-react';
 import {
+  FleetVehicle,
   Geofence,
   GeofenceEvent,
   HoursResponse,
@@ -28,6 +28,7 @@ import {
   fetchUtilisation,
 } from '@/lib/api';
 import { HatchBar, Panel, StatusChip, TabRow } from '@/components/ui/chrome';
+import { MaintenanceSchedules } from './MaintenanceSchedules';
 import { LoadErrorBanner } from './LoadErrorBanner';
 
 type Tab = 'maintenance' | 'security' | 'hours' | 'utilisation' | 'zones';
@@ -74,7 +75,7 @@ function Metric({
 
 const relTime = (iso: string) => new Date(iso).toLocaleString();
 
-export function FleetIntelligencePanel() {
+export function FleetIntelligencePanel({ fleet = [] }: { fleet?: FleetVehicle[] }) {
   const [tab, setTab] = useState<Tab>('maintenance');
   const [maintenance, setMaintenance] = useState<MaintenanceResponse | null>(null);
   const [security, setSecurity] = useState<SecurityResponse | null>(null);
@@ -111,6 +112,11 @@ export function FleetIntelligencePanel() {
     setLoading(true);
     runFetch();
   }, [runFetch]);
+
+  /** After a schedule is added, completed or deleted, only this tab is stale. */
+  const reloadMaintenance = useCallback(() => {
+    fetchMaintenance().then(setMaintenance).catch(setError);
+  }, []);
 
   useEffect(() => {
     runFetch();
@@ -149,89 +155,11 @@ export function FleetIntelligencePanel() {
 
         <div className="pt-4">
           {tab === 'maintenance' && (
-            <div className="space-y-3">
-              {maintenance == null || maintenance.items.length === 0 ? (
-                <Empty>
-                  No service schedules yet. Add one per vehicle (oil, tyres, brakes) and it
-                  tracks against the tracker&apos;s measured odometer.
-                </Empty>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    <Metric
-                      icon={AlertTriangle}
-                      label="Overdue"
-                      value={String(maintenance.overdue)}
-                      tone={maintenance.overdue > 0 ? 'bad' : undefined}
-                    />
-                    <Metric
-                      icon={Clock}
-                      label="Due soon"
-                      value={String(maintenance.due_soon)}
-                      sub={`within ${maintenance.thresholds.due_soon_km} km`}
-                      tone={maintenance.due_soon > 0 ? 'warn' : undefined}
-                    />
-                    <Metric
-                      icon={Wrench}
-                      label="Schedules"
-                      value={String(maintenance.items.length)}
-                    />
-                  </div>
-                  <ul className="divide-y divide-divider">
-                    {maintenance.items.map((m) => (
-                      <li key={m.id} className="flex flex-wrap items-center gap-3 py-3">
-                        <span className="min-w-0 flex-1">
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium capitalize text-ink">
-                              {m.kind.replace(/_/g, ' ')}
-                            </span>
-                            <StatusChip
-                              tone={
-                                m.status === 'overdue'
-                                  ? 'bad'
-                                  : m.status === 'due_soon'
-                                    ? 'warn'
-                                    : 'good'
-                              }
-                            >
-                              {m.status === 'overdue'
-                                ? 'Overdue'
-                                : m.status === 'due_soon'
-                                  ? 'Due soon'
-                                  : 'OK'}
-                            </StatusChip>
-                            {/* Without an anchored baseline the mileage is
-                                distance-since-fitting, which is not the number
-                                on the dashboard. Say so rather than imply it. */}
-                            {!m.odometer_anchored && (
-                              <StatusChip tone="neutral">odometer not anchored</StatusChip>
-                            )}
-                          </span>
-                          <span className="mt-0.5 block truncate text-xs text-ink-dim">
-                            <span className="font-mono">{m.license_plate}</span>
-                            {m.current_km != null
-                              ? ` · now ${m.current_km.toLocaleString()} km`
-                              : ' · no odometer reading'}
-                            {m.due_at_km != null ? ` · due at ${m.due_at_km.toLocaleString()} km` : ''}
-                          </span>
-                        </span>
-                        {m.km_remaining != null && (
-                          <span
-                            className={`shrink-0 text-sm font-semibold tabular-nums ${
-                              m.km_remaining < 0 ? 'text-bad' : 'text-ink'
-                            }`}
-                          >
-                            {m.km_remaining < 0
-                              ? `${Math.abs(m.km_remaining).toLocaleString()} km over`
-                              : `${m.km_remaining.toLocaleString()} km left`}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
+            <MaintenanceSchedules
+              data={maintenance}
+              fleet={fleet}
+              onChanged={reloadMaintenance}
+            />
           )}
 
           {tab === 'security' && (

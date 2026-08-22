@@ -1222,7 +1222,7 @@ export default function DashboardPage() {
             />
           )}
 
-          {activeView === 'intel' && <FleetIntelligencePanel />}
+          {activeView === 'intel' && <FleetIntelligencePanel fleet={fleet} />}
 
           {activeView === 'calibration' && <CalibrationGuidePanel fleet={fleet} />}
 
