@@ -106,8 +106,19 @@ const LEDGER_HEADER = [
   'Status',
 ];
 
-/** Bars, not a line — spend-over-time is an accounting question, and each
- * day is a discrete transaction total rather than a continuous reading. */
+/**
+ * Spend over time as a line.
+ *
+ * This was a bar per purchase day, on the argument that each day is a discrete
+ * transaction rather than a continuous reading. True, and beside the point: a
+ * row of equal-looking bars answers "what did we spend on the 15th", which the
+ * table already answers better. The question a ledger chart is for is whether
+ * spend is climbing, and a line is what shows that.
+ *
+ * Points sit at their real position in time, not at even intervals. Fill-ups
+ * are irregular — 10th, 11th, 15th, 18th, 20th — and spacing them evenly draws
+ * a steady rhythm the fleet does not have.
+ */
 function SpendChart({ points }: { points: [string, number][] }) {
   if (points.length === 0) {
     return <p className="py-12 text-center text-sm text-ink-dim">No purchases yet.</p>;
@@ -115,65 +126,73 @@ function SpendChart({ points }: { points: [string, number][] }) {
 
   const W = 720;
   const H = 260;
-  const PAD = { top: 20, right: 16, bottom: 32, left: 12 };
-  const max = Math.max(...points.map(([, v]) => v), 1);
+  const PAD = { top: 24, right: 20, bottom: 32, left: 56 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
-  const barW = plotW / points.length;
-  const showLabelEvery = Math.max(1, Math.ceil(points.length / 10));
+
+  const values = points.map(([, v]) => v);
+  const max = Math.max(...values, 1);
+  const times = points.map(([d]) => new Date(d).getTime());
+  const first = times[0];
+  const span = Math.max(times[times.length - 1] - first, 1);
+
+  // A single purchase has no trend to draw, so it is placed mid-plot rather
+  // than collapsed onto the left edge.
+  const xFor = (t: number) => (points.length === 1 ? PAD.left + plotW / 2 : PAD.left + ((t - first) / span) * plotW);
+  const yFor = (v: number) => PAD.top + plotH - (v / max) * plotH;
+
+  const coords = points.map(([, v], i) => [xFor(times[i]), yFor(v)] as const);
+  const line = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const area = `${PAD.left},${PAD.top + plotH} ${line} ${coords[coords.length - 1][0].toFixed(1)},${PAD.top + plotH}`;
+
+  const peak = values.indexOf(Math.max(...values));
+  const showLabelEvery = Math.max(1, Math.ceil(points.length / 8));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Fuel spend per day">
-      {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Fuel spend over time">
+      {[0, 0.5, 1].map((t) => {
         const y = PAD.top + t * plotH;
         return (
-          <line
-            key={t}
-            x1={PAD.left}
-            x2={W - PAD.right}
-            y1={y}
-            y2={y}
-            stroke="var(--edge)"
-            strokeWidth={1}
-            opacity={0.5}
-          />
-        );
-      })}
-      {points.map(([date, value], i) => {
-        const h = max > 0 ? (value / max) * plotH : 0;
-        const x = PAD.left + i * barW;
-        const y = PAD.top + plotH - h;
-        return (
-          <g key={date}>
-            <rect
-              x={x + barW * 0.18}
-              y={y}
-              width={Math.max(barW * 0.64, 1)}
-              height={Math.max(h, value > 0 ? 2 : 0)}
-              rx={2}
-              fill="var(--brand)"
-            >
-              <title>
-                {new Date(date).toLocaleDateString()} · {formatNgn(value)}
-              </title>
-            </rect>
-            {i % showLabelEvery === 0 && (
-              <text
-                x={x + barW / 2}
-                y={H - PAD.bottom + 14}
-                textAnchor="middle"
-                fontSize={9}
-                fill="var(--ink-dim)"
-              >
-                {new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-              </text>
-            )}
+          <g key={t}>
+            <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="var(--divider)" strokeWidth={1} />
+            <text x={PAD.left - 8} y={y + 3} textAnchor="end" fontSize={10} fill="var(--ink-dim)">
+              {formatNgn(Math.round(max * (1 - t)))}
+            </text>
           </g>
         );
       })}
-      <text x={PAD.left} y={PAD.top - 6} fontSize={10} fill="var(--ink-dim)">
-        {formatNgn(max)}
-      </text>
+
+      {/* A wash, never a saturated block — the line carries the reading. */}
+      <polygon points={area} fill="var(--chart-bar)" opacity={0.12} />
+      <polyline
+        points={line}
+        fill="none"
+        stroke="var(--chart-bar)"
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+
+      {coords.map(([x, y], i) => (
+        <g key={points[i][0]}>
+          {/* 2px surface ring keeps the dot legible where it crosses the line. */}
+          <circle cx={x} cy={y} r={4} fill="var(--chart-bar)" stroke="var(--panel)" strokeWidth={2}>
+            <title>
+              {new Date(points[i][0]).toLocaleDateString()} · {formatNgn(points[i][1])}
+            </title>
+          </circle>
+          {i === peak && (
+            <text x={x} y={y - 12} textAnchor="middle" fontSize={11} fontWeight={600} fill="var(--ink)">
+              {formatNgn(points[i][1])}
+            </text>
+          )}
+          {i % showLabelEvery === 0 && (
+            <text x={x} y={H - PAD.bottom + 16} textAnchor="middle" fontSize={9} fill="var(--ink-dim)">
+              {new Date(points[i][0]).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            </text>
+          )}
+        </g>
+      ))}
     </svg>
   );
 }

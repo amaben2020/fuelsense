@@ -273,11 +273,7 @@ export function countCriticalDeviceEvents(summary: DeviceEventsSummary | null): 
   return summary?.fleet.security_events ?? 0;
 }
 
-export function DrivingBehaviorPanel({
-  onViewOnMap,
-}: {
-  onViewOnMap?: (vehicleId: string) => void;
-}) {
+export function DrivingBehaviorPanel() {
   const [days, setDays] = useState(7);
   const [summary, setSummary] = useState<DeviceEventsSummary | null>(null);
   const [events, setEvents] = useState<DeviceEvent[]>([]);
@@ -702,15 +698,10 @@ export function DrivingBehaviorPanel({
                         <Play className="h-3.5 w-3.5" /> Replay
                       </button>
                     )}
-                    {onViewOnMap && item.vehicleId && (
-                      <button
-                        type="button"
-                        onClick={() => onViewOnMap(item.vehicleId!)}
-                        className="rounded-lg border border-edge bg-canvas px-3 py-1 text-xs text-ink-mid hover:bg-panel-hover"
-                      >
-                        View on map
-                      </button>
-                    )}
+                    {/* "View on map" dropped: Replay already opens the map, on
+                        the moment the event happened rather than on wherever
+                        the vehicle happens to be now. Two buttons where the
+                        weaker one answers a worse question. */}
                   </div>
                 </li>
               );

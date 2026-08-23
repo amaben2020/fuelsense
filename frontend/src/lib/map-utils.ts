@@ -107,9 +107,43 @@ export function routeColor(index: number) {
   return ROUTE_COLORS[index % ROUTE_COLORS.length];
 }
 
-/** Distinct colour per trip so consecutive journeys never blur together. */
+/**
+ * The lemon scale, light to deep, one step per consecutive trip.
+ *
+ * Trips used to key off a seven-hue rainbow — blue, mint, amber, lilac, pink —
+ * which told consecutive journeys apart but looked like it belonged to a
+ * different product. A single-hue ramp does the same job on brand: the badge
+ * in the table and the route on the map still share a step, so the number in
+ * the list is findable on the map.
+ *
+ * Generated at even OKLCH lightness spacing and checked with the ordinal
+ * validator against the canvas: monotone light→dark, every adjacent gap
+ * ≥ 0.06 L, the deepest step still 3.30:1 against the surface, hue spread 1°.
+ */
+export const TRIP_LEMON = [
+  '#e9fc73',
+  '#d0e34f',
+  '#b8ca38',
+  '#a1b120',
+  '#8b9900',
+  '#758200',
+  '#606b00',
+];
+
+/** Distinct step per trip so consecutive journeys never blur together. */
 export function tripColor(index: number) {
-  return ROUTE_COLORS[index % ROUTE_COLORS.length];
+  return TRIP_LEMON[index % TRIP_LEMON.length];
+}
+
+/**
+ * Readable ink for text sitting on a trip step.
+ *
+ * The badge used to hardcode near-black, which was right for a rainbow of
+ * light hues and wrong the moment the scale ran down to #606b00 — the trip
+ * number vanished into its own badge on the deeper half.
+ */
+export function tripInk(index: number) {
+  return index % TRIP_LEMON.length >= 3 ? '#f4f7e8' : '#14170a';
 }
 
 export function carSvgDataUrl(color: string, heading: number, selected: boolean) {

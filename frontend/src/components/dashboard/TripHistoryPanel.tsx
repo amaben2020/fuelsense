@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Fuel, MapPin, Route, Timer } from 'lucide-react';
 import { api, formatNgn, ServerTrip, TripsResponse, TripsVehicle } from '@/lib/api';
-import { tripColor } from '@/lib/map-utils';
+import { tripColor, tripInk } from '@/lib/map-utils';
 import { TripHistoryChart, type TripDay } from './TripHistoryChart';
 import { TableSkeleton } from '@/components/ui/chrome';
 
@@ -278,6 +278,12 @@ export function TripHistoryPanel({
       fuel: Math.round(d.fuel * 10) / 10,
     }));
   }, [flat, windowStartsAt, windowEndsAt, data?.source]);
+
+  /** The longest trip in view — the bar in the distance column scales to it. */
+  const longestTripKm = useMemo(
+    () => flat.reduce((max, f) => Math.max(max, f.trip.distance_km), 0),
+    [flat]
+  );
 
   const totals = useMemo(
     () => ({
@@ -554,7 +560,7 @@ export function TripHistoryPanel({
                           <span className="flex items-center gap-2">
                             <span
                               className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold"
-                              style={{ backgroundColor: tripColor(tripIndex), color: '#0b0e13' }}
+                              style={{ backgroundColor: tripColor(tripIndex), color: tripInk(tripIndex) }}
                             >
                               {tripIndex + 1}
                             </span>
@@ -580,8 +586,28 @@ export function TripHistoryPanel({
                         <td className="px-6 py-2.5 font-mono">
                           {formatDuration(trip.duration_minutes)}
                         </td>
+                        {/* The number alone makes the reader compare digits
+                            down a column. A bar scaled to the longest trip in
+                            view turns "which of these was the big one" into
+                            something answered without reading. */}
                         <td className="px-6 py-2.5 font-mono text-ink">
-                          {trip.distance_km} km
+                          <span className="block">{trip.distance_km} km</span>
+                          <span
+                            aria-hidden
+                            className="mt-1 block h-1 w-full max-w-24 overflow-hidden rounded-full bg-divider"
+                          >
+                            <span
+                              className="block h-full rounded-full"
+                              style={{
+                                width: `${
+                                  longestTripKm > 0
+                                    ? Math.max(3, (trip.distance_km / longestTripKm) * 100)
+                                    : 0
+                                }%`,
+                                background: 'var(--chart-bar)',
+                              }}
+                            />
+                          </span>
                         </td>
                         <td className="px-6 py-2.5 font-mono">
                           {trip.avg_speed_kph} / {trip.max_speed_kph} km/h

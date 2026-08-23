@@ -1217,12 +1217,7 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'behavior' && (
-            <DrivingBehaviorPanel
-              onViewOnMap={(vehicleId) => {
-                setSelectedVehicleId(vehicleId);
-                switchView('live');
-              }}
-            />
+            <DrivingBehaviorPanel />
           )}
 
           {activeView === 'intel' && <FleetIntelligencePanel />}
