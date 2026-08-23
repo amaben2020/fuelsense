@@ -9,7 +9,7 @@
  * The dashboard tokens come from `globals.css`, which the root layout loads on
  * every route, so these work in both contexts and follow the light/dark theme.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ECONOMY_UNIT_LABELS,
   EconomyUnit,
@@ -20,6 +20,15 @@ import { VehicleBodyPreview } from '@/components/VehicleBodyPreview';
 
 /** Sentinel for a make the catalogue does not carry. */
 const OTHER = '__other__';
+
+/**
+ * Year bounds used only when the catalogue has not loaded. Read once at module
+ * load rather than per render: `new Date()` during render is impure, and the
+ * option list should not be able to shift between two renders of the same
+ * form.
+ */
+const FALLBACK_MAX_YEAR = new Date().getFullYear() + 1;
+const FALLBACK_MIN_YEAR = 1998;
 
 const FIELD_LABEL =
   'mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-dim';
@@ -155,10 +164,17 @@ export function VehicleDeviceFields({
 
   // Years the chosen model was actually sold, newest first — an open-ended
   // number box let someone register a 2019 Hiace as a 1019.
-  const years = useMemo(() => {
+  //
+  // Deliberately not memoised. It is at most a few dozen numbers rendered
+  // straight into <option> elements, and the manual useMemo made React
+  // Compiler skip optimising this component entirely: its dependencies
+  // (`selected`, `isOther`) are themselves recomputed every render, so the
+  // memo could not be preserved. Dropping it lets the compiler memoise the
+  // whole component instead of none of it.
+  const years = (() => {
     if (isOther) {
-      const max = catalogue?.max_year ?? new Date().getFullYear() + 1;
-      const min = catalogue?.min_year ?? 1998;
+      const max = catalogue?.max_year ?? FALLBACK_MAX_YEAR;
+      const min = catalogue?.min_year ?? FALLBACK_MIN_YEAR;
       return Array.from({ length: max - min + 1 }, (_, i) => max - i);
     }
     if (!selected) return [];
@@ -166,7 +182,7 @@ export function VehicleDeviceFields({
       { length: selected.year_to - selected.year_from + 1 },
       (_, i) => selected.year_to - i
     );
-  }, [isOther, selected, catalogue]);
+  })();
 
   return (
     <div className="space-y-3">

@@ -51,6 +51,7 @@ import {
   TripsResponse,
 } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
+import { useLatest } from '@/lib/use-latest';
 import { buildVehicleTracks } from '@/lib/map-utils';
 import { BrandMark } from '@/components/BrandMark';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
@@ -276,33 +277,26 @@ export default function DashboardPage() {
   // Window the operational snapshot aggregates over. The API caps `days` at 90,
   // so a "year" option would have to be faked — these three are all real.
   const [periodDays, setPeriodDays] = useState(7);
-  const periodDaysRef = useRef(7);
-  periodDaysRef.current = periodDays;
+  const periodDaysRef = useLatest(periodDays);
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   // Sidebar visibility. Defaults to everything on so the nav never flashes
   // empty while the flags load; the server response then narrows it.
   const [flags, setFlags] = useState<FeatureFlags>({});
   const [trailMinutes, setTrailMinutes] = useState(1440);
-  const trailMinutesRef = useRef(1440);
-  trailMinutesRef.current = trailMinutes;
+  const trailMinutesRef = useLatest(trailMinutes);
   // Explicit calendar range from the date picker. When set it supersedes the
   // rolling preset above; clearing it returns to the presets.
   const [tripRange, setTripRange] = useState<{ from: string; to: string } | null>(null);
-  const tripRangeRef = useRef(tripRange);
-  tripRangeRef.current = tripRange;
+  const tripRangeRef = useLatest(tripRange);
   // Opt-in to the server's "show the most recent journeys instead" widening.
   // Off by default so a chosen window always reports what is actually in it.
   const [tripFallback, setTripFallback] = useState(false);
-  const tripFallbackRef = useRef(tripFallback);
-  tripFallbackRef.current = tripFallback;
+  const tripFallbackRef = useLatest(tripFallback);
   const [siphonSidebarOpen, setSiphonSidebarOpen] = useState(false);
   const [fuelEventCount, setFuelEventCount] = useState(0);
   const { customer: cachedCustomer, setCustomer: cacheCustomer, clearAuth } = useAuthStore();
-  const fleetRef = useRef(fleet);
-  fleetRef.current = fleet;
-  const activeViewRef = useRef(activeView);
-  activeViewRef.current = activeView;
+  const activeViewRef = useLatest(activeView);
 
   const selectedVehicle = useMemo(
     () => fleet.find((v) => v.id === selectedVehicleId) ?? fleet[0] ?? null,

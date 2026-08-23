@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, BellOff, CheckCircle2, Info, Send, ShieldAlert } from 'lucide-react';
 import {
   DriverAlert,
@@ -8,6 +8,7 @@ import {
   explainDriverAlert,
   fetchDriverAlerts,
 } from '@/lib/driver-api';
+import { useLatest } from '@/lib/use-latest';
 
 const SEVERITY_ICON = {
   critical: ShieldAlert,
@@ -53,8 +54,7 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
   // Held in a ref so `load` keeps a stable identity. Depending on the callback
   // directly would re-run the fetch on every render for any parent that passes
   // an inline function.
-  const notify = useRef(onCountChange);
-  notify.current = onCountChange;
+  const notify = useLatest(onCountChange);
 
   const load = useCallback(async () => {
     try {

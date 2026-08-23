@@ -310,6 +310,9 @@ export function DrivingBehaviorPanel({
     return () => clearInterval(interval);
   }, [load]);
 
+  /** The "now" the fortnight grouping counts back from, fixed at mount. */
+  const [groupingEpoch] = useState(() => Date.now());
+
   const feed = useMemo(
     () => buildFeed(events, summary?.idle_burn_liters_per_hour ?? IDLE_BURN_LPH_FALLBACK),
     [events, summary]
@@ -335,10 +338,15 @@ export function DrivingBehaviorPanel({
    * Fortnights are counted back from today rather than pinned to the calendar,
    * so the most recent group is always "the last two weeks" no matter which day
    * it is read on.
+   *
+   * "Today" is pinned once when the panel mounts. Reading `Date.now()` inside
+   * the memo made the grouping depend on the moment React happened to
+   * recompute it: the same events could land in different fortnights between
+   * two renders, and the boundary could slide under the reader mid-session.
    */
   const groupedEvents = useMemo(() => {
     const FORTNIGHT_MS = 14 * 24 * 60 * 60 * 1000;
-    const now = Date.now();
+    const now = groupingEpoch;
 
     const groups = new Map<
       string,
@@ -372,7 +380,7 @@ export function DrivingBehaviorPanel({
     return [...groups.values()].sort(
       (a, b) => a.index - b.index || b.items.length - a.items.length
     );
-  }, [filteredEvents]);
+  }, [filteredEvents, groupingEpoch]);
 
   const mutedCount = feed.length - feed.filter((e) => e.needsAttention).length;
 

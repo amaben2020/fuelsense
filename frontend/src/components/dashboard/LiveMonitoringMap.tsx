@@ -654,7 +654,23 @@ export function LiveMonitoringMap({
     new globalThis.Map<string, { lat: number; lng: number; heading: number }>(),
   );
   const frameRef = useRef<number | null>(null);
-  const initializedRef = useRef(false);
+
+  /**
+   * The position the map opens on, latched the first time a vehicle is
+   * selected.
+   *
+   * `defaultCenter` is read once, when `<Map>` mounts, so this only has to be
+   * right on that render — but it does have to survive until then. It used to
+   * be a ref written during render, which is a real hazard: React may render a
+   * component and throw the result away, and that would burn the latch on a
+   * render nobody ever saw, opening the map on the fallback instead of on the
+   * vehicle. Adjusting state during render is the supported way to latch, and
+   * React re-runs the component before rendering children, so `<Map>` never
+   * mounts with the stale value.
+   */
+  const [initialCenter, setInitialCenter] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
 
   useEffect(() => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
@@ -979,13 +995,8 @@ export function LiveMonitoringMap({
     );
   }
 
-  const initialCenter =
-    !initializedRef.current && selectedTrack
-      ? { lat: selectedTrack.displayLat, lng: selectedTrack.displayLng }
-      : undefined;
-
-  if (!initializedRef.current && selectedTrack) {
-    initializedRef.current = true;
+  if (initialCenter === null && selectedTrack) {
+    setInitialCenter({ lat: selectedTrack.displayLat, lng: selectedTrack.displayLng });
   }
 
   return (
