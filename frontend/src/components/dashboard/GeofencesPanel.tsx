@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { LogIn, LogOut, MapPin, Pentagon, Trash2 } from 'lucide-react';
+import { LogIn, LogOut, MapPin, Pentagon, Radar, Trash2 } from 'lucide-react';
 import {
   Geofence,
   GeofenceEvent,
@@ -10,6 +10,7 @@ import {
   fetchGeofences,
 } from '@/lib/api';
 import { Panel, StatusChip } from '@/components/ui/chrome';
+import { ZoneExplainer3D } from './ZoneExplainer3D';
 import { ZONE_PURPOSE_LABEL } from '@/lib/trust-language';
 
 /**
@@ -188,6 +189,17 @@ export function GeofencesPanel({ onDrawZone }: { onDrawZone?: () => void }) {
             ))}
           </ul>
         )}
+      </Panel>
+
+      {/* "Geofence" explains nothing to somebody who has not used one, and the
+          list above cannot show the mechanism — so it is drawn instead. */}
+      <Panel
+        icon={Radar}
+        iconTone="accent"
+        title="How a zone works"
+        subtitle="A boundary the tracker tests every position against — nothing is fitted to the gate"
+      >
+        <ZoneExplainer3D />
       </Panel>
     </div>
   );
