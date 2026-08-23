@@ -41,6 +41,37 @@ export const isFuelMarker: SQL = sql`fuel_source IN (${sql.join(
 )})`;
 
 /**
+ * Longest gap between two readings that may still be counted as idling.
+ *
+ * A tracker that stops reporting leaves a hole, and both ends of that hole can
+ * legitimately read "ignition on, not moving". Without a cap the whole outage
+ * is booked as idle time: a 42.6-hour silence between 18 and 20 August was
+ * reported to the driver as 42.7 hours idling on the 20th, which is not a
+ * number a day can hold. Capping each hop also guarantees the daily total
+ * cannot exceed the hours actually elapsed.
+ */
+export const IDLE_GAP_CAP_SECONDS = 600;
+
+/**
+ * Seconds of idling one hop represents — engine running, wheels stopped.
+ *
+ * Shared so the rule cannot drift between queries. It had drifted: both delta
+ * CTEs capped the gap while the daily-activity query, which feeds the driver's
+ * own history screen, summed it uncapped.
+ */
+export const idleDeltaSeconds: SQL = sql`
+  CASE
+    WHEN prev_recorded_at IS NOT NULL
+      AND COALESCE(ignition_on, false)
+      AND COALESCE(speed_kph, 0) < 2
+    THEN LEAST(
+      EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at)),
+      ${IDLE_GAP_CAP_SECONDS}
+    )
+    ELSE 0
+  END`;
+
+/**
  * Fuel burned over one hop, in litres.
  *
  * Prefers `burn_ml`, the modelled figure recorded on the row itself. Summing
@@ -117,13 +148,7 @@ export function distanceDeltasCte({ customerId, days }: TelemetryDeltasParams): 
         recorded_at,
         speed_kph,
         ignition_on,
-        -- engine on but not moving = idle burn; cap the gap so device
-        -- offline periods don't count as one giant idle stretch
-        CASE
-          WHEN COALESCE(ignition_on, false) AND COALESCE(speed_kph, 0) < 2
-            THEN LEAST(EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at)), 600)
-          ELSE 0
-        END AS idle_delta_s,
+        ${idleDeltaSeconds} AS idle_delta_s,
         CASE
           WHEN odometer_km IS NOT NULL AND prev_odometer IS NOT NULL
             AND odometer_km >= prev_odometer
@@ -219,13 +244,7 @@ export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams):
         driver_name,
         tank_capacity_liters,
         recorded_at,
-        -- Engine on but stationary. Same rule and 600s gap cap as
-        -- distanceDeltasCte, so idle time means one thing across the app.
-        CASE
-          WHEN COALESCE(ignition_on, false) AND COALESCE(speed_kph, 0) < 2
-            THEN LEAST(EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at)), 600)
-          ELSE 0
-        END AS idle_delta_s,
+        ${idleDeltaSeconds} AS idle_delta_s,
         CASE
           WHEN prev_recorded_at IS NULL OR prev_odometer IS NULL OR odometer_km IS NULL THEN 0
           WHEN odometer_km < prev_odometer THEN 0

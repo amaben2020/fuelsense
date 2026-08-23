@@ -1,5 +1,5 @@
 import { sql, SQL } from 'drizzle-orm';
-import { telemetryDeltasCte } from './telemetry-deltas-sql';
+import { idleDeltaSeconds, telemetryDeltasCte } from './telemetry-deltas-sql';
 
 interface DailyActivityParams {
   customerId: string;
@@ -46,18 +46,9 @@ export function dailyActivitySql({ customerId, days }: DailyActivityParams): SQL
       SELECT
         vehicle_id,
         DATE(recorded_at AT TIME ZONE 'Africa/Lagos') AS activity_date,
-        COALESCE(
-          SUM(
-            CASE
-              WHEN prev_recorded_at IS NOT NULL
-                AND COALESCE(speed_kph, 0) < 2
-                AND COALESCE(ignition_on, false)
-              THEN EXTRACT(EPOCH FROM (recorded_at - prev_recorded_at)) / 3600.0
-              ELSE 0
-            END
-          ),
-          0
-        )::numeric AS idle_hours
+        -- Same capped rule as every other idle figure in the app. Summing the
+        -- raw gap here counted tracker outages as idling.
+        COALESCE(SUM(${idleDeltaSeconds}), 0)::numeric / 3600.0 AS idle_hours
       FROM ordered_readings
       GROUP BY vehicle_id, DATE(recorded_at AT TIME ZONE 'Africa/Lagos')
     ),
