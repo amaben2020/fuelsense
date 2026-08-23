@@ -24,6 +24,11 @@
   --good: #cde04a;
   --warn: #ff9436;
   --traffic: #f5c518;  /* slow traffic — yellow, distinct from the orange warn */
+  /* Chart marks. Deliberately a deeper step than --good: a wall of bars in the
+     full-brightness lemon glares on a dark panel, and OKLCH L 0.865 sits well
+     outside the 0.48–0.67 band a mark should occupy against this surface.
+     Validated against #17171b — lightness, chroma, contrast all pass. */
+  --chart-bar: #8ea02c;
   --bad: #ffb4ab;
   --bad-bright: #ff6b6b;
   --bad-ink: #690005;
@@ -74,6 +79,9 @@
   --good: #5c7410;
   --warn: #b4530a;
   --traffic: #9a7200;  /* slow traffic, light mode */
+  /* Chosen for the light surface rather than flipped from the dark value.
+     Validated against #ffffff. */
+  --chart-bar: #6b8613;
   --bad: #c22f2f;
   --bad-bright: #d32f2f;
   --bad-ink: #ffffff;
@@ -128,6 +136,7 @@
   --color-accent-strong: var(--accent-y-dim);
   --color-accent-soft: var(--accent-y);
   --color-good: var(--good);
+  --color-chart-bar: var(--chart-bar);
   --color-warn: var(--warn);
   --color-warn-deep: #996100;
   --color-flag: var(--flag);

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, Fuel, MapPin, Route, Timer } from 'lucide-react';
 import { api, formatNgn, ServerTrip, TripsResponse, TripsVehicle } from '@/lib/api';
 import { tripColor } from '@/lib/map-utils';
+import { TripHistoryChart, type TripDay } from './TripHistoryChart';
 import { TableSkeleton } from '@/components/ui/chrome';
 
 const PERIODS = [
@@ -109,7 +110,10 @@ export function TripHistoryPanel({
 }) {
   const [minutes, setMinutes] = useState<number>(10080);
   const [vehicleFilter, setVehicleFilter] = useState<string | null>(null);
+  const [view, setView] = useState<'table' | 'graph'>('table');
   const [data, setData] = useState<TripsResponse | null>(null);
+  /** When the loaded window was requested — the chart's axis anchor. */
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Explicit calendar range. When both ends are set and valid it supersedes
@@ -131,7 +135,10 @@ export function TripHistoryPanel({
       : `minutes=${minutes}`;
     api<TripsResponse>(`/telemetry/trips?${query}`)
       .then((result) => {
-        if (!cancelled) setData(result);
+        if (!cancelled) {
+          setData(result);
+          setFetchedAt(new Date().toISOString());
+        }
       })
       .catch((err) => {
         if (!cancelled) {
@@ -176,6 +183,101 @@ export function TripHistoryPanel({
         items: items.sort((a, b) => b.trip.start_at.localeCompare(a.trip.start_at)),
       }));
   }, [flat]);
+
+  /**
+   * The same journeys as a continuous daily series.
+   *
+   * `byDay` only carries days that had a trip, which is right for a table and
+   * wrong for a chart: three driving days in a fortnight would render as three
+   * adjacent columns, reading as three consecutive days. Every day in the
+   * window gets a bucket, and a day with no journey is a zero rather than a
+   * gap.
+   */
+  /**
+   * The window the reader chose, as the chart's axis bounds.
+   *
+   * Anchored to the moment the data was fetched, not to `Date.now()` read
+   * during render. Reading the clock while rendering is impure — it would give
+   * the memo below a dependency that changes on every render, so the series
+   * would be rebuilt continuously and the axis could creep while the reader
+   * was looking at it.
+   */
+  const windowEndsAt = data?.to ?? fetchedAt;
+  const windowStartsAt =
+    data?.from ??
+    (fetchedAt
+      ? new Date(
+          new Date(fetchedAt).getTime() - (data?.period_minutes ?? minutes) * 60_000
+        ).toISOString()
+      : null);
+
+  const dailySeries = useMemo<TripDay[]>(() => {
+    if (flat.length === 0) return [];
+
+    type Bucket = TripDay & { costKnown: boolean };
+    const totalsByDay = new Map<string, Bucket>();
+
+    for (const { trip } of flat) {
+      const day = trip.start_at.slice(0, 10);
+      const bucket =
+        totalsByDay.get(day) ??
+        ({ day, trips: 0, km: 0, fuel: 0, cost: 0, costKnown: true } satisfies Bucket);
+
+      bucket.trips += 1;
+      bucket.km += trip.distance_km;
+      bucket.fuel += trip.estimated_fuel_liters;
+
+      // One unpriced trip makes the whole day's cost unknown. Summing around
+      // it would report a number that is quietly too small and look precise.
+      if (trip.estimated_cost_ngn == null) bucket.costKnown = false;
+      else bucket.cost = (bucket.cost ?? 0) + trip.estimated_cost_ngn;
+
+      totalsByDay.set(day, bucket);
+    }
+
+    for (const bucket of totalsByDay.values()) {
+      if (!bucket.costKnown) bucket.cost = null;
+    }
+
+    // Span the window the reader asked for, not just the days that happened to
+    // have journeys. Ending the axis at the last trip hides the most useful
+    // thing a chart can say — that nothing has moved since Friday.
+    //
+    // The exception is the server's historical fallback, which fires precisely
+    // because the requested window was empty: spanning it would draw a wall of
+    // zeros with the real data crushed against one edge.
+    const keys = [...totalsByDay.keys()].sort();
+    const widened = data?.source === 'historical';
+
+    const start = new Date(
+      widened || !windowStartsAt ? `${keys[0]}T12:00:00` : windowStartsAt
+    );
+    const end = new Date(
+      widened || !windowEndsAt ? `${keys[keys.length - 1]}T12:00:00` : windowEndsAt
+    );
+    start.setHours(12, 0, 0, 0);
+    end.setHours(12, 0, 0, 0);
+
+    // A trip outside the computed span (clock skew, a fallback edge) must still
+    // get a column rather than vanish from its own chart.
+    const firstTrip = new Date(`${keys[0]}T12:00:00`);
+    const lastTrip = new Date(`${keys[keys.length - 1]}T12:00:00`);
+    if (firstTrip < start) start.setTime(firstTrip.getTime());
+    if (lastTrip > end) end.setTime(lastTrip.getTime());
+
+    const series: TripDay[] = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const key = d.toLocaleDateString('en-CA');
+      series.push(
+        totalsByDay.get(key) ?? { day: key, trips: 0, km: 0, fuel: 0, cost: null }
+      );
+    }
+    return series.map((d) => ({
+      ...d,
+      km: Math.round(d.km * 10) / 10,
+      fuel: Math.round(d.fuel * 10) / 10,
+    }));
+  }, [flat, windowStartsAt, windowEndsAt, data?.source]);
 
   const totals = useMemo(
     () => ({
@@ -340,20 +442,46 @@ export function TripHistoryPanel({
       </div>
 
       <div className="overflow-hidden rounded-lg border border-edge bg-panel">
-        <div className="border-b border-edge px-6 py-4">
-          <h2 className="font-semibold text-ink">Trip history</h2>
-          <p className="mt-1 text-xs text-ink-dim">
-            A trip ends after 30+ minutes with the ignition off. Fuel figures are estimates —
-            driving (distance ÷ baseline) + idle burn.
-            {data?.source === 'historical'
-              ? ' Nothing in this window, so the most recent journeys are shown.'
-              : ''}
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-edge px-6 py-4">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-ink">Trip history</h2>
+            <p className="mt-1 text-xs text-ink-dim">
+              A trip ends after 30+ minutes with the ignition off. Fuel figures are estimates —
+              driving (distance ÷ baseline) + idle burn.
+              {data?.source === 'historical'
+                ? ' Nothing in this window, so the most recent journeys are shown.'
+                : ''}
+            </p>
+          </div>
+          {/* The table answers "what happened on this trip". The graph answers
+              "what does the week look like" — a question the table can only
+              answer by making the reader add rows up in their head. */}
+          <div className="flex shrink-0 gap-2" role="group" aria-label="Trip history view">
+            {(['table', 'graph'] as const).map((id) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={view === id}
+                onClick={() => setView(id)}
+                className={`rounded-full border px-3 py-1 text-xs capitalize transition-colors ${
+                  view === id
+                    ? 'border-good bg-good/10 text-good'
+                    : 'border-edge bg-canvas text-ink-mid hover:bg-panel-hover'
+                }`}
+              >
+                {id}
+              </button>
+            ))}
+          </div>
         </div>
 
         {error && <p className="px-6 py-3 text-sm text-bad">{error}</p>}
 
-        {loading && byDay.length === 0 ? (
+        {view === 'graph' ? (
+          <div className="px-6 py-5">
+            <TripHistoryChart days={dailySeries} />
+          </div>
+        ) : loading && byDay.length === 0 ? (
           <TableSkeleton
             columns={[
               { width: 70 },
