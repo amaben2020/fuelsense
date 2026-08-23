@@ -1182,7 +1182,7 @@ export function FleetOperationsOverview({
           {/* Vehicle health */}
           <Tile className="p-5">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
-              <Truck className="h-4 w-4 text-ink-dim" /> Vehicle health
+              <Truck className="h-4 w-4 text-accent-y" /> Vehicle health
             </h2>
             {vehicleHealth.length === 0 ? (
               <p className="mt-3 text-sm text-good">All tracked vehicles look healthy.</p>
@@ -1219,7 +1219,7 @@ export function FleetOperationsOverview({
               stopping short of it. */}
           <Tile className="p-5 lg:flex-1">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
-              <Users className="h-4 w-4 text-ink-dim" /> Driver efficiency
+              <Users className="h-4 w-4 text-accent-y" /> Driver efficiency
             </h2>
             <ol className="mt-3 divide-y divide-divider">
               {driverRanking.length === 0 ? (

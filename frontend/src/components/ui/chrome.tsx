@@ -666,7 +666,7 @@ export function IconRail<T extends string>({
  */
 export function Panel({
   icon: Icon,
-  iconTone = 'neutral',
+  iconTone = 'accent',
   title,
   subtitle,
   chip,
@@ -678,7 +678,8 @@ export function Panel({
   className = '',
 }: {
   icon?: React.ComponentType<{ className?: string }>;
-  /** 'accent' puts the heading glyph in lemon; neutral keeps it dim. */
+  /** Heading glyphs are lemon by default — it is what marks a panel header as
+   *  a panel header across the dashboard. 'neutral' opts a single panel out. */
   iconTone?: 'neutral' | 'accent';
   title?: React.ReactNode;
   subtitle?: React.ReactNode;

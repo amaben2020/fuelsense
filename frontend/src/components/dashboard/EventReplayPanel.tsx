@@ -723,7 +723,7 @@ export function EventReplayPanel({
           </button>
           <div>
             <h2 className="flex items-center gap-2 text-lg font-bold text-ink">
-              <Truck className="h-5 w-5 text-brand" />
+              <Truck className="h-5 w-5 text-accent-y" />
               {data?.vehicle_plate ?? 'Loading…'}
             </h2>
             {data && (

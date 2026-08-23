@@ -270,7 +270,7 @@ export function ReceiptsPanel({
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-edge px-6 py-4">
           <div>
             <h2 className="flex items-center gap-2 font-semibold text-ink">
-              <Receipt className="h-4 w-4" /> Receipts
+              <Receipt className="h-4 w-4 text-accent-y" /> Receipts
             </h2>
             <p className="mt-1 text-xs text-ink-dim">
               What each driver logged at the pump, and what the tracker can confirm about it
@@ -811,7 +811,7 @@ export function FuelPurchaseTable({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-6 py-4">
         <div>
           <h2 className="flex items-center gap-2 font-semibold text-ink">
-            <Receipt className="h-4 w-4" /> Fuel purchase reconciliation
+            <Receipt className="h-4 w-4 text-accent-y" /> Fuel purchase reconciliation
           </h2>
           <p className="mt-1 text-xs text-ink-dim">
             Driver-entered litres against what the tracker can confirm — vehicle position at the

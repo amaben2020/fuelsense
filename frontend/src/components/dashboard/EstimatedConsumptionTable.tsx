@@ -132,7 +132,7 @@ export function EstimatedConsumptionTableView({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-edge px-6 py-4">
         <div>
           <h2 className="flex items-center gap-2 font-semibold text-ink">
-            <Gauge className="h-4 w-4" /> Estimated fuel consumed
+            <Gauge className="h-4 w-4 text-accent-y" /> Estimated fuel consumed
           </h2>
           <p className="mt-1 text-xs text-ink-dim">Estimated, not measured</p>
         </div>

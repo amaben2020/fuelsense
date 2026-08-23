@@ -73,7 +73,7 @@ export function TelemetryHistoryTable() {
     <div className="overflow-hidden rounded-lg border border-edge bg-panel">
       <div className="border-b border-edge px-6 py-4">
         <h2 className="flex items-center gap-2 font-semibold text-ink">
-          <History className="h-4 w-4" /> Telemetry history
+          <History className="h-4 w-4 text-accent-y" /> Telemetry history
         </h2>
         <p className="mt-1 text-xs text-ink-dim">
           OBD readings from FMC150 — fuel level (IO 390), speed, GPS, odometer

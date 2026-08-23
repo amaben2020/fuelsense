@@ -195,7 +195,6 @@ export function GeofencesPanel({ onDrawZone }: { onDrawZone?: () => void }) {
           list above cannot show the mechanism — so it is drawn instead. */}
       <Panel
         icon={Radar}
-        iconTone="accent"
         title="How a zone works"
         subtitle="A boundary the tracker tests every position against — nothing is fitted to the gate"
       >

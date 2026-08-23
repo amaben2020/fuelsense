@@ -181,7 +181,7 @@ export function TheftPanel({ fleet, alerts }: { fleet: FleetVehicle[]; alerts: A
     <div className="space-y-6">
       <div className="rounded-lg border border-edge bg-panel p-5">
         <h2 className="flex items-center gap-2 font-semibold text-ink">
-          <ShieldAlert className="h-4 w-4 text-brand" /> Theft & immobilizer
+          <ShieldAlert className="h-4 w-4 text-accent-y" /> Theft & immobilizer
         </h2>
         <p className="mt-1 text-xs text-ink-dim">
           Remote engine-start cutoff over the tracker&apos;s wired relay. Only allowed when the

@@ -86,6 +86,9 @@ export function FuelAnomaliesPanel({
 
       <div className="rounded-lg border border-edge bg-panel">
         <div className="border-b border-edge px-6 py-4">
+          {/* Stays red while every other heading glyph went lemon: here the
+              colour is carrying meaning, not marking a heading. A warning
+              triangle in the accent would read as decoration. */}
           <h2 className="flex items-center gap-2 text-xl font-bold text-ink">
             <AlertTriangle className="h-5 w-5 text-bad" /> Fuel anomalies
           </h2>

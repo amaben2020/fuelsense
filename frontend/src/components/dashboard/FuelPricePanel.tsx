@@ -107,7 +107,7 @@ export function FuelPricePanel() {
   return (
     <div className="rounded-lg border border-edge bg-panel p-6">
       <div className="flex items-center gap-2">
-        <Fuel className="h-4 w-4 text-ink-dim" />
+        <Fuel className="h-4 w-4 text-accent-y" />
         <h2 className="font-semibold text-ink">Fuel price benchmark</h2>
       </div>
       <p className="mt-1 text-xs text-ink-dim">

@@ -135,7 +135,6 @@ export function FleetIntelligencePanel() {
     <div className="space-y-4">
       <Panel
         icon={Brain}
-        iconTone="accent"
         title="Fleet intelligence"
         subtitle={`Derived from the tracker's own signals over the last ${WINDOW_DAYS} days — no extra hardware`}
         onRefresh={load}
