@@ -319,6 +319,17 @@ export const alerts = pgTable('alerts', {
   longitude: numeric('longitude', { precision: 11, scale: 8 }),
   isResolved: boolean('is_resolved').default(false),
   resolvedAt: timestamp('resolved_at'),
+  /**
+   * The driver's account of what happened, written from the driver app.
+   *
+   * An alert is a question about a vehicle, and the person who can answer it
+   * is the one who was driving. Letting them answer turns "left the depot zone
+   * at 19:40" from something a manager has to chase into something already
+   * explained by the time it is read — and answering closes it.
+   */
+  driverNote: text('driver_note'),
+  driverNoteAt: timestamp('driver_note_at'),
+  driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

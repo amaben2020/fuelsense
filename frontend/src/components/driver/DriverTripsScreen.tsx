@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Calendar, Loader2, Route } from 'lucide-react';
+import { Calendar, Loader2, MapPin, Route } from 'lucide-react';
 import { DriverTripsResponse, fetchDriverTrips } from '@/lib/driver-api';
 import { formatOdometerMiles } from '@/lib/api';
 
@@ -114,12 +114,15 @@ export function DriverTripsScreen() {
                   )}
                 </div>
                 {trip.latitude != null && (
+                  /* Was a bare 25x16 text link — too small to hit on a phone,
+                     and sitting right beside a scrolling list. */
                   <a
                     href={`https://www.google.com/maps?q=${trip.latitude},${trip.longitude}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-brand"
+                    className="-mr-1 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium text-brand active:bg-panel-hover"
                   >
+                    <MapPin className="h-3.5 w-3.5" />
                     Map
                   </a>
                 )}

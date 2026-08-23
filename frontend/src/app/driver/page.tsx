@@ -15,6 +15,7 @@ import { DriverTabBar, DriverTab } from '@/components/driver/DriverTabBar';
 import { DriverFuelScreen } from '@/components/driver/DriverFuelScreen';
 import { DriverVehicleScreen } from '@/components/driver/DriverVehicleScreen';
 import { DriverTripsScreen } from '@/components/driver/DriverTripsScreen';
+import { DriverAlertsScreen } from '@/components/driver/DriverAlertsScreen';
 
 export default function DriverPortalPage() {
   const [authed, setAuthed] = useState(false);
@@ -24,6 +25,8 @@ export default function DriverPortalPage() {
   const [driver, setDriver] = useState<DriverSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
+  // Badged on the tab bar so an unanswered alert is visible without opening it.
+  const [alertCount, setAlertCount] = useState(0);
 
   useEffect(() => {
     if (!getDriverToken()) return;
@@ -126,7 +129,13 @@ export default function DriverPortalPage() {
               {driver?.license_plate ?? 'No vehicle'} · {driver?.driver_code}
             </p>
           </div>
-          <button type="button" onClick={logout} className="text-xs text-ink-dim">
+          {/* Padded to a real tap target. At text size alone this was 47x16 —
+              a finger cannot reliably hit 16 pixels. */}
+          <button
+            type="button"
+            onClick={logout}
+            className="-mr-2 min-h-11 rounded-lg px-3 py-2 text-xs text-ink-dim active:bg-panel-hover"
+          >
             Sign out
           </button>
         </div>
@@ -138,9 +147,15 @@ export default function DriverPortalPage() {
         )}
         {tab === 'vehicle' && <DriverVehicleScreen />}
         {tab === 'trips' && <DriverTripsScreen />}
+        {tab === 'alerts' && <DriverAlertsScreen onCountChange={setAlertCount} />}
       </main>
 
-      <DriverTabBar active={tab} onChange={setTab} pendingCount={pendingCount} />
+      <DriverTabBar
+        active={tab}
+        onChange={setTab}
+        pendingCount={pendingCount}
+        alertCount={alertCount}
+      />
     </div>
   );
 }

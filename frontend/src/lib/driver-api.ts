@@ -68,6 +68,10 @@ export interface DriverVehicleStatus {
   ignition_on: boolean | null;
   latitude: number | null;
   longitude: number | null;
+  /** Whole percent (94 = 94%), matching the manager's gauge. Null until the
+   *  tank has been calibrated. */
+  fuel_confidence: number | null;
+  fuel_calibrated_at: string | null;
 }
 
 export interface DriverTripsResponse {
@@ -204,4 +208,40 @@ export async function syncPendingReceipt(
   receipt: Record<string, unknown>
 ): Promise<SubmitReceiptResponse> {
   return submitDriverReceipt(receipt);
+}
+
+export interface DriverAlert {
+  id: number;
+  alert_type: string;
+  label: string;
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+  created_at: string;
+  is_resolved: boolean;
+  driver_note: string | null;
+  driver_note_at: string | null;
+  /** False once answered — an account is given once, not revised. */
+  can_explain: boolean;
+}
+
+export interface DriverAlertsResponse {
+  period_days: number;
+  unanswered: number;
+  alerts: DriverAlert[];
+}
+
+export async function fetchDriverAlerts(days = 14) {
+  return driverApi<DriverAlertsResponse>(`/driver/alerts?days=${days}`);
+}
+
+/**
+ * The driver's account of an alert. Everyday alerts close on being answered;
+ * investigation-grade ones record the account and stay open for the manager,
+ * which `resolved` in the response reports.
+ */
+export async function explainDriverAlert(id: number, note: string) {
+  return driverApi<{ success: boolean; resolved: boolean; message: string }>(
+    `/driver/alerts/${id}/explain`,
+    { method: 'POST', body: JSON.stringify({ note }) }
+  );
 }

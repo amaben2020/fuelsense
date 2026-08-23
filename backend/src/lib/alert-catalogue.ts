@@ -230,6 +230,30 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
 
 export const EMAILABLE_ALERTS = ALERT_CATALOGUE.filter((a) => a.emailable);
 
+/**
+ * Alerts a driver's own explanation is allowed to close.
+ *
+ * These are the ones where the driver genuinely holds the answer and the
+ * answer ends it: they left the depot zone because the customer moved the
+ * collection, they idled because they were loading. Left open, each is a
+ * manager chasing a question the driver could have answered in a sentence.
+ *
+ * Everything absent from this list — fuel theft, receipt fraud, crash, towing,
+ * jamming — still accepts the driver's account and shows it to the manager,
+ * but stays open. An allegation of stolen fuel must not be dismissed by the
+ * person it concerns typing something into a phone; the explanation is
+ * evidence for the manager to weigh, not a resolution.
+ */
+export const DRIVER_RESOLVABLE_ALERTS = new Set<string>([
+  'geofence_exit',
+  'geofence_entry',
+  'excessive_idle',
+  'idle_fuel_waste',
+  'route_deviation',
+  'low_fuel',
+  'trip_start',
+]);
+
 export function alertDefinition(type: string): AlertDefinition | undefined {
   return ALERT_CATALOGUE.find((a) => a.type === type);
 }

@@ -120,6 +120,8 @@ router.get('/anomalies', async (req: Request, res: Response) => {
           longitude: alerts.longitude,
           is_resolved: alerts.isResolved,
           created_at: alerts.createdAt,
+          driver_note: alerts.driverNote,
+          driver_note_at: alerts.driverNoteAt,
           license_plate: vehicles.licensePlate,
         })
         .from(alerts)
@@ -166,6 +168,8 @@ router.get('/', async (req: Request, res: Response) => {
           is_resolved: alerts.isResolved,
           resolved_at: alerts.resolvedAt,
           created_at: alerts.createdAt,
+          driver_note: alerts.driverNote,
+          driver_note_at: alerts.driverNoteAt,
           license_plate: vehicles.licensePlate,
         })
         .from(alerts)

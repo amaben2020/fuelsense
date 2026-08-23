@@ -26,6 +26,8 @@ import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
 import { creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase } from '../lib/fuel-calibration';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
+import { alertDefinition, DRIVER_RESOLVABLE_ALERTS } from '../lib/alert-catalogue';
+import { notifyDriverExplanation } from '../lib/driver-explanation-notifier';
 import { logAndRespond } from '../lib/errors';
 
 const router = express.Router();
@@ -151,8 +153,21 @@ router.get('/vehicle/status', async (req: Request, res: Response) => {
       LIMIT 1
     `);
 
+    // The tank is modelled from distance and idle, never measured — the
+    // FMC150 on these vehicles has no usable level sensor. The driver is told
+    // how much the model trusts itself so "14%" is read as an estimate rather
+    // than a gauge reading.
+    const tank = await db.execute(sql`
+      SELECT confidence, calibrated_at
+      FROM virtual_tanks
+      WHERE vehicle_id = ${assignment.vehicle_id}
+        AND customer_id = ${req.driver.customerId}
+      LIMIT 1
+    `);
+
     const row = (latest.rows[0] ?? null) as Record<string, unknown> | null;
     const dev = (device.rows[0] ?? null) as Record<string, unknown> | null;
+    const tankRow = (tank.rows[0] ?? null) as Record<string, unknown> | null;
     const lastSeen = dev?.last_seen_at ? new Date(dev.last_seen_at as string) : null;
     const online =
       lastSeen != null && Date.now() - lastSeen.getTime() < 3 * 60 * 1000;
@@ -172,6 +187,9 @@ router.get('/vehicle/status', async (req: Request, res: Response) => {
       ignition_on: row?.ignition_on ?? null,
       latitude: row?.latitude != null ? Number(row.latitude) : null,
       longitude: row?.longitude != null ? Number(row.longitude) : null,
+      /** Whole percent (94 = 94%); null before the tank is calibrated. */
+      fuel_confidence: tankRow?.confidence != null ? Number(tankRow.confidence) : null,
+      fuel_calibrated_at: tankRow?.calibrated_at ?? null,
     });
   } catch (error) {
     logAndRespond(res, req.path, error);
@@ -639,6 +657,139 @@ router.post('/receipts', async (req: Request, res: Response) => {
           : verification.status === 'matched'
             ? 'Verified against the tracker — the vehicle was at the station and the volume fits.'
             : 'Receipt saved. Waiting on tracker data to verify it.',
+    });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * What the fleet has flagged about this driver's vehicle.
+ *
+ * Alerts existed only for the manager, which made every one of them an
+ * accusation the driver could not see, let alone answer. Showing them to the
+ * driver — and letting them reply — is the difference between a record of
+ * suspicion and a conversation.
+ */
+router.get('/alerts', async (req: Request, res: Response) => {
+  try {
+    const assignment = await getDriverAssignment(req.driver.driverId, req.driver.customerId);
+    if (!assignment?.vehicle_id) {
+      res.status(404).json({ error: 'No vehicle assigned' });
+      return;
+    }
+
+    const days = Math.min(Number(req.query.days) || 14, 30);
+    const rows = await db.execute(sql`
+      SELECT id, alert_type, message, created_at, is_resolved, resolved_at,
+             driver_note, driver_note_at, latitude, longitude
+      FROM alerts
+      WHERE vehicle_id = ${assignment.vehicle_id}
+        AND customer_id = ${req.driver.customerId}
+        AND created_at > NOW() - (${days} || ' days')::INTERVAL
+      ORDER BY created_at DESC
+      LIMIT 50
+    `);
+
+    const items = rows.rows.map((r) => {
+      const row = r as Record<string, unknown>;
+      const def = alertDefinition(String(row.alert_type));
+      return {
+        id: Number(row.id),
+        alert_type: row.alert_type,
+        label: def?.label ?? String(row.alert_type).replace(/_/g, ' '),
+        severity: def?.severity ?? 'info',
+        message: row.message,
+        created_at: row.created_at,
+        is_resolved: Boolean(row.is_resolved),
+        driver_note: row.driver_note ?? null,
+        driver_note_at: row.driver_note_at ?? null,
+        /** Answered alerts stay visible but can no longer be replied to. */
+        can_explain: !row.is_resolved && row.driver_note == null,
+      };
+    });
+
+    res.json({
+      period_days: days,
+      unanswered: items.filter((i) => i.can_explain).length,
+      alerts: items,
+    });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/** The driver's account of an alert. Answering it also closes it. */
+router.post('/alerts/:id/explain', async (req: Request, res: Response) => {
+  const note = String((req.body ?? {}).note ?? '').trim();
+  if (!note) {
+    res.status(400).json({ error: 'Say what happened before sending.' });
+    return;
+  }
+  if (note.length > 500) {
+    res.status(400).json({ error: 'Keep it under 500 characters.' });
+    return;
+  }
+
+  try {
+    const assignment = await getDriverAssignment(req.driver.driverId, req.driver.customerId);
+    if (!assignment?.vehicle_id) {
+      res.status(404).json({ error: 'No vehicle assigned' });
+      return;
+    }
+
+    // Scoped to the driver's own vehicle and to alerts nobody has answered —
+    // a reply cannot overwrite an existing account or close someone else's.
+    const [existing] = await db
+      .select({ id: alerts.id, alertType: alerts.alertType, message: alerts.message })
+      .from(alerts)
+      .where(
+        and(
+          eq(alerts.id, Number(req.params.id)),
+          eq(alerts.vehicleId, assignment.vehicle_id),
+          eq(alerts.customerId, req.driver.customerId),
+          sql`driver_note IS NULL`
+        )
+      )
+      .limit(1);
+
+    if (!existing) {
+      res.status(404).json({ error: 'That alert is not open for a reply.' });
+      return;
+    }
+
+    // A theft allegation is not closed by the person it concerns typing into a
+    // phone. Their account is recorded and sent either way; only the everyday
+    // alerts are actually resolved by it.
+    const closes = DRIVER_RESOLVABLE_ALERTS.has(existing.alertType);
+
+    const [row] = await db
+      .update(alerts)
+      .set({
+        driverNote: note,
+        driverNoteAt: sql`NOW()`,
+        driverId: req.driver.driverId,
+        ...(closes ? { isResolved: true, resolvedAt: sql`NOW()` } : {}),
+      })
+      .where(eq(alerts.id, existing.id))
+      .returning({ id: alerts.id, alertType: alerts.alertType, message: alerts.message });
+
+    await notifyDriverExplanation({
+      customerId: req.driver.customerId,
+      alertType: row.alertType,
+      alertMessage: row.message,
+      plate: assignment.license_plate,
+      driverName: req.driver.name ?? 'The driver',
+      note,
+    }).catch((err) => console.error('[driver_explain] notify failed:', err));
+
+    res.json({
+      success: true,
+      id: Number(row.id),
+      resolved: closes,
+      message: closes
+        ? 'Sent to your manager. This one is now closed.'
+        : 'Sent to your manager. They will review it and decide.',
     });
   } catch (error) {
     logAndRespond(res, req.path, error);

@@ -35,7 +35,7 @@ import {
 import { scanReceiptImage } from '@/lib/receipt-ocr';
 import { compressReceiptImage } from '@/lib/receipt-image';
 
-type FuelMode = 'home' | 'scanning' | 'form' | 'success';
+type FuelMode = 'home' | 'scanning' | 'form' | 'success' | 'history';
 
 /**
  * Whether a receipt's reconciliation status is shown to the driver.
@@ -544,9 +544,22 @@ export function DriverFuelScreen({
 
       {recent.length > 0 && mode === 'home' && (
         <div>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">
-            Recent submissions
-          </h3>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-dim">
+              Recent submissions
+            </h3>
+            {/* The five most recent are the ones a driver checks after filling
+                up. Everything older belongs in a table, not a longer scroll. */}
+            {recent.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setMode('history')}
+                className="rounded-full border border-edge px-3 py-1 text-[11px] font-semibold text-ink-mid active:bg-panel-hover"
+              >
+                View all {recent.length}
+              </button>
+            )}
+          </div>
           <div className="space-y-2">
             {recent.slice(0, 5).map((r) => (
               <div
@@ -590,6 +603,75 @@ export function DriverFuelScreen({
                 )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {mode === 'history' && (
+        <div>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-ink">
+              All submissions
+              <span className="ml-1.5 font-normal text-ink-dim">({recent.length})</span>
+            </h3>
+            <button
+              type="button"
+              onClick={() => setMode('home')}
+              className="rounded-full border border-edge px-3 py-1.5 text-xs font-semibold text-ink-mid active:bg-panel-hover"
+            >
+              Done
+            </button>
+          </div>
+
+          {/* A real table, but one that fits a phone: the date column shrinks
+              to two short lines rather than forcing a horizontal scroll, and
+              the whole thing still scrolls sideways if a merchant name is long
+              enough to need it. */}
+          <div className="-mx-1 overflow-x-auto">
+            <table className="w-full min-w-[20rem] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-edge text-left text-[11px] uppercase tracking-wider text-ink-dim">
+                  <th scope="col" className="py-2 pl-1 pr-2 font-medium">
+                    When
+                  </th>
+                  <th scope="col" className="py-2 pr-2 font-medium">
+                    Station
+                  </th>
+                  <th scope="col" className="py-2 pr-1 text-right font-medium">
+                    Litres
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((r) => {
+                  const when = new Date(r.transaction_date);
+                  return (
+                    <tr key={r.id} className="border-b border-divider align-top">
+                      <td className="py-2.5 pl-1 pr-2 text-xs text-ink-dim">
+                        <span className="block whitespace-nowrap text-ink">
+                          {when.toLocaleDateString('en-NG', {
+                            timeZone: 'Africa/Lagos',
+                            day: '2-digit',
+                            month: 'short',
+                          })}
+                        </span>
+                        <span className="block whitespace-nowrap">
+                          {when.toLocaleTimeString('en-NG', {
+                            timeZone: 'Africa/Lagos',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-2 text-ink">{r.merchant_name}</td>
+                      <td className="py-2.5 pr-1 text-right font-medium tabular-nums text-ink">
+                        {Number(r.declared_liters)} L
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

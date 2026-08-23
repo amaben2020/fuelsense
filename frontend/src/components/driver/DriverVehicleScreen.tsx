@@ -44,6 +44,17 @@ export function DriverVehicleScreen() {
   const fuelPct = usableFuelPercent(status.fuel_level_liters, status.tank_capacity_liters);
   const fuelInReserve = isInFuelReserve(status.fuel_level_liters);
 
+  // Every fuel figure here is modelled from distance and idle time — no tank
+  // sensor is fitted. Showing a bare percentage invites it to be read as a
+  // gauge, so the model's own confidence travels with the number.
+  //
+  // `confidence` is already stored as whole percent (94 means 94%), the same
+  // way the manager's gauge renders it — it is not a 0-1 fraction.
+  const confidenceLabel =
+    status.fuel_confidence != null
+      ? `${Math.round(status.fuel_confidence)}% confidence`
+      : 'not yet calibrated';
+
   const mapsUrl =
     status.latitude != null && status.longitude != null
       ? `https://www.google.com/maps?q=${status.latitude},${status.longitude}`
@@ -85,10 +96,10 @@ export function DriverVehicleScreen() {
             accent={fuelInReserve ? 'text-bad-bright' : 'text-ink'}
             sub={
               fuelInReserve
-                ? 'In reserve — refuel soon'
+                ? `In reserve — refuel soon · ${confidenceLabel}`
                 : fuelPct != null
-                  ? `about ${fuelPct}% usable`
-                  : undefined
+                  ? `about ${fuelPct}% usable · ${confidenceLabel}`
+                  : confidenceLabel
             }
           />
           <StatCard
@@ -134,8 +145,13 @@ export function DriverVehicleScreen() {
             <div
               className={`mb-1 flex justify-between text-xs ${fuelInReserve ? 'font-semibold text-bad-bright' : 'text-ink-dim'}`}
             >
-              <span>{fuelInReserve ? 'In reserve' : 'Tank level'}</span>
-              <span>{fuelPct}%</span>
+              <span>
+                {fuelInReserve ? 'In reserve, estimated' : 'Tank level, estimated'}
+              </span>
+              <span className="tabular-nums">
+                {fuelPct}%
+                <span className="ml-1.5 font-normal text-ink-dim">· {confidenceLabel}</span>
+              </span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-canvas">
               <div
