@@ -8,6 +8,11 @@ import {
   presetForVehicleType,
 } from '../lib/fuel-metrics';
 import { ALERT_CATALOGUE } from '../lib/alert-catalogue';
+import {
+  DEFAULT_OFFLINE_MINUTES,
+  DEVICE_OFFLINE_ALERT,
+  OFFLINE_THRESHOLD_CHOICES,
+} from '../lib/device-offline-watchdog';
 import { db, notificationPreferences, eq, and, sql } from '../lib/db-helpers';
 import { logAndRespond } from '../lib/errors';
 
@@ -81,6 +86,7 @@ router.get('/documentation', async (req: Request, res: Response) => {
         alertType: notificationPreferences.alertType,
         emailEnabled: notificationPreferences.emailEnabled,
         emailAddress: notificationPreferences.emailAddress,
+        thresholdMinutes: notificationPreferences.thresholdMinutes,
       })
       .from(notificationPreferences)
       .where(eq(notificationPreferences.customerId, req.user.customerId));
@@ -92,6 +98,11 @@ router.get('/documentation', async (req: Request, res: Response) => {
         ...a,
         email_enabled: prefBy.get(a.type)?.emailEnabled ?? false,
         email_address: prefBy.get(a.type)?.emailAddress ?? null,
+        threshold_minutes: prefBy.get(a.type)?.thresholdMinutes ?? null,
+        /** Only the offline alert waits before firing, so only it is tunable. */
+        threshold_choices:
+          a.type === DEVICE_OFFLINE_ALERT ? [...OFFLINE_THRESHOLD_CHOICES] : null,
+        threshold_default: a.type === DEVICE_OFFLINE_ALERT ? DEFAULT_OFFLINE_MINUTES : null,
       })),
       fuel: {
         vehicle_types: Object.entries(VEHICLE_TYPE_PRESETS).map(([key, p]) => ({
@@ -171,12 +182,13 @@ router.get('/calibration-status', async (req: Request, res: Response) => {
   }
 });
 
-/** Opt in or out of email for a given alert type. */
+/** Opt in or out of email for a given alert type, and how long it waits. */
 router.patch('/notifications/:alertType', async (req: Request, res: Response) => {
   const alertType = String(req.params.alertType);
-  const { emailEnabled, emailAddress } = req.body as {
+  const { emailEnabled, emailAddress, thresholdMinutes } = req.body as {
     emailEnabled?: boolean;
     emailAddress?: string | null;
+    thresholdMinutes?: number | null;
   };
 
   if (typeof emailEnabled !== 'boolean') {
@@ -185,6 +197,21 @@ router.patch('/notifications/:alertType', async (req: Request, res: Response) =>
   }
   if (!ALERT_CATALOGUE.some((a) => a.type === alertType)) {
     res.status(400).json({ error: `Unknown alert type "${alertType}"` });
+    return;
+  }
+  // Rejected rather than clamped: a manager who picks 5 minutes should be told
+  // it is not available, not quietly given 15 and left wondering.
+  if (
+    thresholdMinutes != null &&
+    !OFFLINE_THRESHOLD_CHOICES.includes(Number(thresholdMinutes) as never)
+  ) {
+    res.status(400).json({
+      error: `thresholdMinutes must be one of ${OFFLINE_THRESHOLD_CHOICES.join(', ')}`,
+    });
+    return;
+  }
+  if (thresholdMinutes != null && alertType !== DEVICE_OFFLINE_ALERT) {
+    res.status(400).json({ error: 'Only the offline alert has a waiting period' });
     return;
   }
 
@@ -200,10 +227,25 @@ router.patch('/notifications/:alertType', async (req: Request, res: Response) =>
       )
       .limit(1);
 
+    // Omitting the key leaves the stored waiting period alone; sending it as
+    // null is the explicit "go back to the platform default". Without that
+    // distinction, toggling email off from anywhere else would silently reset
+    // a threshold the manager had chosen.
+    const touchesThreshold = Object.prototype.hasOwnProperty.call(
+      req.body ?? {},
+      'thresholdMinutes'
+    );
+    const threshold = thresholdMinutes == null ? null : Number(thresholdMinutes);
+
     if (existing) {
       await db
         .update(notificationPreferences)
-        .set({ emailEnabled, emailAddress: emailAddress ?? null, updatedAt: sql`NOW()` })
+        .set({
+          emailEnabled,
+          emailAddress: emailAddress ?? null,
+          ...(touchesThreshold ? { thresholdMinutes: threshold } : {}),
+          updatedAt: sql`NOW()`,
+        })
         .where(eq(notificationPreferences.id, existing.id));
     } else {
       await db.insert(notificationPreferences).values({
@@ -211,10 +253,16 @@ router.patch('/notifications/:alertType', async (req: Request, res: Response) =>
         alertType,
         emailEnabled,
         emailAddress: emailAddress ?? null,
+        thresholdMinutes: touchesThreshold ? threshold : null,
       });
     }
 
-    res.json({ success: true, alert_type: alertType, email_enabled: emailEnabled });
+    res.json({
+      success: true,
+      alert_type: alertType,
+      email_enabled: emailEnabled,
+      threshold_minutes: threshold,
+    });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

@@ -399,6 +399,13 @@ export const notificationPreferences = pgTable(
     emailEnabled: boolean('email_enabled').notNull().default(false),
     // Optional override; falls back to the account email.
     emailAddress: varchar('email_address', { length: 255 }),
+    /**
+     * How patient this alert should be, for the types that wait before firing.
+     * Only `device_offline` reads it today: how long a tracker may stay quiet
+     * before it counts as an outage. NULL keeps the platform default, so a
+     * manager who never touches it is unaffected.
+     */
+    thresholdMinutes: integer('threshold_minutes'),
     updatedAt: timestamp('updated_at').defaultNow(),
   },
   (table) => [unique().on(table.customerId, table.alertType)]

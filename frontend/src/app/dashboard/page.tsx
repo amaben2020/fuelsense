@@ -86,6 +86,7 @@ import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
 import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePanel';
 import { FleetIntelligencePanel } from '@/components/dashboard/FleetIntelligencePanel';
 import { VehicleRecordsPanel } from '@/components/dashboard/VehicleRecordsPanel';
+import { NotificationSettingsPanel } from '@/components/dashboard/NotificationSettingsPanel';
 import { AccountingLedgerPanel } from '@/components/dashboard/AccountingLedgerPanel';
 import { TheftPanel } from '@/components/dashboard/TheftPanel';
 import {
@@ -1367,6 +1368,7 @@ export default function DashboardPage() {
                 </div>
               </Panel>
 
+              <NotificationSettingsPanel />
               <FuelPricePanel />
               <DriverSettingsPanel
                 drivers={drivers}

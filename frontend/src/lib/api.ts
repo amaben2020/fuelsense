@@ -1472,6 +1472,51 @@ export async function fetchFeatureFlags(): Promise<{
   return api('/features');
 }
 
+export interface NotificationAlert {
+  type: string;
+  label: string;
+  severity: 'critical' | 'warning' | 'info';
+  meaning: string;
+  trigger: string;
+  source: 'analysis' | 'device';
+  emailable: boolean;
+  email_enabled: boolean;
+  email_address: string | null;
+  /** Minutes this alert waits before firing. Null = the platform default. */
+  threshold_minutes: number | null;
+  /** Non-null only for alerts that have a waiting period to tune. */
+  threshold_choices: number[] | null;
+  threshold_default: number | null;
+}
+
+/** The alert catalogue with this account's email preferences applied. */
+export const fetchNotificationSettings = () =>
+  api<{ alerts: NotificationAlert[] }>('/features/documentation');
+
+/**
+ * Turn an alert's email on or off, and optionally change how long it waits.
+ *
+ * `thresholdMinutes` is only sent when explicitly given: omitting the key
+ * leaves a stored waiting period alone, so flipping email off elsewhere does
+ * not silently reset it.
+ */
+export const setNotificationPreference = (
+  alertType: string,
+  emailEnabled: boolean,
+  thresholdMinutes?: number | null
+) =>
+  api<{ success: boolean; threshold_minutes: number | null }>(
+    `/features/notifications/${alertType}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(
+        thresholdMinutes === undefined
+          ? { emailEnabled }
+          : { emailEnabled, thresholdMinutes }
+      ),
+    }
+  );
+
 export async function setFeatureFlag(
   key: string,
   enabled: boolean
