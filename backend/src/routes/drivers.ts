@@ -149,6 +149,60 @@ router.post('/', async (req: Request, res: Response) => {
 
 // Issue or rotate a driver's login. The PIN is only ever accepted here and
 // never returned — the response reports whether one is set, nothing more.
+/** How big a stored face may be. The client compresses well below this. */
+const MAX_PHOTO_BYTES = 400_000;
+
+/** Bytes a base64 data URL represents, without decoding it. */
+function dataUrlBytes(dataUrl: string): number {
+  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
+
+/**
+ * Set or clear a driver's photo.
+ *
+ * Stored as a data URL on the row, the same way receipt and odometer photos
+ * are: this deployment has no object store, and a face at avatar size costs a
+ * few tens of kilobytes. Sending null removes it and the card falls back to
+ * initials.
+ */
+router.patch('/:id/photo', async (req: Request, res: Response) => {
+  const { photo } = (req.body ?? {}) as { photo?: string | null };
+
+  if (photo != null) {
+    // Only real raster images, and only ones small enough to sit on a row.
+    // A permissive check here would let any string become a stored "photo"
+    // that every dashboard then tries to render.
+    if (typeof photo !== 'string' || !/^data:image\/(png|jpeg|webp);base64,/.test(photo)) {
+      res.status(400).json({ error: 'Photo must be a PNG, JPEG or WebP data URL' });
+      return;
+    }
+    if (dataUrlBytes(photo) > MAX_PHOTO_BYTES) {
+      res.status(413).json({ error: 'That image is too large — try a smaller one' });
+      return;
+    }
+  }
+
+  try {
+    const [row] = await db
+      .update(drivers)
+      .set({ photoUrl: photo ?? null, updatedAt: sql`NOW()` })
+      .where(
+        and(eq(drivers.id, String(req.params.id)), eq(drivers.customerId, req.user.customerId))
+      )
+      .returning({ id: drivers.id, photo_url: drivers.photoUrl });
+
+    if (!row) {
+      res.status(404).json({ error: 'Driver not found' });
+      return;
+    }
+    res.json({ success: true, id: row.id, photo_url: row.photo_url });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
 router.patch('/:id/credentials', async (req: Request, res: Response) => {
   const creds = readCredentials(req.body ?? {});
   if (!creds.ok) {
@@ -210,6 +264,7 @@ router.get('/', async (req: Request, res: Response) => {
         driver_code: drivers.driverCode,
         // Never expose the hash — the UI only needs to know a login exists.
         has_pin: sql<boolean>`${drivers.pinHash} IS NOT NULL`,
+        photo_url: drivers.photoUrl,
         status: drivers.status,
         vehicle_id: vehicles.id,
         license_plate: vehicles.licensePlate,

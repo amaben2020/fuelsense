@@ -1,7 +1,74 @@
 'use client';
 
 import { useState } from 'react';
+import { DriverAvatar } from './DriverLicenceCard';
 import { Driver, FleetVehicle, api } from '@/lib/api';
+import { compressAvatar } from '@/lib/receipt-image';
+
+/**
+ * The manager's photo control for one driver.
+ *
+ * Compressed in the browser before it is sent: the column holds a data URL,
+ * and a modern phone camera would otherwise put four megabytes on a row that
+ * every fleet query then reads.
+ */
+function DriverPhotoUpload({ driver, onDone }: { driver: Driver; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const send = async (photo: string | null) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/drivers/${driver.id}/photo`, {
+        method: 'PATCH',
+        body: JSON.stringify({ photo }),
+      });
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onPick = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      send(await compressAvatar(file));
+    } catch {
+      setError('That file could not be read as an image.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <span className="mt-0.5 flex items-center gap-2 text-[11px]">
+      <label className="cursor-pointer text-brand hover:underline">
+        {busy ? 'Saving…' : driver.photo_url ? 'Change photo' : 'Add photo'}
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="hidden"
+          disabled={busy}
+          onChange={(e) => onPick(e.target.files?.[0])}
+        />
+      </label>
+      {driver.photo_url && !busy && (
+        <button
+          type="button"
+          onClick={() => send(null)}
+          className="text-ink-dim hover:text-bad"
+        >
+          Remove
+        </button>
+      )}
+      {error && <span className="text-bad">{error}</span>}
+    </span>
+  );
+}
 
 export function DriverSettingsPanel({
   drivers,
@@ -122,7 +189,19 @@ export function DriverSettingsPanel({
           <tbody className="divide-y divide-divider text-ink-mid">
             {drivers.map((driver) => (
               <tr key={driver.id}>
-                <td className="px-6 py-3 font-medium text-ink">{driver.full_name}</td>
+                <td className="px-6 py-3 font-medium text-ink">
+                  <span className="flex items-center gap-2.5">
+                    <DriverAvatar
+                      name={driver.full_name}
+                      photoUrl={driver.photo_url}
+                      size={34}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate">{driver.full_name}</span>
+                      <DriverPhotoUpload driver={driver} onDone={onAssigned} />
+                    </span>
+                  </span>
+                </td>
                 <td className="px-6 py-3">{driver.phone ?? '—'}</td>
                 <td className="px-6 py-3 font-mono text-xs">{driver.license_number ?? '—'}</td>
                 <td className="px-6 py-3">

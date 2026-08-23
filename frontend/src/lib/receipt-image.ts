@@ -85,3 +85,37 @@ export async function compressReceiptImage(file: File): Promise<string> {
     return original;
   }
 }
+
+/** Comfortably under the API's 400 KB ceiling for a driver photo. */
+const AVATAR_TARGET_BYTES = 180_000;
+/** A face is rendered at 46px on the card; 320px covers retina and cropping. */
+const AVATAR_EDGE = 320;
+
+/**
+ * A driver photo, square-cropped and small enough to live on a database row.
+ *
+ * Distinct from the receipt path, which keeps a wide frame legible for OCR.
+ * Here the subject is a face at avatar size, so it is centre-cropped to a
+ * square first — letterboxing a portrait into a round plate crops it badly at
+ * render time instead, which is worse.
+ */
+export async function compressAvatar(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const edge = Math.min(bitmap.width, bitmap.height);
+  const sx = (bitmap.width - edge) / 2;
+  const sy = (bitmap.height - edge) / 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = AVATAR_EDGE;
+  canvas.height = AVATAR_EDGE;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas unavailable');
+  ctx.drawImage(bitmap, sx, sy, edge, edge, 0, 0, AVATAR_EDGE, AVATAR_EDGE);
+  bitmap.close?.();
+
+  for (const quality of [0.82, 0.7, 0.6, 0.5, 0.4]) {
+    const out = canvas.toDataURL('image/jpeg', quality);
+    if (dataUrlBytes(out) <= AVATAR_TARGET_BYTES) return out;
+  }
+  return canvas.toDataURL('image/jpeg', 0.35);
+}

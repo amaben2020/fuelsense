@@ -13,6 +13,7 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       v.year,
       v.tank_capacity_liters,
       COALESCE(dr.full_name, v.driver_name) AS driver_name,
+      dr.photo_url AS driver_photo_url,
       v.driver_id,
       d.imei,
       d.device_model,

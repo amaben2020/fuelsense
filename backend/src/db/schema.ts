@@ -45,6 +45,14 @@ export const drivers = pgTable('drivers', {
   licenseNumber: varchar('license_number', { length: 80 }),
   driverCode: varchar('driver_code', { length: 50 }),
   pinHash: varchar('pin_hash', { length: 255 }),
+  /**
+   * The driver's photo, as a compressed data URL.
+   *
+   * Same storage as receipt and odometer photos: there is no object store
+   * configured for this deployment, and a face at avatar size is a few tens of
+   * kilobytes. The upload path compresses before it ever reaches here.
+   */
+  photoUrl: text('photo_url'),
   status: varchar('status', { length: 30 }).default('active'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),

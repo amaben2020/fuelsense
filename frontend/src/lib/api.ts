@@ -227,6 +227,8 @@ export interface FleetVehicle {
   year: number | null;
   tank_capacity_liters: number | null;
   driver_name?: string | null;
+  /** The assigned driver's photo, as a data URL. Null until one is uploaded. */
+  driver_photo_url?: string | null;
   imei: string | null;
   device_model: string | null;
   last_seen_at: string | null;
@@ -792,6 +794,8 @@ export interface EventReplayResponse {
 export interface Driver {
   id: string;
   full_name: string;
+  /** Uploaded by the manager, stored as a data URL. Null = show initials. */
+  photo_url?: string | null;
   phone: string | null;
   license_number: string | null;
   status: string;

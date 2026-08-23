@@ -3,7 +3,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import { DateRangePicker } from './DateRangePicker';
-import { isReadingLive, lerp, timeAgo, tripColor } from '@/lib/map-utils';
+import { isReadingLive, lerp, timeAgo, tripColor, tripInk } from '@/lib/map-utils';
+import { DriverLicenceCard } from './DriverLicenceCard';
 import {
   FleetVehicle,
   Geofence,
@@ -808,6 +809,7 @@ export function LiveMonitoringMap({
               : null,
             tankConfidence: v.virtual_tank_confidence ?? null,
             tankCalibratedAt: v.virtual_tank_calibrated_at ?? null,
+            driverPhotoUrl: v.driver_photo_url ?? null,
           },
         ]),
       ),
@@ -1564,29 +1566,20 @@ export function LiveMonitoringMap({
             <div key={track.vehicleId} className="group relative shrink-0">
               {/* Detail card. CSS hover rather than React state: it must not
                   re-render the animated tracks 60 times a second. */}
-              <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-64 -translate-x-1/2 scale-95 rounded-2xl border border-edge bg-panel/95 p-3.5 opacity-0 shadow-2xl backdrop-blur-md transition-all duration-150 group-hover:scale-100 group-hover:opacity-100">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-mono text-sm font-bold text-ink">{track.licensePlate}</p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${
-                      status === 'online' ? 'bg-good/15 text-good' : 'bg-bad/15 text-bad'
-                    }`}
-                  >
-                    {status}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[11px] text-ink-dim">
-                  {meta?.driver || 'Unassigned driver'}
-                </p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {[
+              <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 scale-95 opacity-0 transition-all duration-150 group-hover:scale-100 group-hover:opacity-100">
+                <DriverLicenceCard
+                  plate={track.licensePlate}
+                  driverName={meta?.driver}
+                  photoUrl={meta?.driverPhotoUrl}
+                  status={status}
+                  stats={[
                     { label: 'Speed', value: `${Math.round(track.current.speedKph ?? 0)} km/h` },
                     {
                       label: 'Fuel',
                       value:
                         track.current.fuelLiters != null
                           ? `${track.current.fuelLiters.toFixed(1)} L`
-                          : '—',
+                          : '\u2014',
                     },
                     // Vehicle-battery voltage is not on the fleet endpoint yet —
                     // it lives in device_frames io_raw and only /vehicle-signals
@@ -1596,28 +1589,20 @@ export function LiveMonitoringMap({
                       value:
                         meta?.odometer != null
                           ? formatOdometerMiles(Number(meta.odometer))
-                          : '—',
+                          : '\u2014',
                     },
                     {
                       label: 'Ignition',
-                      value: track.current.ignitionOn == null
-                        ? '—'
-                        : track.current.ignitionOn
-                          ? 'On'
-                          : 'Off',
+                      value:
+                        track.current.ignitionOn == null
+                          ? '\u2014'
+                          : track.current.ignitionOn
+                            ? 'On'
+                            : 'Off',
                     },
-                  ].map((stat) => (
-                    <div key={stat.label} className="rounded-lg bg-panel-deep px-2.5 py-1.5">
-                      <p className="text-[10px] uppercase tracking-wider text-ink-dim">
-                        {stat.label}
-                      </p>
-                      <p className="text-sm font-semibold tabular-nums text-ink">{stat.value}</p>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-2.5 text-[10px] text-ink-dim">
-                  Updated {timeAgo(track.current.recordedAt)}
-                </p>
+                  ]}
+                  footer={`Updated ${timeAgo(track.current.recordedAt)}`}
+                />
               </div>
 
               <button
@@ -1863,7 +1848,7 @@ export function LiveMonitoringMap({
                                 className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold"
                                 style={{
                                   backgroundColor: tripColor(i),
-                                  color: '#0b0e13',
+                                  color: tripInk(i),
                                 }}
                               >
                                 {i + 1}
