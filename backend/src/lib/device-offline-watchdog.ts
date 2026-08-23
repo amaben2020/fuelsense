@@ -6,20 +6,43 @@
 // someone who happened to look. That is the gap that lets a driver blame a
 // theft on "the app was down": if the platform itself never says so, the
 // manager has no way to tell a real gap from an excuse.
+import type { SQL } from 'drizzle-orm';
 import { db, sql, alerts, eq, and, customers, notificationPreferences } from './db-helpers';
 import { sendMail, mailerReady, alertEmail } from './mailer';
 
 export const DEVICE_OFFLINE_ALERT = 'device_offline';
 
-/** How long a device can go quiet before it is worth telling the manager,
- *  for accounts that have not chosen their own. Double the 15-minute window
- *  `connection_status` itself uses (see `getFleetByCustomerId`), so the
- *  watchdog never fires before the badge the manager can already see would
- *  agree with it — and it clears the FMC150's own "online sleep" check-in
- *  cadence, so a parked, sleeping tracker does not read as an outage. */
+/**
+ * How long a device can go quiet before it is worth telling the manager, for
+ * accounts that have not chosen their own.
+ *
+ * This was 30 minutes, on the stated grounds that it "clears the FMC150's own
+ * online-sleep check-in cadence, so a parked, sleeping tracker does not read
+ * as an outage". Measured against the live device that is simply untrue: a
+ * parked FMC150 here checks in every 60.0 minutes, twice the threshold. The
+ * result was a metronome — raised at :59, resolved at :29 when the hourly
+ * ping landed, raised again an hour later, 112 alerts and counting for a van
+ * that was sitting still and reporting perfectly well.
+ *
+ * A threshold below the device's own parked cadence cannot do anything except
+ * oscillate, so the default now clears 60 minutes with margin. Managers who
+ * want to hear sooner can still choose 15 or 30 in Settings → Notifications,
+ * which is the right place for that trade-off to be made deliberately.
+ */
 export const DEFAULT_OFFLINE_MINUTES = Number(
-  process.env.DEVICE_OFFLINE_THRESHOLD_MINUTES || 30
+  process.env.DEVICE_OFFLINE_THRESHOLD_MINUTES || 120
 );
+
+/**
+ * Minimum spacing between two "this tracker is quiet" alerts for one vehicle.
+ *
+ * The `NOT EXISTS` guard below only ever stopped a *second simultaneous* alert:
+ * once the device pinged and the alert auto-resolved, the next quiet spell
+ * raised a fresh one. For a tracker that wakes hourly that meant an alert every
+ * hour, all night. A vehicle whose tracker is off is worth saying once a day,
+ * not once an hour — nothing about the situation changes in between.
+ */
+export const REALERT_AFTER_HOURS = Number(process.env.DEVICE_OFFLINE_REALERT_HOURS || 24);
 
 /** The choices a manager gets. Anything outside this is rejected rather than
  *  silently clamped, so the number in Settings is always the number that runs.
@@ -53,6 +76,30 @@ const thresholdExpr = sql`
   )
 `;
 
+/**
+ * Whether this vehicle has already been spoken for.
+ *
+ * Two conditions, and the second is the one that matters: an alert still open,
+ * or any alert raised inside the re-alert window even if it has since closed.
+ * The original guard tested only the first, so the moment a device pinged and
+ * the alert auto-resolved the slot was free again — which for an hourly
+ * check-in cadence produced an alert every hour, indefinitely.
+ *
+ * Exported so the rule can be asserted directly rather than inferred from
+ * whichever query happens to embed it.
+ */
+export const alreadyAlertedGuard: SQL = sql`
+  EXISTS (
+    SELECT 1 FROM alerts a
+    WHERE a.vehicle_id = d.vehicle_id
+      AND a.alert_type = ${DEVICE_OFFLINE_ALERT}
+      AND (
+        a.is_resolved = false
+        OR a.created_at > NOW() - (${REALERT_AFTER_HOURS} || ' hours')::INTERVAL
+      )
+  )
+`;
+
 interface StaleDeviceRow {
   imei: string;
   vehicle_id: string;
@@ -62,8 +109,9 @@ interface StaleDeviceRow {
 }
 
 /**
- * One alert per outage episode: the `NOT EXISTS` guard means a device stuck
- * offline for days is flagged once, not every five minutes.
+ * One alert per outage episode, and at most one a day per vehicle. A tracker
+ * that is genuinely off is worth saying once — nothing about the situation
+ * changes between one hour and the next.
  */
 async function raiseOfflineAlerts(): Promise<StaleDeviceRow[]> {
   const stale = await db.execute(sql`
@@ -74,12 +122,7 @@ async function raiseOfflineAlerts(): Promise<StaleDeviceRow[]> {
       AND d.vehicle_id IS NOT NULL
       AND d.last_seen_at IS NOT NULL
       AND d.last_seen_at < NOW() - ((${thresholdExpr}) || ' minutes')::INTERVAL
-      AND NOT EXISTS (
-        SELECT 1 FROM alerts a
-        WHERE a.vehicle_id = d.vehicle_id
-          AND a.alert_type = ${DEVICE_OFFLINE_ALERT}
-          AND a.is_resolved = false
-      )
+      AND NOT ${alreadyAlertedGuard}
     LIMIT 100
   `);
 
