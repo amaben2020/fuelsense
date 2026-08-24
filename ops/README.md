@@ -16,6 +16,13 @@ are provisioned with `allowUiUpdates: false`: change the JSON in
 `observability/grafana/dashboards/`, not the browser, or the next reload will
 overwrite you.
 
+Drive the stack through `obs.sh` (`npm run prom:grafana` and friends) rather
+than `docker compose` directly. It resolves the repo root with `git rev-parse`
+because the compose file's volume paths are relative: macOS lets you `cd
+~/code/FuelSense` when the directory is `Code`, Docker Desktop's file sharing
+does not, and the result is an empty mount rather than an error. `pwd -P` fixes
+the casing under zsh but not bash, which is why it looks intermittent.
+
 **One directory per service, and the compose file mounts directories, never
 individual files.** A single-file bind mount pins an inode — edit the file on
 the host and the container keeps reading the old one, or a half-written one.

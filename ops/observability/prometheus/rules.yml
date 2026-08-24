@@ -67,13 +67,32 @@ groups:
           summary: 'Requests have been queued for a pg connection for 5 minutes'
 
       - alert: ApiLatencyHigh
+        # 20s, not the 2s you would set in production — this Prometheus watches
+        # a laptop, and on a laptop every query crosses an ocean twice.
+        #
+        # Measured 2026-08-24, same request, same SQL:
+        #
+        #                              laptop        EC2 prod
+        #   DB round-trip              201 ms        same-VPC
+        #   Upstash ping               350-530 ms    128-153 ms
+        #   GET /api/telemetry/tracks  0.96-3.3 s    0.27-0.31 s
+        #   tier-1 SQL execution       7.4 ms        7.4 ms
+        #
+        # Dev reaches RDS through the EC2 SSH tunnel, which multiplexes every
+        # pg connection over one TCP stream — so when the dashboard polls a
+        # dozen endpoints at once they serialise, and p95 reached 9.7s against
+        # a query the server answers in 7ms. None of that exists in production.
+        #
+        # At 2s this fired permanently and would have trained everyone to
+        # ignore the alert list, hiding PacketsBeingDiscarded with it. Set it
+        # back to 2s if this stack is ever deployed alongside the backend.
         expr: |
           histogram_quantile(
             0.95,
             sum by (le, route) (rate(fuelsense_http_request_duration_seconds_bucket[5m]))
-          ) > 2
+          ) > 20
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: 'p95 latency on {{ $labels.route }} is above 2s'
+          summary: 'p95 latency on {{ $labels.route }} is above 20s (local threshold; prod would be 2s)'

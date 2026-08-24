@@ -154,6 +154,43 @@ not "when did this device last report ever" — that question belongs to SQL.
 requests are queueing for a connection, which surfaces as *every endpoint being
 slow at once* with no single slow query to blame.
 
+## Latency here is not latency in production
+
+Read the API panels with this in mind, because the gap is roughly thirtyfold.
+
+Locally the backend reaches RDS through the EC2 SSH tunnel and Upstash over the
+open internet. Measured 2026-08-24, same request, same SQL:
+
+| | Laptop | EC2 prod |
+| --- | --- | --- |
+| DB round-trip | 201 ms | same-VPC |
+| Upstash TLS handshake | 210 ms | 51 ms |
+| Upstash ping, total | 350–530 ms | 128–153 ms |
+| `GET /api/telemetry/tracks` | 0.96–3.3 s | 0.27–0.31 s |
+| Tier-1 SQL execution | 7.4 ms | 7.4 ms |
+
+The SQL is identical and fast in both — 7.4 ms, on a bitmap index scan over
+`idx_telemetry_customer_recorded`. The `telemetry` table is 6,768 rows and
+2.4 MB. Nothing about this endpoint is slow.
+
+It gets worse under load, and that is also an artifact: the SSH tunnel
+multiplexes every pg connection over one TCP stream, so when the dashboard polls
+a dozen endpoints at once they serialise behind each other. That is how p95
+reached 9.7 s against a 7 ms query.
+
+So `ApiLatencyHigh` is set to **20s here, not the 2s you would want in
+production**. At 2s it fired permanently, and an alert that always fires trains
+you to ignore the alert list — taking `PacketsBeingDiscarded` down with it. If
+this stack is ever deployed alongside the backend, set it back to 2s.
+
+Before optimising anything you see on those panels, measure it on the box:
+
+```bash
+ssh -i ~/.ssh/fuelsense.pem ec2-user@<host> \
+  'curl -s -o /dev/null -w "%{time_total}s\n" -H "Authorization: Bearer $TOKEN" \
+   "http://127.0.0.1:5001/api/telemetry/tracks?minutes=10080&limit=2000"'
+```
+
 ## Label cardinality
 
 Two rules, both load-bearing:
@@ -195,9 +232,21 @@ be set in rule` against a rules file that was valid on disk.
 After an edit:
 
 ```bash
-docker compose -f docker-compose.observability.yml restart prometheus
-curl -X POST http://localhost:9090/-/reload      # or this, for Prometheus only
+cd backend && npm run prom:grafana:reload
 ```
+
+**Always drive the stack through the npm scripts, not `docker compose` directly.**
+The compose file's volume paths are relative, so they resolve against whatever
+the caller's shell thought the directory was called — and macOS lets you `cd
+~/code/FuelSense` when the directory is really `Code`. Docker Desktop's file
+sharing is not case-insensitive: it mounts an empty directory, and Prometheus
+then refuses to reload with `no such file or directory` against a file that is
+plainly on disk. `ops/observability/obs.sh` resolves the real casing with `git
+rev-parse` and verifies the container can actually see its config before
+reporting success.
+
+Worth knowing if you ever debug this by hand: `pwd -P` corrects the casing under
+zsh but **not** under bash, which is what makes the bug look intermittent.
 
 ## Alert rules
 
