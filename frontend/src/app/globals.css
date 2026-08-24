@@ -541,6 +541,22 @@ input[type='time']::-webkit-calendar-picker-indicator {
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
+/* Fade behind the live-map header row. The map tiles are dark in both themes,
+   so a --canvas scrim is only ever right in dark mode — in light mode it laid a
+   near-white haze across the top third of the map. The overlay's own text is
+   fixed-light, so light mode can drop the fade entirely. */
+.map-top-scrim {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--canvas) 90%, transparent),
+    transparent
+  );
+}
+
+.light .map-top-scrim {
+  background-image: none;
+}
+
 @media (prefers-reduced-transparency: reduce) {
   .glass,
   .glass-tile {

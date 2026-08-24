@@ -1450,11 +1450,16 @@ export function LiveMonitoringMap({
       {/* Above the overlay cards (z-10): the date-range popover drops out of
           this bar, and a sibling at the same depth would paint over it no
           matter what z-index the popover itself carries. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-canvas/90 to-transparent p-4">
+      <div className="map-top-scrim pointer-events-none absolute inset-x-0 top-0 z-20 p-4">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-sm font-medium text-ink">Live monitoring</p>
-            <p className="text-xs text-ink-dim">
+            {/* Fixed light tones, not --ink: the map tiles are dark in both
+                themes, so theme ink would turn this label near-black on a
+                near-black map the moment the light-mode scrim went away. */}
+            <p className="text-sm font-medium text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.85)]">
+              Live monitoring
+            </p>
+            <p className="text-xs text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,0.85)]">
               {fleet.length} vehicle{fleet.length !== 1 ? 's' : ''} · {animated.length} reporting
             </p>
           </div>
