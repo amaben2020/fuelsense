@@ -73,6 +73,7 @@ export function DriverLicenceCard({
   status,
   stats,
   footer,
+  accentColor,
 }: {
   plate: string;
   driverName: string | null | undefined;
@@ -80,7 +81,10 @@ export function DriverLicenceCard({
   status: 'online' | 'offline' | string;
   stats: { label: string; value: string }[];
   footer?: React.ReactNode;
+  /** The vehicle's route colour, so the card and its marker read as one thing. */
+  accentColor?: string;
 }) {
+  const accent = accentColor ?? 'var(--accent-y)';
   return (
     <div
       className="relative w-72 overflow-hidden rounded-2xl p-3.5"
@@ -103,7 +107,7 @@ export function DriverLicenceCard({
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            'radial-gradient(120% 80% at 8% -10%, color-mix(in srgb, var(--accent-y) 18%, transparent), transparent 58%)',
+            `radial-gradient(120% 80% at 8% -10%, color-mix(in srgb, ${accent} 20%, transparent), transparent 58%)`,
         }}
       />
 
@@ -111,8 +115,13 @@ export function DriverLicenceCard({
         <DriverAvatar name={driverName} photoUrl={photoUrl} size={46} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate font-mono text-sm font-bold tracking-tight text-ink">
-              {plate}
+            <p className="flex min-w-0 items-center gap-2 font-mono text-sm font-bold tracking-tight text-ink">
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: accent }}
+              />
+              <span className="truncate">{plate}</span>
             </p>
             <span
               className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${

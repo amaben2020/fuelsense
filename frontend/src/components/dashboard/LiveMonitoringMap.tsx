@@ -1564,71 +1564,78 @@ export function LiveMonitoringMap({
           const meta = fleetMeta.get(track.vehicleId);
           return (
             <div key={track.vehicleId} className="group relative shrink-0">
-              {/* Detail card. CSS hover rather than React state: it must not
-                  re-render the animated tracks 60 times a second. */}
-              <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 scale-95 opacity-0 transition-all duration-150 group-hover:scale-100 group-hover:opacity-100">
-                <DriverLicenceCard
-                  plate={track.licensePlate}
-                  driverName={meta?.driver}
-                  photoUrl={meta?.driverPhotoUrl}
-                  status={status}
-                  stats={[
-                    { label: 'Speed', value: `${Math.round(track.current.speedKph ?? 0)} km/h` },
-                    {
-                      label: 'Fuel',
-                      value:
-                        track.current.fuelLiters != null
-                          ? `${track.current.fuelLiters.toFixed(1)} L`
+              {track.vehicleId === selectedVehicleId ? (
+                /* The selected vehicle earns the room: its chip becomes the
+                   card, in place, rather than opening one somewhere else on
+                   screen for the eye to go and find. */
+                <button
+                  type="button"
+                  onClick={() => handleSelectVehicle(track.vehicleId)}
+                  aria-label={`${track.licensePlate} — selected. Click to collapse.`}
+                  className="pointer-events-auto block rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-y"
+                >
+                  <DriverLicenceCard
+                    plate={track.licensePlate}
+                    driverName={meta?.driver}
+                    photoUrl={meta?.driverPhotoUrl}
+                    status={status}
+                    accentColor={track.color}
+                    stats={[
+                      {
+                        label: 'Speed',
+                        value: isReadingLive(track.current.recordedAt)
+                          ? `${Math.round(track.current.speedKph ?? 0)} km/h`
                           : '\u2014',
-                    },
-                    // Vehicle-battery voltage is not on the fleet endpoint yet —
-                    // it lives in device_frames io_raw and only /vehicle-signals
-                    // decodes it. Odometer until that is exposed here.
-                    {
-                      label: 'Odometer',
-                      value:
-                        meta?.odometer != null
-                          ? formatOdometerMiles(Number(meta.odometer))
-                          : '\u2014',
-                    },
-                    {
-                      label: 'Ignition',
-                      value:
-                        track.current.ignitionOn == null
-                          ? '\u2014'
-                          : track.current.ignitionOn
-                            ? 'On'
-                            : 'Off',
-                    },
-                  ]}
-                  footer={`Updated ${timeAgo(track.current.recordedAt)}`}
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleSelectVehicle(track.vehicleId)}
-                className={`pointer-events-auto flex items-center gap-2 rounded-full border px-3.5 py-2 text-left backdrop-blur-md transition ${
-                  track.vehicleId === selectedVehicleId
-                    ? 'border-brand bg-panel/95 ring-1 ring-brand/40'
-                    : 'border-edge bg-panel/85 hover:bg-panel-hover/90'
-                }`}
-              >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: track.color }}
-                />
-                <span className="font-mono text-sm font-medium text-ink">
-                  {track.licensePlate}
-                </span>
-                {/* A dash, not a stale speed: this chip is scanned at a glance
-                    and a number on it reads as live. */}
-                <span className="text-xs tabular-nums text-ink-dim">
-                  {isReadingLive(track.current.recordedAt)
-                    ? `${Math.round(track.current.speedKph ?? 0)} km/h`
-                    : '—'}
-                </span>
-              </button>
+                      },
+                      {
+                        label: 'Fuel',
+                        value:
+                          track.current.fuelLiters != null
+                            ? `${track.current.fuelLiters.toFixed(1)} L`
+                            : '\u2014',
+                      },
+                      {
+                        label: 'Odometer',
+                        value:
+                          meta?.odometer != null
+                            ? formatOdometerMiles(Number(meta.odometer))
+                            : '\u2014',
+                      },
+                      {
+                        label: 'Ignition',
+                        value:
+                          track.current.ignitionOn == null
+                            ? '\u2014'
+                            : track.current.ignitionOn
+                              ? 'On'
+                              : 'Off',
+                      },
+                    ]}
+                    footer={`Updated ${timeAgo(track.current.recordedAt)}`}
+                  />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleSelectVehicle(track.vehicleId)}
+                  className="pointer-events-auto flex items-center gap-2 rounded-full border border-edge bg-panel/85 px-3.5 py-2 text-left backdrop-blur-md transition hover:bg-panel-hover/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-y"
+                >
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: track.color }}
+                  />
+                  <span className="font-mono text-sm font-medium text-ink">
+                    {track.licensePlate}
+                  </span>
+                  {/* A dash, not a stale speed: this chip is scanned at a glance
+                      and a number on it reads as live. */}
+                  <span className="text-xs tabular-nums text-ink-dim">
+                    {isReadingLive(track.current.recordedAt)
+                      ? `${Math.round(track.current.speedKph ?? 0)} km/h`
+                      : '\u2014'}
+                  </span>
+                </button>
+              )}
             </div>
           );
         })}
