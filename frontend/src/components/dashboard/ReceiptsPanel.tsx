@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { AlertTriangle, Clock, Droplet, Receipt, Shield, Wallet, X } from 'lucide-react';
+import { AlertTriangle, Check, Clock, Droplet, Receipt, Shield, Wallet, X } from 'lucide-react';
 import {
   FleetVehicle,
   FuelPurchase,
@@ -755,23 +755,29 @@ function ResolvePendingButtons({
 
   return (
     <>
+      {/* A tick and a cross, not two words. The verdict is binary and the
+          buttons sit at the end of a dense row — the words were doing no work
+          the icons cannot, and cost the row the width. Colour carries the
+          meaning, the label carries it for anyone who cannot see colour. */}
       <button
         type="button"
         onClick={() => decide('accept')}
         disabled={busy}
         title="Accept this receipt as genuine"
-        className="whitespace-nowrap rounded-lg border border-edge px-2.5 py-1.5 text-xs font-medium text-ink-mid transition-colors hover:border-good/50 hover:text-good disabled:opacity-40"
+        aria-label="Accept this receipt as genuine"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-edge text-ink-mid transition-colors hover:border-good/50 hover:bg-good/10 hover:text-good disabled:opacity-40"
       >
-        Accept
+        <Check className="h-4 w-4" />
       </button>
       <button
         type="button"
         onClick={() => decide('reject')}
         disabled={busy}
         title="Could not stand this receipt up"
-        className="whitespace-nowrap rounded-lg border border-edge px-2.5 py-1.5 text-xs font-medium text-ink-mid transition-colors hover:border-bad/50 hover:text-bad disabled:opacity-40"
+        aria-label="Could not stand this receipt up"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-edge text-ink-mid transition-colors hover:border-bad/50 hover:bg-bad/10 hover:text-bad disabled:opacity-40"
       >
-        Reject
+        <X className="h-4 w-4" />
       </button>
     </>
   );
