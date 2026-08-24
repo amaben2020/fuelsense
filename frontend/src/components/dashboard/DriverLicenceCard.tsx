@@ -79,7 +79,10 @@ export function DriverLicenceCard({
   driverName: string | null | undefined;
   photoUrl?: string | null;
   status: 'online' | 'offline' | string;
-  stats: { label: string; value: string }[];
+  /** Optional. On the map these are omitted — the right-hand panel already
+   *  carries speed, fuel and odometer, and repeating them puts the same
+   *  numbers on screen twice. */
+  stats?: { label: string; value: string }[];
   footer?: React.ReactNode;
   /** The vehicle's route colour, so the card and its marker read as one thing. */
   accentColor?: string;
@@ -87,7 +90,7 @@ export function DriverLicenceCard({
   const accent = accentColor ?? 'var(--accent-y)';
   return (
     <div
-      className="relative w-72 overflow-hidden rounded-2xl p-3.5"
+      className={`relative overflow-hidden rounded-2xl p-3.5 ${stats?.length ? 'w-72' : 'w-auto min-w-[15rem]'}`}
       style={{
         // Frost: a translucent pane over whatever the map is showing, blurred
         // and lifted slightly so the colour underneath still comes through.
@@ -137,6 +140,7 @@ export function DriverLicenceCard({
         </div>
       </div>
 
+      {stats && stats.length > 0 && (
       <div className="relative mt-3 grid grid-cols-2 gap-2">
         {stats.map((stat) => (
           <div
@@ -152,6 +156,7 @@ export function DriverLicenceCard({
           </div>
         ))}
       </div>
+      )}
 
       {footer && <div className="relative mt-2.5 text-[10px] text-ink-dim">{footer}</div>}
     </div>

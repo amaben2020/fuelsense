@@ -1580,38 +1580,6 @@ export function LiveMonitoringMap({
                     photoUrl={meta?.driverPhotoUrl}
                     status={status}
                     accentColor={track.color}
-                    stats={[
-                      {
-                        label: 'Speed',
-                        value: isReadingLive(track.current.recordedAt)
-                          ? `${Math.round(track.current.speedKph ?? 0)} km/h`
-                          : '\u2014',
-                      },
-                      {
-                        label: 'Fuel',
-                        value:
-                          track.current.fuelLiters != null
-                            ? `${track.current.fuelLiters.toFixed(1)} L`
-                            : '\u2014',
-                      },
-                      {
-                        label: 'Odometer',
-                        value:
-                          meta?.odometer != null
-                            ? formatOdometerMiles(Number(meta.odometer))
-                            : '\u2014',
-                      },
-                      {
-                        label: 'Ignition',
-                        value:
-                          track.current.ignitionOn == null
-                            ? '\u2014'
-                            : track.current.ignitionOn
-                              ? 'On'
-                              : 'Off',
-                      },
-                    ]}
-                    footer={`Updated ${timeAgo(track.current.recordedAt)}`}
                   />
                 </button>
               ) : (
