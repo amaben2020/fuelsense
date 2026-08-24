@@ -50,7 +50,7 @@ function StatCard({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-edge bg-panel p-4">
+    <div className="glass-tile relative rounded-lg p-4">
       <p className="flex items-center gap-2 text-xs uppercase tracking-wider text-ink-dim">
         <Icon className="h-4 w-4" /> {label}
       </p>

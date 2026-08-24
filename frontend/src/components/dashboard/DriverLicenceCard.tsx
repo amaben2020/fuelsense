@@ -90,30 +90,15 @@ export function DriverLicenceCard({
   const accent = accentColor ?? 'var(--accent-y)';
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl p-3.5 ${stats?.length ? 'w-72' : 'w-auto min-w-[15rem]'}`}
+      className={`glass relative overflow-hidden rounded-2xl p-3.5 ${
+        stats?.length ? 'w-72' : 'w-auto min-w-[15rem]'
+      }`}
       style={{
-        // Frost: a translucent pane over whatever the map is showing, blurred
-        // and lifted slightly so the colour underneath still comes through.
-        background:
-          'linear-gradient(155deg, color-mix(in srgb, var(--panel) 78%, transparent), color-mix(in srgb, var(--panel-deep) 88%, transparent))',
-        backdropFilter: 'blur(18px) saturate(1.4)',
-        WebkitBackdropFilter: 'blur(18px) saturate(1.4)',
-        border: '1px solid color-mix(in srgb, var(--ink) 12%, transparent)',
-        boxShadow:
-          '0 18px 40px -18px rgba(0,0,0,0.75), inset 0 1px 0 color-mix(in srgb, var(--ink) 16%, transparent)',
+        // The sweep takes the vehicle's own colour here, so the card and its
+        // marker read as one thing. Elsewhere .glass supplies the accent.
+        ['--accent-y' as string]: accent,
       }}
     >
-      {/* The specular sweep. Sits above the pane and below the content, so the
-          glass catches light without washing out the text. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            `radial-gradient(120% 80% at 8% -10%, color-mix(in srgb, ${accent} 20%, transparent), transparent 58%)`,
-        }}
-      />
-
       <div className="relative flex items-start gap-3">
         <DriverAvatar name={driverName} photoUrl={photoUrl} size={46} />
         <div className="min-w-0 flex-1">

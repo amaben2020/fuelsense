@@ -1194,7 +1194,7 @@ export function LiveMonitoringMap({
             {/* Legend. The stop dots are the only thing on the map encoding
                 meaning purely in colour, so the key has to be on screen —
                 otherwise an amber dot is just an amber dot. */}
-            <div className="pointer-events-none absolute bottom-4 left-4 z-10 rounded-xl border border-edge bg-panel/95 px-4 py-3.5 shadow-lg backdrop-blur">
+            <div className="glass pointer-events-none absolute bottom-4 left-4 z-10 rounded-xl px-4 py-3.5">
               <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">
                 Stops
               </p>
@@ -1279,7 +1279,7 @@ export function LiveMonitoringMap({
                 text; each shape now explains its own gesture, because "click
                 the map" means something different for each of the three. */}
             {drawing && !draftComplete && (
-              <div className="absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-2xl border border-edge bg-panel/95 px-3 py-2.5 shadow-xl backdrop-blur">
+              <div className="glass absolute left-1/2 top-4 z-30 -translate-x-1/2 rounded-2xl px-3 py-2.5">
                 <div className="flex items-center gap-1">
                   {(
                     [
@@ -1341,7 +1341,7 @@ export function LiveMonitoringMap({
             )}
 
             {draftComplete && (
-              <div className="absolute left-1/2 top-4 z-30 w-[19rem] -translate-x-1/2 rounded-2xl border border-edge bg-panel/95 p-4 shadow-2xl backdrop-blur">
+              <div className="glass absolute left-1/2 top-4 z-30 w-[19rem] -translate-x-1/2 rounded-2xl p-4">
                 <p className="text-sm font-bold text-ink">
                   New {shapeMode} zone
                 </p>
@@ -1461,7 +1461,7 @@ export function LiveMonitoringMap({
           {/* Interactive controls — pointer-events re-enabled */}
           <div className="pointer-events-auto flex items-center gap-2">
             {/* Trail duration selector */}
-            <div className="flex overflow-hidden rounded-lg border border-edge bg-panel/90 text-xs backdrop-blur-md">
+            <div className="glass flex overflow-hidden rounded-lg text-xs">
               {TRAIL_OPTIONS.map(({ label, value }) => (
                 <button
                   key={value}
@@ -1611,7 +1611,7 @@ export function LiveMonitoringMap({
 
       {/* Selected vehicle info panel */}
       {selectedTrack && (
-        <div className="pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl border border-edge bg-panel/95 p-4 backdrop-blur-md">
+        <div className="glass pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl p-4">
           {/* Ignition and speed describe the last packet, not the vehicle, once
               the tracker has gone quiet. Both are reported as last-known rather
               than current — a stale "Ignition on · 6 km/h" said the car was

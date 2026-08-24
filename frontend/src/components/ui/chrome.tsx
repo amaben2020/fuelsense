@@ -693,9 +693,7 @@ export function Panel({
 }) {
   const hasHeader = Boolean(Icon || title || subtitle || chip || actions || onRefresh);
   return (
-    <section
-      className={`rounded-2xl border border-edge bg-panel ${className}`}
-    >
+    <section className={`glass relative rounded-2xl ${className}`}>
       {hasHeader && (
         <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-5">
           <div className="min-w-0">

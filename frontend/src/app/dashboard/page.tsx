@@ -878,7 +878,7 @@ export default function DashboardPage() {
     <div
       className={`bg-canvas text-ink ${activeView === 'live' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}
     >
-      <aside className="fixed left-0 top-0 z-40 hidden h-full border-r border-edge bg-panel lg:block">
+      <aside className="glass fixed left-0 top-0 z-40 hidden h-full rounded-none border-y-0 border-l-0 lg:block">
         {rail}
       </aside>
 
@@ -890,7 +890,7 @@ export default function DashboardPage() {
             aria-label="Close menu"
             onClick={() => setMobileNavOpen(false)}
           />
-          <aside className="relative h-full w-64 border-r border-edge bg-panel">
+          <aside className="glass relative h-full w-64 rounded-none border-y-0 border-l-0">
             <button
               type="button"
               onClick={() => setMobileNavOpen(false)}
