@@ -1,0 +1,490 @@
+{
+  "uid": "fuelsense-backend",
+  "title": "FuelSense backend",
+  "description": "Telemetry ingest first, API second. If the top row is healthy the fleet is being observed; everything below it is detail.",
+  "tags": ["fuelsense"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "editable": true,
+  "graphTooltip": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "imei",
+        "label": "Device",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+        "query": "label_values(fuelsense_tcp_frames_total, imei)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Is telemetry arriving?",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Backend",
+      "description": "Scrape reachability. Two targets are configured (host and container); only one is normally up.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "max(up{job=\"fuelsense-backend\"})", "instant": true }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red", "index": 0 } } },
+            { "type": "value", "options": { "1": { "text": "UP", "color": "green", "index": 1 } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Trackers connected",
+      "description": "Open TCP sockets, not registered devices. A registered tracker that is parked with no signal is legitimately absent here.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "max(fuelsense_tcp_devices_connected)", "instant": true }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "AVL records / min",
+      "description": "Records committed to the telemetry table. This is the number that went flat on 2026-08-09 and 2026-08-20 with nothing else to show for it. `or vector(0)` so a fleet that has sent nothing since restart reads as a red zero rather than 'No data' — those mean different things and only one of them is a fault.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 5, "w": 5, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(fuelsense_tcp_frames_total[5m])) * 60 or vector(0)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0.01 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Packets discarded (1h)",
+      "description": "Codec8E parse failures. Any non-zero value means telemetry is being lost and cannot be recovered — the tracker does not re-send.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 5, "w": 5, "x": 13, "y": 1 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(fuelsense_tcp_parse_failures_total[1h])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Queued for a DB connection",
+      "description": "Sustained above zero means every endpoint is slow at once, with no single slow query to blame.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+      "targets": [
+        { "refId": "A", "expr": "max(fuelsense_db_pool_waiting)", "instant": true }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Records per minute, by device",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 8, "w": 14, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(fuelsense_tcp_frames_total{imei=~\"$imei\"}[5m]) * 60",
+          "legendFormat": "{{imei}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Silence, per device",
+      "description": "Seconds since the last committed record. Resets on process restart — it is measured from what this process has seen, not from the database.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 8, "w": 10, "x": 14, "y": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "fuelsense_tcp_seconds_since_last_frame{imei=~\"$imei\"}",
+          "legendFormat": "{{imei}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "thresholdsStyle": { "mode": "dashed" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 900 },
+              { "color": "red", "value": 2700 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Handshakes",
+      "description": "A rising `rejected` line is an unregistered IMEI dialling in — either a tracker nobody added to the devices table, or something else on port 5027.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(fuelsense_tcp_handshakes_total[10m]) * 60",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "rejected" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "accepted" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Sockets dropped for going silent",
+      "description": "The idle-timeout path. A tracker whose NAT mapping died leaves a half-open socket; this is the server noticing and forcing a redial.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 14 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(fuelsense_tcp_socket_timeouts_total{imei=~\"$imei\"}[1h])",
+          "legendFormat": "{{imei}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 60, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Postgres pool",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 14 },
+      "targets": [
+        { "refId": "A", "expr": "fuelsense_db_pool_total", "legendFormat": "total" },
+        { "refId": "B", "expr": "fuelsense_db_pool_idle", "legendFormat": "idle" },
+        { "refId": "C", "expr": "fuelsense_db_pool_waiting", "legendFormat": "waiting" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "waiting" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "row",
+      "title": "API",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency by route",
+      "description": "Top ten only — the dashboard polls a lot of endpoints and all of them on one axis is unreadable.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, route) (rate(fuelsense_http_request_duration_seconds_bucket[5m]))))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests per second by status",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(fuelsense_http_request_duration_seconds_count[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 25, "stacking": { "mode": "normal" }, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Event loop lag (p99)",
+      "description": "The API being slow while the database is idle usually lands here — something synchronous is blocking the loop.",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 30 },
+      "targets": [
+        { "refId": "A", "expr": "fuelsense_nodejs_eventloop_lag_p99_seconds", "legendFormat": "p99" },
+        { "refId": "B", "expr": "fuelsense_nodejs_eventloop_lag_mean_seconds", "legendFormat": "mean" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap",
+      "datasource": { "type": "prometheus", "uid": "fuelsense-prometheus" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 30 },
+      "targets": [
+        { "refId": "A", "expr": "fuelsense_nodejs_heap_size_used_bytes", "legendFormat": "used" },
+        { "refId": "B", "expr": "fuelsense_nodejs_heap_size_total_bytes", "legendFormat": "total" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Logs",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "logs",
+      "title": "Errors and warnings",
+      "description": "Everything the backend printed that reads as a failure. The [DATA LOSS] lines are the ones worth reacting to.",
+      "datasource": { "type": "loki", "uid": "fuelsense-loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 38 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"fuelsense-backend|fuelsense-docker\"} |~ \"(?i)error|warn|fail|DATA LOSS\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "The real tracker",
+      "description": "Every [REAL DEVICE] line — handshake, packet, saved row, ignition edges. This is the closest thing to watching the device live.",
+      "datasource": { "type": "loki", "uid": "fuelsense-loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 48 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"fuelsense-backend|fuelsense-docker\"} |= \"[REAL DEVICE]\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}

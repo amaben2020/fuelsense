@@ -1,0 +1,36 @@
+# Prometheus scrape config for the local FuelSense stack.
+#
+# Two backend targets, deliberately. The backend is usually run on the host with
+# `npm run dev` (tsx watch, so it reloads), but `docker compose up backend` also
+# works — and which one is live changes day to day. Both are listed so neither
+# setup needs a config edit; the one that is not running simply shows as a down
+# target on http://localhost:9090/targets, which is honest rather than hidden.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: local
+
+rule_files:
+  - /etc/prometheus/conf/rules.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: fuelsense-backend
+    metrics_path: /metrics
+    static_configs:
+      # Backend running on the host (npm run dev).
+      - targets: ['host.docker.internal:5001']
+        labels:
+          runtime: host
+      # Backend running as the compose `backend` service.
+      - targets: ['backend:5001']
+        labels:
+          runtime: container
+
+  - job_name: loki
+    static_configs:
+      - targets: ['loki:3100']

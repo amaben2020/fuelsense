@@ -1,0 +1,57 @@
+# Single-binary Loki, filesystem-backed. Local development only — there is no
+# replication, no object store and no retention beyond the 7 days set below.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-04-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+ingester:
+  # Loki refuses entries older than max_chunk_age/2 with "entry too far behind",
+  # and the default 2h means anything older than an hour is dropped. Promtail
+  # reads container logs from the beginning, so on first start it replays days
+  # of history and every line of it was rejected — the log panel filled with
+  # Promtail complaining about Promtail instead of showing the backend.
+  # 72h lets a cold start backfill three days, which is all this stack keeps
+  # in a useful state anyway.
+  max_chunk_age: 72h
+
+limits_config:
+  # `tsx watch` restarts replay a little history, and losing those lines would
+  # hide startup failures — so old samples are accepted rather than rejected.
+  # This flag alone is not enough; the ingester's max_chunk_age above is what
+  # actually governs how far back an entry may be.
+  reject_old_samples: false
+  retention_period: 168h
+  allow_structured_metadata: true
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false

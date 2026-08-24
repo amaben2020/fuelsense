@@ -1,0 +1,79 @@
+# Alerting rules.
+#
+# There is no Alertmanager in this stack, so these fire into Prometheus' own
+# /alerts page and into Grafana's alert list rather than into anyone's inbox.
+# That is on purpose: the point of writing them down now is to state, in one
+# place, what "wrong" means for this system — the routing can be added later
+# without rethinking the conditions.
+#
+# Every rule here is about telemetry actually arriving. The API being slow is
+# annoying; the TCP pipeline going quiet means the fleet is unobserved and the
+# gap can never be backfilled, because the tracker does not re-send.
+groups:
+  - name: fuelsense-telemetry
+    rules:
+      - alert: BackendDown
+        # Aggregated, not per-target. Two targets are configured on purpose —
+        # host and container — and normally only one is running, so a per-series
+        # `up == 0` would fire permanently against the idle one. An alert that
+        # is always firing is worse than no alert. This fires only when nothing
+        # answers.
+        expr: max(up{job="fuelsense-backend"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'No FuelSense backend is responding to scrapes'
+
+      - alert: NoTelemetryArriving
+        # Not "a device went quiet" — nothing at all is landing. A parked fleet
+        # still reports, so a flat five minutes across every device means the
+        # listener, the network or the database, not the vehicles.
+        expr: sum(rate(fuelsense_tcp_frames_total[5m])) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'No AVL records persisted for 10 minutes across the whole fleet'
+
+      - alert: DeviceSilent
+        # The per-device version. 45 minutes is comfortably past the tracker's
+        # own parked reporting interval, so a stationary vehicle does not trip it.
+        expr: fuelsense_tcp_seconds_since_last_frame > 2700
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Device {{ $labels.imei }} has sent nothing for {{ $value | humanizeDuration }}'
+
+      - alert: PacketsBeingDiscarded
+        # This is the 2026-08-09 failure: parsing threw, every record in the
+        # packet was dropped, and it looked exactly like a vehicle not moving.
+        expr: rate(fuelsense_tcp_parse_failures_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Codec8E parse failures for {{ $labels.imei }} — telemetry is being lost'
+
+      - alert: DbPoolSaturated
+        # Sustained queueing for a connection shows up as every endpoint being
+        # slow at once, with no single slow query to blame for it.
+        expr: fuelsense_db_pool_waiting > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Requests have been queued for a pg connection for 5 minutes'
+
+      - alert: ApiLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, route) (rate(fuelsense_http_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'p95 latency on {{ $labels.route }} is above 2s'

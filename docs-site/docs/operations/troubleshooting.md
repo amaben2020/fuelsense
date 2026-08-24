@@ -105,6 +105,11 @@ sudo journalctl -u fuelsense-backend -n 100 --no-pager | grep -i imei
 If the port is not listening or is closed in the security group, every tracker
 looks dead and nothing in the logs says so.
 
+Locally, the [metrics stack](/operations/observability) answers this without
+SQL: `fuelsense_tcp_seconds_since_last_frame` per device, and a
+`PacketsBeingDiscarded` alert if the frames are arriving but failing to parse —
+the failure that is indistinguishable from a parked vehicle in the database.
+
 ## "Local queries return nothing"
 
 Check `DATABASE_URL`. A laptop `.env` may still point at the retired Neon

@@ -114,6 +114,13 @@ Copy `backend/.env.example` to `backend/.env` for local dev.
 | `DATABASE_URL` | `@localhost:5434` | `@db:5432` |
 | `JWT_SECRET` | set in `.env` | optional (dev fallback exists) |
 | `JWT_EXPIRES_IN` | `7d` | — |
+| `METRICS_TOKEN` | unset | unset — see below |
+
+`METRICS_TOKEN` guards `GET /metrics`. Left unset (the normal case), the
+endpoint answers only loopback and private-range clients and 404s everything
+else — which lets the Docker-network Prometheus in and keeps the internet out,
+since `trust proxy` makes `req.ip` the real client even behind Caddy. Set it to
+require `Authorization: Bearer <token>` instead, for a scraper somewhere else.
 
 Production example: `backend/.env.production.example` (Neon Postgres).
 
@@ -124,6 +131,7 @@ Production example: `backend/.env.production.example` (Neon Postgres).
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start with nodemon (local dev) |
+| `npm run dev:logs` | Same, with stdout teed into `logs/backend.log` for Promtail → Loki |
 | `npm start` | Start once (Docker / production) |
 | `npm run seed` | Create demo customer, vehicle, and IMEI |
 | `npm run mock-device` | Simulate a single FMC150 (one IMEI) |
@@ -132,6 +140,10 @@ Production example: `backend/.env.production.example` (Neon Postgres).
 | `npm run simulate-fleet` | Simulate 5 drivers — movement, fuel burn, theft alert |
 | Auto simulator | Starts with `npm run dev` unless `ENABLE_FLEET_SIMULATOR=false` |
 | `npm run db:push` | Push Drizzle schema to Postgres (Drizzle Kit) |
+| `npm run prom:grafana` | Start Prometheus/Loki/Promtail/Grafana and open the dashboard — starts Docker Desktop first if it is not running |
+| `npm run prom:grafana:stop` | Stop the stack (volumes kept) |
+| `npm run prom:grafana:logs` | Follow the stack's own logs |
+| `npm run prom:grafana:reload` | Restart the four services after editing a config in `ops/observability/` |
 
 ### Simulate the full fleet (recommended)
 
@@ -194,6 +206,8 @@ backend/
 │   ├── routes/            # Express routers
 │   ├── middleware/        # JWT auth
 │   └── lib/               # Shared helpers
+│       └── metrics.ts     # Prometheus registry, HTTP/TCP/pool instrumentation
+├── logs/                  # `npm run dev:logs` target (gitignored)
 ├── Dockerfile
 ├── drizzle.config.js
 └── package.json

@@ -1,0 +1,3 @@
+# Local backend stdout, teed here by `npm run dev:logs` so Promtail can ship it
+# to Loki. Never committed.
+*.log

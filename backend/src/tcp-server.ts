@@ -2,7 +2,9 @@ import {
   TeltonikaTCPServer,
   TeltonikaDataCodec,
   TeltonikaGPRSCodec,
+  type TeltonikaDevice as SdkDevice,
 } from '@groupe-savoy/teltonika-sdk';
+import type { Socket } from 'net';
 import { db, devices, telemetry, deviceFrames, vehicles, eq, and, sql } from './lib/db-helpers';
 import { detectAnomalies } from './lib/anomaly-detector';
 import { invalidate } from './lib/redis';
@@ -17,6 +19,13 @@ import {
   patchCodec8eRecordParsing,
 } from './lib/codec8e-io-patch';
 import { handleFuelStopForRecord } from './lib/fuel-stop-detector';
+import {
+  recordFrame,
+  tcpDevicesConnected,
+  tcpHandshakesTotal,
+  tcpParseFailuresTotal,
+  tcpSocketTimeoutsTotal,
+} from './lib/metrics';
 import {
   FUEL_USED_GPS_AVL_ID,
   FUEL_RATE_GPS_AVL_ID,
@@ -100,6 +109,14 @@ const lookupDevice = async (imei: string): Promise<{ customer_id: string; vehicl
   return (record as { customer_id: string; vehicle_id: string } | undefined) ?? null;
 };
 
+/**
+ * IMEIs with an open socket, held as a set rather than a counter that is
+ * incremented and decremented. A tracker that reconnects before the old
+ * socket's `close` lands would otherwise leave the gauge one too high,
+ * permanently — and a gauge that only ever drifts up is worse than none.
+ */
+const connected = new Set<string>();
+
 tcpServer.on('init', async (device: TeltonikaDevice) => {
   try {
     console.log(`Device ${device.imei} handshake received`);
@@ -112,6 +129,10 @@ tcpServer.on('init', async (device: TeltonikaDevice) => {
       console.log(
         `  → Register with: npm run seed-real-device  (or add IMEI to devices table)`
       );
+      // Deliberately unlabelled by IMEI: a rejected handshake is by definition
+      // an IMEI this server does not know, so labelling it would let anything
+      // that can reach port 5027 mint unbounded time series.
+      tcpHandshakesTotal.inc({ outcome: 'rejected' });
       device.close();
       return;
     }
@@ -124,15 +145,30 @@ tcpServer.on('init', async (device: TeltonikaDevice) => {
       .set({ lastSeenAt: new Date() })
       .where(eq(devices.imei, device.imei));
 
+    tcpHandshakesTotal.inc({ outcome: 'accepted' });
+    connected.add(device.imei);
+    tcpDevicesConnected.set(connected.size);
+
     console.log(`Device ${device.imei} connected for customer ${device.customerId}`);
     logReal(
       device.imei,
       `accepted customer=${device.customerId} vehicle=${device.vehicleId}`
     );
   } catch (error) {
+    tcpHandshakesTotal.inc({ outcome: 'error' });
     console.error(`Error in init event for device ${device.imei}:`, error);
     device.close();
   }
+});
+
+// Typed against the SDK's own device rather than the narrow local interface the
+// older handlers use, so this listener adds no new type error to the build.
+tcpServer.on('close', (device: SdkDevice<Socket>) => {
+  // A socket that closes before the handshake completed never had an IMEI, so
+  // it was never added to the set either.
+  if (!device.imei) return;
+  connected.delete(device.imei);
+  tcpDevicesConnected.set(connected.size);
 });
 
 const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): Promise<void> => {
@@ -301,6 +337,10 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     }
 
     const [savedRow] = await db.insert(telemetry).values(telemetryRow).returning({ id: telemetry.id });
+    // Counted here, after the row is committed — not on packet arrival. The
+    // question this metric answers is "is telemetry being recorded", and a
+    // frame that arrived but failed to persist is not a recorded frame.
+    recordFrame(device.imei);
     // fire-and-forget — don't let cache failure block telemetry
     invalidate(device.customerId!, 'tracks', 'fleet', 'summary').catch(() => {});
 
@@ -466,6 +506,7 @@ tcpServer.on('data', async (device: TeltonikaDevice, packet: TeltonikaPacket) =>
 });
 
 tcpServer.on('timeout', (device: TeltonikaDevice) => {
+  tcpSocketTimeoutsTotal.inc({ imei: device.imei });
   // Logged loudly: this is the event that distinguishes "vehicle parked and
   // quiet" from "connection died and the tracker has not noticed".
   console.log(
@@ -508,6 +549,7 @@ tcpServer.on('error', (device: TeltonikaDevice | null, error: Error) => {
   entry.count += 1;
   entry.lastError = error.message;
   parseFailures.set(imei, entry);
+  tcpParseFailuresTotal.inc({ imei });
 
   // Every packet from this device is being thrown away — say so in terms that
   // do not require reading a stack trace to understand.

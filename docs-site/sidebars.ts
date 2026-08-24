@@ -28,7 +28,12 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Operations',
       collapsed: false,
-      items: ['operations/deployment', 'operations/calibration', 'operations/troubleshooting'],
+      items: [
+        'operations/deployment',
+        'operations/calibration',
+        'operations/troubleshooting',
+        'operations/observability',
+      ],
     },
   ],
 };

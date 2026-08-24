@@ -8,8 +8,9 @@ import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { openApiSpec } from './docs/openapi';
 import rateLimit from 'express-rate-limit';
-import { initDatabase } from './db';
+import { initDatabase, pool } from './db';
 import { startTcpServer } from './tcp-server';
+import { registry, metricsMiddleware, registerPoolMetrics } from './lib/metrics';
 
 import authRoutes from './routes/auth';
 import vehicleRoutes from './routes/vehicles';
@@ -79,6 +80,47 @@ app.use(
         credentials: true,
       }),
 );
+
+app.use(metricsMiddleware);
+registerPoolMetrics(pool);
+
+/**
+ * Prometheus scrape target.
+ *
+ * Mounted ahead of the rate limiter — a scrape every 15s is not abuse, and a
+ * throttled scrape produces a gap in the graph that looks exactly like the
+ * outage you are trying to diagnose.
+ *
+ * Not public. The series carry device IMEIs, and `app.set('trust proxy')` above
+ * means `req.ip` is the real client even behind Caddy on EC2 — so the default
+ * rule (loopback and private ranges only) lets the Docker-network Prometheus in
+ * and keeps the internet out. Setting METRICS_TOKEN switches to a bearer check
+ * instead, for a scraper that is not on the same network.
+ */
+const METRICS_TOKEN = process.env.METRICS_TOKEN;
+
+const mayScrape = (req: Request): boolean => {
+  if (METRICS_TOKEN) {
+    return req.get('authorization') === `Bearer ${METRICS_TOKEN}`;
+  }
+  const ip = (req.ip ?? '').replace(/^::ffff:/, '');
+  return (
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip.startsWith('10.') ||
+    ip.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
+  );
+};
+
+app.get('/metrics', async (req: Request, res: Response) => {
+  if (!mayScrape(req)) {
+    res.status(404).end();
+    return;
+  }
+  res.set('Content-Type', registry.contentType);
+  res.end(await registry.metrics());
+});
 
 // Generous global cap — the dashboard legitimately polls many endpoints, so this
 // only guards against runaway abuse. Brute-force protection lives on /api/auth.

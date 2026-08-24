@@ -124,7 +124,9 @@ FuelSense/
 │   └── package.json
 ├── frontend/
 │   └── src/app/                # login, register, dashboard
-└── docker-compose.yml
+├── ops/observability/          # Prometheus, Loki, Promtail, Grafana configs
+├── docker-compose.yml
+└── docker-compose.observability.yml
 ```
 
 Docker setup is documented in **[DOCKER.md](./DOCKER.md)**. Backend startup and Docker details are in **[backend/README.md](./backend/README.md)**.
@@ -175,6 +177,17 @@ npm run mock-device
 ```
 
 Telemetry appears on the dashboard within seconds.
+
+### 6. Metrics and logs (optional)
+
+```bash
+cd backend && npm run prom:grafana   # starts Docker if needed, opens Grafana on :3002
+```
+
+Prometheus scrapes the backend's `/metrics`; Loki holds its log lines. Run the
+backend with `npm run dev:logs` instead of `npm run dev` for the logs half to
+have anything to read. Full reference: **Operations → Metrics and logs** in the
+docs site, or [`docs-site/docs/operations/observability.md`](./docs-site/docs/operations/observability.md).
 
 ## Adding vehicles — two entry points
 

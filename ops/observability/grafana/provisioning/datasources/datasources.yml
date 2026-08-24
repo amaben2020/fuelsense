@@ -1,0 +1,25 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    uid: fuelsense-prometheus
+    jsonData:
+      timeInterval: 15s
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    uid: fuelsense-loki
+    jsonData:
+      # Clicking an IMEI in a log line jumps to that device's metrics. Without
+      # this the two halves of the stack sit side by side and never connect.
+      derivedFields:
+        - name: imei
+          matcherRegex: '(\d{15})'
+          url: '/explore?left={"datasource":"fuelsense-prometheus","queries":[{"expr":"fuelsense_tcp_frames_total{imei=\"$${__value.raw}\"}"}]}'
+          datasourceUid: fuelsense-prometheus

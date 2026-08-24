@@ -1,0 +1,63 @@
+# Promtail: everything that writes a log line into Loki.
+#
+# Two sources, for the same reason Prometheus has two backend targets — the
+# backend is sometimes a container and sometimes `npm run dev` on the host.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Backend run on the host. `npm run dev:logs` tees stdout into this file;
+  # plain `npm run dev` does not, and nothing will appear here if you used it.
+  - job_name: fuelsense-host
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: fuelsense-backend
+          runtime: host
+          __path__: /var/log/fuelsense/*.log
+    pipeline_stages:
+      # Pull the subsystem tag the backend already prints — [REAL DEVICE],
+      # [DATA LOSS], [virtual_tank], [geofence] and so on — up into a label, so
+      # `{component="DATA LOSS"}` is a query rather than a full-text scan.
+      # Cardinality is bounded: these tags are literals in the source.
+      - regex:
+          expression: '^\[(?P<component>[A-Za-z_ ]+)\]'
+      - labels:
+          component:
+      - match:
+          selector: '{job="fuelsense-backend"}'
+          stages:
+            - regex:
+                expression: '(?i)(?P<level>error|warn|fatal)'
+            - labels:
+                level:
+
+  # Backend (and postgres) run under docker compose.
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+      - source_labels: ['__meta_docker_container_name']
+        # FuelSense app containers only — anchored on the compose project
+        # prefix. The looser first attempt (`.*db.*`) swept in an unrelated
+        # `mongodb_container` from another project on this machine, and
+        # `fuelsense.*` alone made the stack log itself: Grafana's query logs
+        # went into Loki, which Grafana then read back.
+        regex: '/fuelsense-(backend|db).*'
+        action: keep
+      - target_label: job
+        replacement: fuelsense-docker
+      - target_label: runtime
+        replacement: container

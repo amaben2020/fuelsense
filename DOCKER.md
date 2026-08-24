@@ -155,8 +155,46 @@ docker compose logs backend
 | `5001` | HTTP API | Frontend (`NEXT_PUBLIC_API_URL`) |
 | `5027` | Teltonika TCP | FMC150 devices, `npm run mock-device` |
 | `3000` | Next.js dev | Frontend (not in Compose) |
+| `3002` | Grafana | Observability stack (separate compose file) |
+| `9090` | Prometheus | Observability stack |
+| `3100` | Loki | Observability stack |
 
-Port `5434` on the host avoids conflicting with a Postgres instance already on `5432`. Port `5027` avoids macOS AirPlay on `5000`.
+Port `5434` on the host avoids conflicting with a Postgres instance already on `5432`. Port `5027` avoids macOS AirPlay on `5000`. Grafana is on `3002` because `3000` and `3001` are both taken on this machine.
+
+---
+
+## Observability stack (`docker-compose.observability.yml`)
+
+A **second** compose file, deliberately separate from this one. `docker-compose.yml` is the app; the observability file is the instruments watching it, and you want to bring the instruments up and down without restarting the thing being measured.
+
+```bash
+cd backend && npm run prom:grafana   # starts Docker if needed, then opens Grafana
+```
+
+Raw equivalent: `docker compose -f docker-compose.observability.yml up -d`. Stop with `npm run prom:grafana:stop`.
+
+All three ports publish on `127.0.0.1` rather than `0.0.0.0` — that is what makes the anonymous-admin Grafana safe. Do not drop the prefix.
+
+| Service | Role |
+|---------|------|
+| `prometheus` | Scrapes the backend's `/metrics` every 15s; loads `ops/observability/prometheus/rules.yml` |
+| `loki` | Stores log lines |
+| `promtail` | Ships the backend's stdout into Loki |
+| `grafana` | Reads both; dashboards provisioned from `ops/observability/grafana/` |
+
+Prometheus scrapes **two** backend targets — `host.docker.internal:5001` and `backend:5001` — because the backend is sometimes `npm run dev` on the host and sometimes the Compose service. Whichever is not running shows as a down target on http://localhost:9090/targets.
+
+For logs to appear, the backend's stdout has to reach a file Promtail can tail:
+
+```bash
+cd backend && npm run dev:logs   # npm run dev, teed into backend/logs/backend.log
+```
+
+If the backend runs as the Compose `backend` service instead, Promtail reads its stdout through the Docker socket and `dev:logs` is unnecessary.
+
+`ops/observability/` has one directory per service, and the compose file mounts **directories, never individual files** — a single-file bind mount pins an inode, so an edit on the host leaves the container reading a stale or half-written copy. Restart the service after editing its config.
+
+Full reference — every metric, the cardinality rules, who is allowed to scrape `/metrics`, and the alert conditions — is in the docs site under **Operations → Metrics and logs** (`docs-site/docs/operations/observability.md`).
 
 ---
 
@@ -207,6 +245,10 @@ docker compose logs -f backend db
 
 # Reset database
 docker compose down -v && docker compose up db -d
+
+# Metrics and logs
+docker compose -f docker-compose.observability.yml up -d
+docker compose -f docker-compose.observability.yml down
 ```
 
 More backend details: [backend/README.md](./backend/README.md)
