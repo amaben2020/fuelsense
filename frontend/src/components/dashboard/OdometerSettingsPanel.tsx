@@ -1,11 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Gauge, Search, TriangleAlert } from 'lucide-react';
+import { Gauge, History, Search, TriangleAlert } from 'lucide-react';
 import {
   FleetVehicle,
   KM_TO_MILES,
+  OdometerChange,
   formatOdometerMiles,
+  getOdometerHistory,
   milesToKm,
   setVehicleOdometer,
 } from '@/lib/api';
@@ -16,6 +18,51 @@ const FILTER_THRESHOLD = 6;
 
 const formatDate = (iso: string): string =>
   new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+
+const formatDateTime = (iso: string): string =>
+  new Date(iso).toLocaleString([], {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+/** One row of the audit trail. A first anchor and a correction read very
+ *  differently, so they are worded differently rather than both being "changed
+ *  to X" — the correction is the one that needs explaining. */
+function ChangeRow({ change }: { change: OdometerChange }) {
+  const who = change.changed_by_name || change.changed_by_email || 'unknown account';
+  const isFirst = change.previous_baseline_km == null;
+
+  return (
+    <li className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-t border-edge/40 py-1.5 text-[11px]">
+      <span className="text-ink-mid">
+        {isFirst ? (
+          <>
+            Anchored at{' '}
+            <span className="font-mono text-ink">
+              {formatOdometerMiles(change.new_baseline_km)}
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="font-mono text-ink-dim line-through">
+              {formatOdometerMiles(change.previous_baseline_km)}
+            </span>{' '}
+            →{' '}
+            <span className="font-mono text-ink">
+              {formatOdometerMiles(change.new_baseline_km)}
+            </span>
+          </>
+        )}
+      </span>
+      <span className="text-ink-dim">
+        {formatDateTime(change.changed_at)} · {who}
+      </span>
+    </li>
+  );
+}
 
 /** What the vehicle currently reports as its total, in km, or null if it has
  *  never been anchored — in which case all we have is distance since the
@@ -50,6 +97,31 @@ export function OdometerSettingsPanel({ fleet, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // Histories are fetched per vehicle on demand rather than for the whole
+  // fleet up front — with fifty vehicles that would be fifty requests to render
+  // a list nobody has asked to see yet.
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [history, setHistory] = useState<OdometerChange[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const toggleHistory = async (vehicleId: string) => {
+    if (historyFor === vehicleId) {
+      setHistoryFor(null);
+      return;
+    }
+    setHistoryFor(vehicleId);
+    setHistory([]);
+    setHistoryLoading(true);
+    try {
+      setHistory(await getOdometerHistory(vehicleId));
+    } catch {
+      // A missing history is not worth an error banner over the whole panel —
+      // the empty state below says it plainly enough.
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   // Unanchored vehicles first: they are the ones whose mileage is currently
   // wrong everywhere it appears, so they are what this panel is for. Plate
@@ -96,6 +168,10 @@ export function OdometerSettingsPanel({ fleet, onChanged }: Props) {
       setEditing(null);
       setValue('');
       setSaved(v.id);
+      // If the trail for this vehicle is open, it is now one row out of date.
+      if (historyFor === v.id) {
+        setHistory(await getOdometerHistory(v.id).catch(() => history));
+      }
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this reading');
@@ -195,6 +271,20 @@ export function OdometerSettingsPanel({ fleet, onChanged }: Props) {
                   <span className="font-mono text-sm text-ink">
                     {anchored ? formatOdometerMiles(totalKm) : '—'}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => toggleHistory(v.id)}
+                    aria-label={`Change history for ${v.license_plate}`}
+                    title="Change history"
+                    aria-expanded={historyFor === v.id}
+                    className={`rounded-full border p-1.5 transition-colors ${
+                      historyFor === v.id
+                        ? 'border-brand/50 bg-brand/10 text-brand'
+                        : 'border-edge text-ink-dim hover:bg-panel-hover hover:text-ink'
+                    }`}
+                  >
+                    <History className="h-3.5 w-3.5" />
+                  </button>
                   {!isEditing && (
                     <button
                       type="button"
@@ -264,6 +354,30 @@ export function OdometerSettingsPanel({ fleet, onChanged }: Props) {
 
               {saved === v.id && !isEditing && (
                 <p className="mt-1.5 text-[11px] text-good">Reading saved.</p>
+              )}
+
+              {historyFor === v.id && (
+                <div className="mt-2.5 rounded-lg border border-edge bg-canvas px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-dim">
+                    Change history
+                  </p>
+                  {historyLoading && (
+                    <p className="mt-1.5 text-[11px] text-ink-dim">Loading…</p>
+                  )}
+                  {!historyLoading && history.length === 0 && (
+                    <p className="mt-1.5 text-[11px] text-ink-dim">
+                      No recorded changes. Anchors set before this trail existed are not in it —
+                      only the current figure survived.
+                    </p>
+                  )}
+                  {!historyLoading && history.length > 0 && (
+                    <ul className="mt-0.5">
+                      {history.map((c) => (
+                        <ChangeRow key={c.id} change={c} />
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
             </li>
           );

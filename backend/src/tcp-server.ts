@@ -19,6 +19,7 @@ import {
   patchCodec8eRecordParsing,
 } from './lib/codec8e-io-patch';
 import { handleFuelStopForRecord } from './lib/fuel-stop-detector';
+import { handlePowerForRecord } from './lib/power-monitor';
 import {
   recordFrame,
   tcpDevicesConnected,
@@ -385,6 +386,24 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       if (!ignitionOn) await closeTripStartAlert(device.customerId!, device.vehicleId!);
     } catch (err) {
       console.error(`[trip_notifier] failed for ${device.imei}:`, err);
+    }
+
+    // Read every frame, not only eventful ones: this device never sends AVL 252,
+    // so the level in AVL 66 is the only evidence a disconnect ever produces.
+    try {
+      const transition = await handlePowerForRecord(record.io, {
+        imei: device.imei,
+        customerId: device.customerId!,
+        vehicleId: device.vehicleId!,
+        latitude: telemetryRow.latitude,
+        longitude: telemetryRow.longitude,
+        speedKph: telemetryRow.speedKph ?? null,
+        occurredAt: recordedAt,
+        licensePlate: vehicleRow?.license_plate ?? undefined,
+      });
+      if (transition) logReal(device.imei, `external power ${transition}`);
+    } catch (err) {
+      console.error(`[power_monitor] failed for ${device.imei}:`, err);
     }
 
     try {

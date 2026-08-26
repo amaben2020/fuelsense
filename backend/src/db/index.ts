@@ -577,6 +577,28 @@ export const initDatabase = async (): Promise<void> => {
     )
   `);
 
+  // Odometer baseline history. Append-only: rows are never updated or deleted,
+  // because the point of the table is that a correction cannot be made to look
+  // like it never happened.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS odometer_audit (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      previous_baseline_km INTEGER,
+      new_baseline_km INTEGER NOT NULL,
+      device_km_at_change INTEGER,
+      changed_by_email VARCHAR(255),
+      changed_by_name VARCHAR(255),
+      changed_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_odometer_audit_vehicle_changed
+      ON odometer_audit (vehicle_id, changed_at DESC)
+  `);
+
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_device_events_customer_occurred
       ON device_events (customer_id, occurred_at DESC)

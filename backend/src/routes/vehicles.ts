@@ -10,6 +10,7 @@ import {
   linkDevice,
   createVehicle,
   customerPublicSelect,
+  odometerAudit,
   eq,
   and,
   desc,
@@ -263,6 +264,14 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
 
     const deviceKm = latest?.odometer_km ?? 0;
 
+    // Read before writing: the value being replaced is the whole point of the
+    // audit row, and once the update lands it is gone from the vehicles table.
+    const [before] = await db
+      .select({ baseline_km: vehicles.odometerBaselineKm })
+      .from(vehicles)
+      .where(eq(vehicles.id, vehicleId))
+      .limit(1);
+
     const [row] = await db
       .update(vehicles)
       .set({
@@ -277,6 +286,23 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
         baseline_device_km: vehicles.odometerBaselineDeviceKm,
       });
 
+    // Append-only history. A failure here must not lose the reading the manager
+    // just set, so it is not allowed to fail the request — but it is logged
+    // loudly, because a silent gap in an audit trail is worse than no trail.
+    try {
+      await db.insert(odometerAudit).values({
+        customerId: req.user.customerId,
+        vehicleId,
+        previousBaselineKm: before?.baseline_km ?? null,
+        newBaselineKm: Math.round(reading),
+        deviceKmAtChange: deviceKm,
+        changedByEmail: req.user.email ?? null,
+        changedByName: req.user.name ?? null,
+      });
+    } catch (err) {
+      console.error(`[odometer_audit] failed to record change for ${vehicleId}:`, err);
+    }
+
     await invalidate(req.user.customerId, 'fleet', 'summary');
     res.json({
       success: true,
@@ -284,6 +310,47 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
       baseline_km: row.baseline_km,
       device_km_at_baseline: row.baseline_device_km,
     });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * Every change ever made to this vehicle's odometer baseline, newest first.
+ *
+ * The vehicles row holds only the current figure, so without this a correction
+ * and an original reading look identical after the fact. `previous_baseline_km`
+ * is null on the first anchor, which is how the two are told apart.
+ */
+router.get('/:id/odometer/history', async (req: Request, res: Response) => {
+  const vehicleId = String(req.params.id);
+  try {
+    if (!(await ownedVehicle(vehicleId, req.user.customerId))) {
+      res.status(404).json({ error: 'Vehicle not found' });
+      return;
+    }
+
+    const rows = await db
+      .select({
+        id: odometerAudit.id,
+        previous_baseline_km: odometerAudit.previousBaselineKm,
+        new_baseline_km: odometerAudit.newBaselineKm,
+        device_km_at_change: odometerAudit.deviceKmAtChange,
+        changed_by_email: odometerAudit.changedByEmail,
+        changed_by_name: odometerAudit.changedByName,
+        changed_at: odometerAudit.changedAt,
+      })
+      .from(odometerAudit)
+      .where(
+        and(
+          eq(odometerAudit.vehicleId, vehicleId),
+          eq(odometerAudit.customerId, req.user.customerId)
+        )
+      )
+      .orderBy(desc(odometerAudit.changedAt))
+      .limit(50);
+
+    res.json(rows);
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

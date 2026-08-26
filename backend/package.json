@@ -15,6 +15,7 @@
     "backfill-device-events": "tsx src/backfill-device-events.ts",
     "backfill-idle-events": "tsx src/backfill-idle-events.ts",
     "backfill-fuel-burn-factor": "tsx src/backfill-fuel-burn-factor.ts",
+    "backfill-power-events": "tsx src/backfill-power-events.ts",
     "test": "jest --runInBand",
     "prom:grafana": "../ops/observability/obs.sh up",
     "prom:grafana:stop": "../ops/observability/obs.sh down",

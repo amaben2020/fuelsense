@@ -405,6 +405,40 @@ export const deviceEvents = pgTable('device_events', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+/**
+ * Every change to a vehicle's odometer baseline, kept forever.
+ *
+ * The baseline silently redefines what every mileage figure for the vehicle
+ * means — including the intervals its service schedules are measured against —
+ * and the vehicles row holds only the current value. Without this, a correction
+ * is indistinguishable from the original reading being wrong, and a fleet with
+ * more than one manager has no way to ask who changed it.
+ *
+ * `previousBaselineKm` is null for the first anchor, which is how a first
+ * anchoring is told apart from an override.
+ */
+export const odometerAudit = pgTable('odometer_audit', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id, { onDelete: 'cascade' }),
+  vehicleId: uuid('vehicle_id')
+    .notNull()
+    .references(() => vehicles.id, { onDelete: 'cascade' }),
+  previousBaselineKm: integer('previous_baseline_km'),
+  newBaselineKm: integer('new_baseline_km').notNull(),
+  // The tracker's own counter at the moment of the change. Without it the pair
+  // of baselines cannot be turned back into the totals they produced.
+  deviceKmAtChange: integer('device_km_at_change'),
+  /** The account that made the change. One login per company today, so this
+   *  identifies the account rather than an individual — recorded as the email
+   *  and name at the time, not a foreign key, so it survives the account being
+   *  renamed or deleted. */
+  changedByEmail: varchar('changed_by_email', { length: 255 }),
+  changedByName: varchar('changed_by_name', { length: 255 }),
+  changedAt: timestamp('changed_at').defaultNow(),
+});
+
 // Which alert types a customer wants emailed. A missing row means "not opted
 // in" — notifications are never forced on.
 export const notificationPreferences = pgTable(

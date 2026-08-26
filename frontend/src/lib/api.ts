@@ -1459,6 +1459,23 @@ export async function setVehicleOdometer(
   });
 }
 
+/** One recorded change to a vehicle's odometer baseline. */
+export interface OdometerChange {
+  id: number;
+  /** Null on the first anchor — that is what distinguishes it from an override. */
+  previous_baseline_km: number | null;
+  new_baseline_km: number;
+  device_km_at_change: number | null;
+  changed_by_email: string | null;
+  changed_by_name: string | null;
+  changed_at: string;
+}
+
+/** Every change ever made to this vehicle's odometer, newest first. */
+export async function getOdometerHistory(vehicleId: string): Promise<OdometerChange[]> {
+  return api(`/vehicles/${vehicleId}/odometer/history`);
+}
+
 export type FeatureFlags = Record<string, boolean>;
 
 export interface FeatureCatalogueItem {
