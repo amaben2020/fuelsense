@@ -61,6 +61,7 @@ import { GreenDrivingBadge } from '@/components/dashboard/GreenDrivingBadge';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
 import { FuelPricePanel } from '@/components/dashboard/FuelPricePanel';
+import { OdometerSettingsPanel } from '@/components/dashboard/OdometerSettingsPanel';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
 import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
@@ -1359,6 +1360,7 @@ export default function DashboardPage() {
 
               <NotificationSettingsPanel />
               <FuelPricePanel />
+              <OdometerSettingsPanel fleet={fleet} onChanged={loadDashboard} />
               <DriverSettingsPanel
                 drivers={drivers}
                 fleet={fleet}
