@@ -1,8 +1,37 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Fuel, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { FleetVehicle, fuelPercent, isInFuelReserve } from '@/lib/api';
+
+/**
+ * The low-fuel telltale, as a car dashboard draws it: a solid pump silhouette,
+ * not a thin outline.
+ *
+ * Lucide's `Fuel` is a 2px-stroke line icon — correct next to the other nav
+ * glyphs, and wrong here. A warning lamp is filled, and its whole job is to be
+ * the one thing on the panel that is unmistakably lit. Same red as the fuel
+ * dial's ring (--bad-bright, #ff6b6b), so the banner and the gauge read as one
+ * signal rather than two coincidences.
+ */
+function LowFuelLamp({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {/* Tank body — the pump's reservoir, squared off with a soft radius the
+          way the real telltale is drawn. */}
+      <path d="M3.5 3.25A2.25 2.25 0 0 1 5.75 1h6.5a2.25 2.25 0 0 1 2.25 2.25V21h1a.75.75 0 0 1 0 1.5H2.5a.75.75 0 0 1 0-1.5h1V3.25Zm2.25 2A.75.75 0 0 0 5 6v3.5c0 .414.336.75.75.75h6.5a.75.75 0 0 0 .75-.75V6a.75.75 0 0 0-.75-.75h-6.5Z" />
+      {/* Filler neck and hose, rising to the right — what makes the silhouette
+          read as a fuel pump rather than a bottle at 14px. */}
+      <path d="M16.25 6.5a.75.75 0 0 1 .75.75v9.25a1.5 1.5 0 0 0 3 0V11.5a2.5 2.5 0 0 1-2-2.45V6.31l-.72-.72a.75.75 0 1 1 1.06-1.06l2 2a.75.75 0 0 1 .22.53v1.99a1 1 0 0 0 .69.95.75.75 0 0 1 .5.71v5.79a3 3 0 0 1-6 0V7.25a.75.75 0 0 1 .75-.75h-.25Z" />
+    </svg>
+  );
+}
 
 /**
  * The same point the fuel dial turns red — see RESERVE_PCT in Gauges.tsx.
@@ -144,7 +173,11 @@ export function LowFuelBanner({ fleet, onSelectVehicle }: Props) {
       role="status"
       className="mb-4 flex items-start gap-3 rounded-xl border border-bad/40 bg-bad/10 px-4 py-3"
     >
-      <Fuel className="mt-0.5 h-4 w-4 shrink-0 text-bad-bright" aria-hidden="true" />
+      {/* Lit, like the lamp it imitates: the ring and wash carry the glow so
+          the icon itself stays a clean silhouette at 16px. */}
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-bad-bright/40 bg-bad-bright/15 text-bad-bright shadow-[0_0_12px_-2px_rgba(255,107,107,0.55)]">
+        <LowFuelLamp className="h-[18px] w-[18px]" />
+      </span>
 
       <div className="min-w-0 flex-1 text-sm">
         <p className="font-semibold text-bad-bright">
