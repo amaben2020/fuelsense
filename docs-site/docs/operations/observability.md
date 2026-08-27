@@ -60,7 +60,7 @@ the dashboard. The raw equivalent, if you prefer it:
 
 ```bash
 docker compose -f docker-compose.observability.yml up -d
-open http://localhost:3002
+open http://localhost:9091
 ```
 
 | Script | Does |
@@ -78,7 +78,7 @@ stop matching, so the container route is the supported one.
 
 | Service | URL | Notes |
 | --- | --- | --- |
-| Grafana | http://localhost:3002 | Anonymous admin, no login form |
+| Grafana | http://localhost:9091 | Anonymous admin, no login form |
 | Prometheus | http://localhost:9090 | `/targets` shows what is being scraped |
 | Loki | http://localhost:3100 | Queried through Grafana, not directly |
 
@@ -87,8 +87,11 @@ makes anonymous-admin Grafana defensible — published the default way, it was
 reachable from every network the laptop joined, with admin rights and no
 password, and Prometheus was serving device IMEIs beside it.
 
-Ports avoid `3000` (an unrelated app on this machine) and `3001` (the FuelSense
-frontend).
+Grafana sits at `9091`, beside Prometheus, rather than in the 300x range. Next.js
+takes the first free port from 3000 upward, so with `3000` (an unrelated app on
+this machine) and `3001` (the FuelSense frontend) both occupied, a second
+frontend lands on `3002` and fights Grafana for it — which is exactly what
+happened on 2026-08-26.
 
 Grafana opens on the **FuelSense backend** dashboard. It is provisioned from
 `ops/observability/grafana/dashboards/fuelsense-backend.json` with

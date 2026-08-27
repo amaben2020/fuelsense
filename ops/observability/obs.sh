@@ -24,7 +24,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel 2>/dev/null)" \
   || REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 COMPOSE_FILE="$REPO_ROOT/docker-compose.observability.yml"
-GRAFANA_URL="http://localhost:3002"
+GRAFANA_URL="http://localhost:9091"
 SERVICES=(prometheus loki promtail grafana)
 
 log() { printf '\033[2m[obs]\033[0m %s\n' "$1"; }

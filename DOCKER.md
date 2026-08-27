@@ -155,11 +155,11 @@ docker compose logs backend
 | `5001` | HTTP API | Frontend (`NEXT_PUBLIC_API_URL`) |
 | `5027` | Teltonika TCP | FMC150 devices, `npm run mock-device` |
 | `3000` | Next.js dev | Frontend (not in Compose) |
-| `3002` | Grafana | Observability stack (separate compose file) |
+| `9091` | Grafana | Observability stack (separate compose file) |
 | `9090` | Prometheus | Observability stack |
 | `3100` | Loki | Observability stack |
 
-Port `5434` on the host avoids conflicting with a Postgres instance already on `5432`. Port `5027` avoids macOS AirPlay on `5000`. Grafana is on `3002` because `3000` and `3001` are both taken on this machine.
+Port `5434` on the host avoids conflicting with a Postgres instance already on `5432`. Port `5027` avoids macOS AirPlay on `5000`. Grafana sits at `9091`, beside Prometheus, rather than in the 300x range — Next.js takes the first free port from 3000 upward, so with 3000 and 3001 occupied the frontend lands on 3002 and fights Grafana for it.
 
 ---
 

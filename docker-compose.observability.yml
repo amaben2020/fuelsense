@@ -5,9 +5,9 @@
 # the instruments up and down without restarting the thing being measured.
 #
 #   docker compose -f docker-compose.observability.yml up -d
-#   open http://localhost:3002        # Grafana, anonymous admin
+#   open http://localhost:9091        # Grafana, anonymous admin
 #
-# Ports avoid 3000 (an unrelated app) and 3001 (the FuelSense frontend).
+# Ports sit in the 909x range, clear of Next.js's 3000-upward auto-increment.
 services:
   prometheus:
     image: prom/prometheus:v3.1.0
@@ -68,10 +68,15 @@ services:
     container_name: fuelsense-grafana
     ports:
       # The loopback prefix is what makes the anonymous-admin setting below
-      # defensible. Published as '3002:3000' this was reachable from any network
-      # the laptop joined, and anonymous admin on an open port is not a
-      # developer convenience, it is an open door.
-      - '127.0.0.1:3002:3000'
+      # defensible. Published as '3000' this was reachable from any network the
+      # laptop joined, and anonymous admin on an open port is not a developer
+      # convenience, it is an open door.
+      #
+      # 9091 rather than 3002: Next.js picks the first free port from 3000
+      # upward, so with 3000 and 3001 taken the frontend lands on 3002 and
+      # fights Grafana for it. Sitting next to Prometheus keeps it clear of
+      # that range entirely.
+      - '127.0.0.1:9091:3000'
     environment:
       # No login — safe only because the port above is loopback-only. A password
       # would buy nothing against an attacker who is already on this machine,

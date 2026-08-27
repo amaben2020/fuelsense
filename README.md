@@ -181,7 +181,7 @@ Telemetry appears on the dashboard within seconds.
 ### 6. Metrics and logs (optional)
 
 ```bash
-cd backend && npm run prom:grafana   # starts Docker if needed, opens Grafana on :3002
+cd backend && npm run prom:grafana   # starts Docker if needed, opens Grafana on :9091
 ```
 
 Prometheus scrapes the backend's `/metrics`; Loki holds its log lines. Run the

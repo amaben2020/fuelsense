@@ -62,6 +62,7 @@ import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
 import { FuelPricePanel } from '@/components/dashboard/FuelPricePanel';
 import { OdometerSettingsPanel } from '@/components/dashboard/OdometerSettingsPanel';
+import { LowFuelBanner } from '@/components/dashboard/LowFuelBanner';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
 import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
@@ -1023,6 +1024,16 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* Above the page header so it reads as a condition of the fleet
+              rather than of whichever view happens to be open. */}
+          <LowFuelBanner
+            fleet={fleet}
+            onSelectVehicle={(id) => {
+              setSelectedVehicleId(id);
+              switchView('live');
+            }}
+          />
 
           <header
             className={`flex flex-wrap items-start justify-between gap-4 ${
