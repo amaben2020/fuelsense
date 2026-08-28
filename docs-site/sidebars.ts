@@ -33,6 +33,7 @@ const sidebars: SidebarsConfig = {
         'operations/calibration',
         'operations/troubleshooting',
         'operations/observability',
+        'operations/google-spend',
       ],
     },
   ],

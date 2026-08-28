@@ -577,6 +577,21 @@ export const initDatabase = async (): Promise<void> => {
     )
   `);
 
+  // Google Maps spend counters. In Postgres rather than memory because the
+  // previous in-memory version reset to zero on every restart, which made a
+  // crash loop an unbounded spend. The primary key is what makes the atomic
+  // check-and-increment in google-usage.ts possible.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS google_api_usage (
+      period_kind VARCHAR(8)  NOT NULL,
+      period      VARCHAR(10) NOT NULL,
+      call_kind   VARCHAR(32) NOT NULL,
+      calls       INTEGER     NOT NULL DEFAULT 0,
+      refused     INTEGER     NOT NULL DEFAULT 0,
+      PRIMARY KEY (period_kind, period, call_kind)
+    )
+  `);
+
   // Odometer baseline history. Append-only: rows are never updated or deleted,
   // because the point of the table is that a correction cannot be made to look
   // like it never happened.

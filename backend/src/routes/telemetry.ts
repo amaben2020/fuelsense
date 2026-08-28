@@ -754,8 +754,12 @@ router.get('/purchase-reconciliation', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/google-usage', async (_req: Request, res: Response) => {
-  res.json(googleUsageSnapshot());
+router.get('/google-usage', async (req: Request, res: Response) => {
+  try {
+    res.json(await googleUsageSnapshot());
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
 });
 
 router.get('/fleet-efficiency', async (req: Request, res: Response) => {

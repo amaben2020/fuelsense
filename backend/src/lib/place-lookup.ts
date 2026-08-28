@@ -54,7 +54,7 @@ async function fetchJson(
   url: string,
   kind: GoogleCallKind
 ): Promise<Record<string, unknown> | null> {
-  if (!chargeGoogleCall(kind)) return null;
+  if (!(await chargeGoogleCall(kind))) return null;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
@@ -245,7 +245,7 @@ async function proxyImage(
   if (hit) return { ...hit, cached: true };
 
   if (!GOOGLE_KEY) return null;
-  if (!chargeGoogleCall(kind)) return null;
+  if (!(await chargeGoogleCall(kind))) return null;
 
   try {
     const res = await fetch(url);
@@ -491,7 +491,7 @@ export async function suggestAddresses(query: string): Promise<AddressSuggestion
   const cached = autocompleteCache.get(key);
   if (cached && Date.now() - cached.at < AUTOCOMPLETE_TTL_MS) return cached.results;
 
-  if (!chargeGoogleCall('places_autocomplete')) return [];
+  if (!(await chargeGoogleCall('places_autocomplete'))) return [];
 
   const url = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json');
   url.searchParams.set('input', query);

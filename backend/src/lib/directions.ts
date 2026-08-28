@@ -125,7 +125,7 @@ export async function fetchExpectedRoute(
   url.searchParams.set('key', GOOGLE_KEY);
 
   for (let attempt = 0; attempt < DIRECTIONS_ATTEMPTS; attempt += 1) {
-    if (!chargeGoogleCall('directions')) return null;
+    if (!(await chargeGoogleCall('directions'))) return null;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DIRECTIONS_TIMEOUT_MS);

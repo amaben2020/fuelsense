@@ -110,6 +110,7 @@ export function AlertsWorkbench({
   onReplay?: (alert: Alert) => void;
 }) {
   const [filter, setFilter] = useState<'all' | Severity>('all');
+  const [vehicle, setVehicle] = useState<string>('all');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,10 +121,36 @@ export function AlertsWorkbench({
     return c;
   }, [alerts]);
 
-  const visible = useMemo(
-    () => (filter === 'all' ? alerts : alerts.filter((a) => severityOf(a) === filter)),
-    [alerts, filter]
-  );
+  /**
+   * Alert counts per vehicle, worst-first.
+   *
+   * Severity alone stops being enough the moment a fleet is more than one
+   * vehicle: twelve open alerts read as a manageable list, and the same twelve
+   * spread over nine vehicles is a different question — which van is in
+   * trouble. Ordering by critical count answers that without reading the list.
+   */
+  const byVehicle = useMemo(() => {
+    const m = new globalThis.Map<
+      string,
+      { plate: string; total: number; critical: number }
+    >();
+    for (const a of alerts) {
+      const plate = a.license_plate ?? 'Unassigned';
+      const row = m.get(plate) ?? { plate, total: 0, critical: 0 };
+      row.total += 1;
+      if (severityOf(a) === 'critical') row.critical += 1;
+      m.set(plate, row);
+    }
+    return [...m.values()].sort(
+      (a, b) => b.critical - a.critical || b.total - a.total || a.plate.localeCompare(b.plate)
+    );
+  }, [alerts]);
+
+  const visible = useMemo(() => {
+    const bySeverity = filter === 'all' ? alerts : alerts.filter((a) => severityOf(a) === filter);
+    if (vehicle === 'all') return bySeverity;
+    return bySeverity.filter((a) => (a.license_plate ?? 'Unassigned') === vehicle);
+  }, [alerts, filter, vehicle]);
 
   // Grouped by day so a week of alerts reads as a history rather than one
   // undifferentiated column.
@@ -215,6 +242,47 @@ export function AlertsWorkbench({
             </button>
           ))}
         </div>
+
+        {/* Only worth the row once there is more than one vehicle to choose
+            between — on a single-vehicle fleet it would be a control that
+            never changes anything. */}
+        {byVehicle.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] uppercase tracking-wide text-ink-dim">Vehicle</span>
+            <button
+              type="button"
+              onClick={() => setVehicle('all')}
+              aria-pressed={vehicle === 'all'}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                vehicle === 'all'
+                  ? 'bg-accent-y text-accent-y-ink'
+                  : 'border border-edge text-ink-mid hover:bg-panel-hover'
+              }`}
+            >
+              All {byVehicle.length}
+            </button>
+            {byVehicle.map((v) => (
+              <button
+                key={v.plate}
+                type="button"
+                onClick={() => setVehicle(v.plate)}
+                aria-pressed={vehicle === v.plate}
+                title={`${v.total} alert${v.total === 1 ? '' : 's'}${
+                  v.critical > 0 ? `, ${v.critical} critical` : ''
+                }`}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  vehicle === v.plate
+                    ? 'bg-accent-y text-accent-y-ink'
+                    : v.critical > 0
+                      ? 'border border-bad/50 text-bad-bright hover:bg-panel-hover'
+                      : 'border border-edge text-ink-mid hover:bg-panel-hover'
+                }`}
+              >
+                {v.plate} {v.total}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <button
