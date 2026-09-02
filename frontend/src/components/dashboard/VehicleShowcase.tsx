@@ -233,13 +233,16 @@ export function VehicleShowcase({
       ?.vehicles.find((v) => v.vehicle_id === vehicle.id) ?? null;
 
   const online = vehicle.connection_status === 'online';
+  // Not "Idle": elsewhere in this product (idle-detector.ts, the idling
+  // event pipeline) that word means ignition on, engine running, not
+  // moving. Here ignition is off — the vehicle is simply parked.
   const statusLabel =
     vehicle.connection_status === 'no_device'
       ? 'No device'
       : online
         ? vehicle.ignition_on
           ? 'Driving'
-          : 'Idle'
+          : 'Parked'
         : 'Offline';
 
   return (
@@ -330,7 +333,7 @@ export function VehicleShowcase({
                   className={`mt-0.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
                     statusLabel === 'Driving'
                       ? 'bg-good/20 text-good'
-                      : statusLabel === 'Idle'
+                      : statusLabel === 'Parked'
                         ? 'bg-warn/20 text-warn'
                         : 'bg-ink-dim/20 text-ink-mid'
                   }`}
